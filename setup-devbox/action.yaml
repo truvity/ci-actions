@@ -19,6 +19,19 @@ inputs:
     description: Files whose hash keys the toolchain cache (hosted only).
     required: false
     default: devbox.lock
+  go-cache-bucket:
+    description: >-
+      S3 bucket backing the fleet-wide Go build cache (ARC only). Comes
+      from the caller's org variable, never from this repository.
+    required: false
+    default: ''
+  go-cache-region:
+    required: false
+    default: ''
+  goproxy:
+    description: In-cluster Go module proxy, with a public fallback (ARC only).
+    required: false
+    default: ''
 
 runs:
   using: composite
@@ -55,3 +68,29 @@ runs:
       # An ARC image without devbox would otherwise fail deep inside the
       # first recipe with a confusing error.
       run: devbox version
+
+    - name: Wire the fleet caches
+      if: inputs.execution == 'arc'
+      shell: bash
+      # Fail loudly on a missing value rather than silently running without
+      # a cache: an unset variable would just make CI mysteriously slower,
+      # which is the failure mode nobody investigates.
+      run: |
+        set -euo pipefail
+        for v in go-cache-bucket:'${{ inputs.go-cache-bucket }}' \
+                 go-cache-region:'${{ inputs.go-cache-region }}' \
+                 goproxy:'${{ inputs.goproxy }}'; do
+          if [ -z "${v#*:}" ]; then
+            echo "::error::${v%%:*} is empty — the ARC flow needs it (set the caller's org variable)"
+            exit 1
+          fi
+        done
+        {
+          echo "GOCACHEPROG=go-cache-plugin"
+          echo "GOCACHE_DIR=/tmp/gocache"
+          echo "GOCACHE_KEY_PREFIX=gocache"
+          echo "GOCACHE_METRICS=1"
+          echo "GOCACHE_S3_BUCKET=${{ inputs.go-cache-bucket }}"
+          echo "GOCACHE_S3_REGION=${{ inputs.go-cache-region }}"
+          echo "GOPROXY=${{ inputs.goproxy }}"
+        } >> "$GITHUB_ENV"
