@@ -1,0 +1,57 @@
+# The ONE place the hosted/ARC difference lives.
+#
+# hosted: nix and devbox are installed per run, and the caches are
+#         actions/cache. Free and unlimited on public repositories.
+# arc:    devbox is already in the runner image, the nix store rides the
+#         in-cluster read-through cache, and the Go caches are ambient
+#         (GOCACHEPROG -> S3, module proxy) via the pool identity.
+#
+# Keeping the split here rather than in two parallel workflows means the
+# callers, and every workflow above, stay identical across both flows.
+name: Set up devbox
+description: Prepare a devbox toolchain on either a hosted or an ARC runner.
+
+inputs:
+  execution:
+    description: hosted | arc
+    required: true
+  cache-key-files:
+    description: Files whose hash keys the toolchain cache (hosted only).
+    required: false
+    default: devbox.lock
+
+runs:
+  using: composite
+  steps:
+    - name: Install nix
+      if: inputs.execution == 'hosted'
+      uses: DeterminateSystems/determinate-nix-action@61cbfe2efc2d4e7a8a6d56967c3c1058e846c858 # v3.21.9
+      with:
+        # Determinate's own installer wants a FlakeHub login we do not have
+        # on every repo; the plain installer is what the estate uses.
+        determinate: false
+
+    - name: Restore toolchain cache
+      if: inputs.execution == 'hosted'
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: |
+          ~/go/pkg/mod
+          ~/.cache/go-build
+          ~/.cache/pnpm
+        # devbox.lock in the key: cached build artifacts are linked against
+        # nix store paths, so a toolchain bump with a stale cache fails at
+        # exec time ("fork/exec ...: no such file") rather than at restore.
+        key: devbox-${{ runner.os }}-${{ hashFiles(inputs.cache-key-files) }}
+        restore-keys: devbox-${{ runner.os }}-
+
+    - name: Install devbox
+      if: inputs.execution == 'hosted'
+      shell: bash
+      run: curl -fsSL https://get.jetify.com/devbox | bash -s -- -f
+
+    - name: Confirm devbox is present
+      shell: bash
+      # An ARC image without devbox would otherwise fail deep inside the
+      # first recipe with a confusing error.
+      run: devbox version
