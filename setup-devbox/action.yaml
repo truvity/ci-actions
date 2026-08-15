@@ -1,96 +1,188 @@
-# The ONE place the hosted/ARC difference lives.
-#
-# hosted: nix and devbox are installed per run, and the caches are
-#         actions/cache. Free and unlimited on public repositories.
-# arc:    devbox is already in the runner image, the nix store rides the
-#         in-cluster read-through cache, and the Go caches are ambient
-#         (GOCACHEPROG -> S3, module proxy) via the pool identity.
-#
-# Keeping the split here rather than in two parallel workflows means the
-# callers, and every workflow above, stay identical across both flows.
-name: Set up devbox
-description: Prepare a devbox toolchain on either a hosted or an ARC runner.
+# Shared bootstrap for every bar job (CI, integration, release):
+# AWS CI face → nix → bash-as-sh → prototools strip → devbox → proto.
+# Checkout must precede this action — GitHub resolves repo-local
+# actions from the workspace.
+name: Setup runner environment
+description: Nix + devbox + proto bootstrap shared by all bar workflows
 
 inputs:
-  execution:
-    description: hosted | arc
-    required: true
-  cache-key-files:
-    description: Files whose hash keys the toolchain cache (hosted only).
-    required: false
-    default: devbox.lock
+  proto:
+    description: >-
+      Materialize the proto toolchain (.prototools) — needed by any job
+      that runs moon tasks. Skip for jobs that only need devbox-shipped
+      CLIs (the identity canary).
+    default: "true"
+  aws-config-file:
+    description: Repo-relative CI-shaped AWS config (e.g. aws-ci.ini). Empty to skip.
+    default: ""
   go-cache-bucket:
     description: >-
-      S3 bucket backing the fleet-wide Go build cache (ARC only). Comes
-      from the caller's org variable, never from this repository.
-    required: false
-    default: ''
+      Fleet Go build cache bucket. Comes from the CALLER's org variable —
+      this repository is public and must never contain it.
+    default: ""
   go-cache-region:
-    required: false
-    default: ''
+    default: ""
   goproxy:
-    description: In-cluster Go module proxy, with a public fallback (ARC only).
-    required: false
-    default: ''
+    description: In-cluster Go module proxy with a public fallback.
+    default: ""
+  github-token:
+    description: Token for proto's GitHub API resolution (rate limits).
+    default: ""
+  strip-local-tools:
+    description: >-
+      Strip the npm-backed cubic CLI from .prototools (workspace copy).
+      Required on pristine self-hosted runners where its proto plugin
+      cannot bootstrap. Pass "false" on release jobs: goreleaser's
+      clean-tree gate refuses a dirty workspace, and GitHub-hosted
+      runners have npm, so the plugin bootstraps fine there.
+    default: "true"
 
 runs:
   using: composite
   steps:
-    - name: Install nix
-      if: inputs.execution == 'hosted'
-      uses: DeterminateSystems/determinate-nix-action@61cbfe2efc2d4e7a8a6d56967c3c1058e846c858 # v3.21.9
-      with:
-        # Determinate's own installer wants a FlakeHub login we do not have
-        # on every repo; the plain installer is what the estate uses.
-        determinate: false
+    - name: CI face of the AWS config
+      # Caller-supplied: aws.ini is laptop-shaped (SSO + [default]) and a
+      # credential-less step consulting it hangs or dies on SSO. Repos that
+      # keep a CI-shaped variant name it here; others leave it empty.
+      if: inputs.aws-config-file != ''
+      shell: bash
+      # Values reach the shell through env, never through ${{ }} spliced
+      # into the script text: an expression is pasted in BEFORE bash sees
+      # the line, so a value containing a quote or $( ) would execute.
+      # Callers here are trusted, but this action is public and its next
+      # caller may not be. Same reason for every env: block below.
+      run: echo "AWS_CONFIG_FILE=$GITHUB_WORKSPACE/$AWS_CONFIG_REL" >> "$GITHUB_ENV"
+      env:
+        AWS_CONFIG_REL: ${{ inputs.aws-config-file }}
 
-    - name: Restore toolchain cache
-      if: inputs.execution == 'hosted'
-      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-      with:
-        path: |
-          ~/go/pkg/mod
-          ~/.cache/go-build
-          ~/.cache/pnpm
-        # devbox.lock in the key: cached build artifacts are linked against
-        # nix store paths, so a toolchain bump with a stale cache fails at
-        # exec time ("fork/exec ...: no such file") rather than at restore.
-        key: devbox-${{ runner.os }}-${{ hashFiles(inputs.cache-key-files) }}
-        restore-keys: devbox-${{ runner.os }}-
+    - name: Detect baked tools
+      # The runner image bakes nix (S3 substituter pre-configured in
+      # the baked nix.conf) and devbox — installing them again per job
+      # was the bulk of the bootstrap minute. GitHub-hosted runners
+      # (release jobs) have neither and keep the install path.
+      id: baked
+      shell: bash
+      run: |
+        echo "nix=$(command -v nix >/dev/null && echo true || echo false)" >> "$GITHUB_OUTPUT"
+        echo "devbox=$(command -v devbox >/dev/null && echo true || echo false)" >> "$GITHUB_OUTPUT"
+
+    - name: Install nix
+      # GitHub-hosted runners only (ARC runners bake nix, with the
+      # in-cluster read-through substituter in the baked nix.conf —
+      # unreachable from outside the VPC anyway, so hosted jobs just
+      # use the upstream cache directly).
+      #
+      # PLAIN upstream nix, NOT determinate-nix-action: every hosted
+      # consumer of this composite is a RELEASE job, which must carry
+      # `id-token: write` for the AWS OIDC assume — and that is exactly
+      # the condition that makes the Determinate action attempt a
+      # FlakeHub login the org is not registered for. Both 2026-08-13
+      # releases died there ("Logging in to FlakeHub", then cancelled)
+      # and were published by hand. Rule: never pair
+      # determinate-nix-action with id-token: write
+      # (gitops docs/architecture/github-actions.md §The nix installer
+      # choice).
+      if: steps.baked.outputs.nix != 'true'
+      uses: DeterminateSystems/nix-installer-action@ef8a148080ab6020fd15196c2084a2eea5ff2d25 # v22
+
+    - name: Use bash as sh
+      # devbox/moon scripts assume bash semantics; self-hosted runner
+      # images and GitHub-hosted ubuntu both ship dash as /bin/sh.
+      shell: bash
+      run: sudo ln -sf /bin/bash /bin/sh
+
+    - name: Strip local-only proto tools
+      # The npm-backed cubic CLI is LOCAL review tooling — CI never
+      # invokes it, and its proto plugin cannot bootstrap on a pristine
+      # runner (the plugin execs npm mid-materialization). devbox's
+      # init hook materializes proto on the FIRST devbox run, so the
+      # strip must precede it. Workspace copy only; nothing is
+      # committed.
+      if: inputs.strip-local-tools == 'true'
+      shell: bash
+      run: |
+        sed -i '/@cubic-dev-ai/d' .prototools
+        # The strip modifies a TRACKED file. goreleaser reads `git
+        # status` and stamped every snapshot "dirty" over it (a release
+        # build REFUSES outright on dirty). The mutation is CI
+        # plumbing, not source — hide it from the index.
+        git update-index --assume-unchanged .prototools
 
     - name: Install devbox
-      if: inputs.execution == 'hosted'
+      if: steps.baked.outputs.devbox != 'true'
       shell: bash
       run: curl -fsSL https://get.jetify.com/devbox | bash -s -- -f
 
-    - name: Confirm devbox is present
+    - name: Materialize devbox environment
+      # Split so timings tell the truth (Oleg, 2026-08-14): the FIRST
+      # devbox invocation transparently fetches, unpacks and registers
+      # the whole nix closure — hidden inside whatever step happened to
+      # run devbox first ("Install proto toolchain" showed 1m28s of
+      # which ~85s was this). This step is the closure cost; every
+      # devbox step after it is only itself.
       shell: bash
-      # An ARC image without devbox would otherwise fail deep inside the
-      # first recipe with a confusing error.
-      run: devbox version
+      run: |
+        retry() { for i in 1 2; do "$@" && return 0; echo "attempt $i failed; sleeping"; sleep 20; done; "$@"; }
+        START=$(date +%s)
+        retry devbox run -- true
+        echo "- devbox closure: $(( $(date +%s) - START ))s" >> "$GITHUB_STEP_SUMMARY"
+
+    - name: Cache proto toolchains
+      if: inputs.proto == 'true'
+      # proto downloads toolchains from GitHub releases/upstreams — no
+      # nix, no S3 cache can help it, and ephemeral runners rebuild it
+      # from nothing every job. Keyed on .prototools: a pin bump misses
+      # once, then everyone is warm again.
+      #
+      # Path is the WORKSPACE .proto: bar's devbox pins PROTO_HOME to
+      # <repo>/.proto (measured 2026-08-14) — the previous ~/.proto
+      # path pointed at a directory nothing writes, so this cache
+      # silently neither restored nor saved ("Path Validation Error"
+      # in every post step, goreleaser-pro re-downloaded every job).
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+      with:
+        path: .proto
+        key: proto-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.prototools') }}
+
+    - name: Install proto toolchain
+      if: inputs.proto == 'true'
+      # Pure proto now — the closure cost lives in "Materialize devbox
+      # environment" above. Retries: proto's plugin fetches are flaky
+      # from the NAT'd runner (intermittent non-JSON responses with
+      # the token present — consecutive runs disagree); three attempts
+      # each, the final one outside the loop so its status propagates.
+      shell: bash
+      run: |
+        retry() { for i in 1 2; do "$@" && return 0; echo "attempt $i failed; sleeping"; sleep 20; done; "$@"; }
+        START=$(date +%s)
+        retry devbox run -- proto use 2>&1 | tee /tmp/bootstrap-proto.log
+        {
+          echo "### Bootstrap ($RUNNER_ARCH)"
+          echo "- proto use: $(( $(date +%s) - START ))s ($(grep -ac 'installed' /tmp/bootstrap-proto.log || true) install lines; warm cache = near-zero)"
+        } >> "$GITHUB_STEP_SUMMARY"
+      env:
+        GITHUB_TOKEN: ${{ inputs.github-token }}
+        RUNNER_ARCH: ${{ runner.arch }}
 
     - name: Wire the fleet caches
-      if: inputs.execution == 'arc'
+      if: inputs.go-cache-bucket != ''
       shell: bash
-      # Fail loudly on a missing value rather than silently running without
-      # a cache: an unset variable would just make CI mysteriously slower,
-      # which is the failure mode nobody investigates.
+      # Only when asked: hosted runners have no VPC endpoint and no pool
+      # identity, so pointing GOCACHEPROG at S3 there would fail every
+      # build. Empty means "use the plain Go caches", which is correct.
       run: |
-        set -euo pipefail
-        for v in go-cache-bucket:'${{ inputs.go-cache-bucket }}' \
-                 go-cache-region:'${{ inputs.go-cache-region }}' \
-                 goproxy:'${{ inputs.goproxy }}'; do
-          if [ -z "${v#*:}" ]; then
-            echo "::error::${v%%:*} is empty — the ARC flow needs it (set the caller's org variable)"
-            exit 1
-          fi
-        done
         {
           echo "GOCACHEPROG=go-cache-plugin"
           echo "GOCACHE_DIR=/tmp/gocache"
           echo "GOCACHE_KEY_PREFIX=gocache"
           echo "GOCACHE_METRICS=1"
-          echo "GOCACHE_S3_BUCKET=${{ inputs.go-cache-bucket }}"
-          echo "GOCACHE_S3_REGION=${{ inputs.go-cache-region }}"
-          echo "GOPROXY=${{ inputs.goproxy }}"
+          echo "GOCACHE_S3_BUCKET=$CACHE_BUCKET"
+          echo "GOCACHE_S3_REGION=$CACHE_REGION"
         } >> "$GITHUB_ENV"
+        if [ -n "$CACHE_GOPROXY" ]; then
+          echo "GOPROXY=$CACHE_GOPROXY" >> "$GITHUB_ENV"
+        fi
+      env:
+        CACHE_BUCKET: ${{ inputs.go-cache-bucket }}
+        CACHE_REGION: ${{ inputs.go-cache-region }}
+        CACHE_GOPROXY: ${{ inputs.goproxy }}
