@@ -8,10 +8,13 @@ description: Nix + devbox + proto bootstrap shared by all bar workflows
 inputs:
   proto:
     description: >-
-      Materialize the proto toolchain (.prototools) — needed by any job
-      that runs moon tasks. Skip for jobs that only need devbox-shipped
-      CLIs (the identity canary).
-    default: "true"
+      Materialize the proto toolchain. "auto" (the default) installs it
+      exactly when the repository has a .prototools, which is the honest
+      answer for a SHARED action: defaulting to "true" made every repo
+      without proto in its devbox fail at `exit 127` (gitops, every
+      recipe, 2026-08-16). "true" forces it, "false" skips it — for jobs
+      that only need devbox-shipped CLIs, like the identity canary.
+    default: auto
   aws-config-file:
     description: Repo-relative CI-shaped AWS config (e.g. aws-ci.ini). Empty to skip.
     default: ""
@@ -65,6 +68,9 @@ runs:
       run: |
         echo "nix=$(command -v nix >/dev/null && echo true || echo false)" >> "$GITHUB_OUTPUT"
         echo "devbox=$(command -v devbox >/dev/null && echo true || echo false)" >> "$GITHUB_OUTPUT"
+        # Same principle one layer up: ask the repository what it needs
+        # rather than making every caller declare it.
+        echo "prototools=$([ -f .prototools ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
 
     - name: Install nix
       # GitHub-hosted runners only (ARC runners bake nix, with the
@@ -103,7 +109,7 @@ runs:
       # them — this step came from bar, where the file always exists, and
       # `sed` on a missing file exits 2 and takes the whole bootstrap with
       # it. A shared action may not assume one repository's layout.
-      if: inputs.strip-local-tools == 'true'
+      if: inputs.strip-local-tools == 'true' && steps.baked.outputs.prototools == 'true'
       shell: bash
       run: |
         [ -f .prototools ] || { echo "no .prototools; nothing to strip"; exit 0; }
@@ -134,7 +140,7 @@ runs:
         echo "- devbox closure: $(( $(date +%s) - START ))s" >> "$GITHUB_STEP_SUMMARY"
 
     - name: Cache proto toolchains
-      if: inputs.proto == 'true'
+      if: inputs.proto == 'true' || (inputs.proto == 'auto' && steps.baked.outputs.prototools == 'true')
       # proto downloads toolchains from GitHub releases/upstreams — no
       # nix, no S3 cache can help it, and ephemeral runners rebuild it
       # from nothing every job. Keyed on .prototools: a pin bump misses
@@ -151,7 +157,7 @@ runs:
         key: proto-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.prototools') }}
 
     - name: Install proto toolchain
-      if: inputs.proto == 'true'
+      if: inputs.proto == 'true' || (inputs.proto == 'auto' && steps.baked.outputs.prototools == 'true')
       # Pure proto now — the closure cost lives in "Materialize devbox
       # environment" above. Retries: proto's plugin fetches are flaky
       # from the NAT'd runner (intermittent non-JSON responses with
