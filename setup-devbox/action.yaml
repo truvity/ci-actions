@@ -98,9 +98,15 @@ runs:
       # init hook materializes proto on the FIRST devbox run, so the
       # strip must precede it. Workspace copy only; nothing is
       # committed.
+      #
+      # Nothing to strip in a repo with no .prototools, which is most of
+      # them — this step came from bar, where the file always exists, and
+      # `sed` on a missing file exits 2 and takes the whole bootstrap with
+      # it. A shared action may not assume one repository's layout.
       if: inputs.strip-local-tools == 'true'
       shell: bash
       run: |
+        [ -f .prototools ] || { echo "no .prototools; nothing to strip"; exit 0; }
         sed -i '/@cubic-dev-ai/d' .prototools
         # The strip modifies a TRACKED file. goreleaser reads `git
         # status` and stamped every snapshot "dirty" over it (a release
