@@ -1,0 +1,46 @@
+# Run one recipe and prove it left the tree alone.
+#
+# Exists so check.yaml can carry a NAMED STEP per recipe — the log shows
+# "build", "test", "lint" with their own durations and their own ticks,
+# instead of one opaque "Recipes" step — without repeating the body ten
+# times. GitHub cannot generate steps from a list, so the list is
+# expressed as guarded steps and this is the shared body.
+name: recipe
+description: Run a task-runner recipe inside devbox and assert a clean working tree.
+
+inputs:
+  recipe:
+    description: The recipe to run.
+    required: true
+  command:
+    description: Task runner in front of it — just, moon.
+    required: false
+    default: just
+
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: |
+        set -uo pipefail
+
+        if ! devbox run -- "$COMMAND" "$RECIPE"; then
+          echo "::error::${RECIPE} failed"
+          exit 1
+        fi
+
+        # Nothing verified this before: a recipe that writes a generated
+        # file, or a linter invoked with --fix, changed the tree and
+        # nobody noticed. --porcelain respects .gitignore, and the setup
+        # action hides its own .prototools mutation with
+        # assume-unchanged, so a clean repository reads clean.
+        dirty=$(git status --porcelain)
+        if [ -n "$dirty" ]; then
+          echo "::error::${RECIPE} modified the working tree:"
+          printf '%s\n' "$dirty"
+          echo "Commit the result, or make the recipe read-only."
+          exit 1
+        fi
+      env:
+        RECIPE: ${{ inputs.recipe }}
+        COMMAND: ${{ inputs.command }}
