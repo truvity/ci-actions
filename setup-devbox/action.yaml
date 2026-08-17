@@ -211,8 +211,30 @@ runs:
       run: |
         set -euo pipefail
 
+        # Mask FIRST, so anything below that echoes the token — including
+        # a shell trace someone enables while debugging — is redacted.
+        echo "::add-mask::$MODULE_TOKEN"
+
         if [ -z "$MODULE_TOKEN" ]; then
-          echo "::error::go-private is set but module-token is empty — go would fetch $GO_PRIVATE directly over git and be refused"
+          echo "::error::go-private is set but module-token is empty — go would fetch this prefix directly over git and be refused"
+          exit 1
+        fi
+
+        # GITHUB_ENV is line-oriented: a value carrying a newline writes
+        # a SECOND variable of the attacker's choosing. This input comes
+        # from a caller's workflow, so it is validated rather than
+        # trusted. GOPRIVATE is a comma-separated list of module path
+        # patterns, so the alphabet is small and a stray character is far
+        # more likely to be a typo than an attack.
+        #
+        # `[[ =~ ]]`, NOT grep: grep matches line by line, so
+        # $'github.com/truvity\nPATH=/evil' passes it — every line
+        # satisfies the pattern individually. Bash anchors ^ and $ to the
+        # whole string, and newline is outside the class, so the
+        # multi-line case is rejected. Measured both ways before
+        # choosing.
+        if [[ ! "$GO_PRIVATE" =~ ^[A-Za-z0-9._~/*,-]+$ ]]; then
+          echo "::error::go-private must be a comma-separated list of module path patterns; got something outside [A-Za-z0-9._~/*,-]"
           exit 1
         fi
 
@@ -221,8 +243,6 @@ runs:
         git config --global --replace-all \
           "url.https://x-access-token:$MODULE_TOKEN@github.com/.insteadOf" \
           "https://github.com/"
-
-        echo "::add-mask::$MODULE_TOKEN"
       env:
         GO_PRIVATE: ${{ inputs.go-private }}
         MODULE_TOKEN: ${{ inputs.module-token }}
