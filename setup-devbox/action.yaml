@@ -31,6 +31,21 @@ inputs:
   github-token:
     description: Token for proto's GitHub API resolution (rate limits).
     default: ""
+  go-private:
+    description: >-
+      Module path prefix that must bypass the public proxy and sum
+      database — e.g. "github.com/truvity". Sets GOPRIVATE, which also
+      implies GONOPROXY and GONOSUMDB. Requires module-token to be of
+      any use: GOPRIVATE means "fetch this directly over git", and a
+      private repository refuses an unauthenticated fetch.
+    default: ""
+  module-token:
+    description: >-
+      Token with contents:read on the private module repositories.
+      Written into the runner's git config as a URL rewrite so `go` can
+      fetch them. Give it the NARROWEST scope that reaches the modules:
+      it is a credential on disk for the life of the job.
+    default: ""
   strip-local-tools:
     description: >-
       Strip the npm-backed cubic CLI from .prototools (workspace copy).
@@ -175,6 +190,42 @@ runs:
       env:
         GITHUB_TOKEN: ${{ inputs.github-token }}
         RUNNER_ARCH: ${{ runner.arch }}
+
+    - name: Reach private Go modules
+      if: inputs.go-private != ''
+      shell: bash
+      # GOPRIVATE alone is not enough and fails in a confusing way: it
+      # tells go to skip the proxy and go straight to git, and git then
+      # refuses a private repository with an authentication prompt that
+      # CI reports as "terminal prompts disabled" — which reads like a
+      # git bug rather than a missing credential.
+      #
+      # The rewrite is global rather than repo-local because `go` clones
+      # into its own module cache, outside any checkout, so a --local
+      # config would never be consulted.
+      #
+      # The token arrives through env and is written with a heredoc, not
+      # spliced into the command line: a ${{ }} expression is pasted in
+      # before bash parses the line, and an argument is visible in `ps`
+      # for as long as the process lives.
+      run: |
+        set -euo pipefail
+
+        if [ -z "$MODULE_TOKEN" ]; then
+          echo "::error::go-private is set but module-token is empty — go would fetch $GO_PRIVATE directly over git and be refused"
+          exit 1
+        fi
+
+        echo "GOPRIVATE=$GO_PRIVATE" >> "$GITHUB_ENV"
+
+        git config --global --replace-all \
+          "url.https://x-access-token:$MODULE_TOKEN@github.com/.insteadOf" \
+          "https://github.com/"
+
+        echo "::add-mask::$MODULE_TOKEN"
+      env:
+        GO_PRIVATE: ${{ inputs.go-private }}
+        MODULE_TOKEN: ${{ inputs.module-token }}
 
     - name: Wire the fleet caches
       if: inputs.go-cache-bucket != ''
