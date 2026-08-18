@@ -39,12 +39,16 @@ inputs:
       any use: GOPRIVATE means "fetch this directly over git", and a
       private repository refuses an unauthenticated fetch.
     default: ""
-  module-token:
+  module-app-client-id:
     description: >-
-      Token with contents:read on the private module repositories.
-      Written into the runner's git config as a URL rewrite so `go` can
-      fetch them. Give it the NARROWEST scope that reaches the modules:
-      it is a credential on disk for the life of the job.
+      Client id of a GitHub App with contents:read on the private module
+      repositories. The token is minted HERE rather than passed in:
+      GitHub strips masked values from job outputs, so a token handed
+      down from a previous job arrives empty — which is how this was
+      first built, and it failed with the guard below.
+    default: ""
+  module-app-private-key:
+    description: Private key for module-app-client-id.
     default: ""
   strip-local-tools:
     description: >-
@@ -191,6 +195,15 @@ runs:
         GITHUB_TOKEN: ${{ inputs.github-token }}
         RUNNER_ARCH: ${{ runner.arch }}
 
+    - name: Mint a token for the private modules
+      if: inputs.go-private != ''
+      id: module-token
+      uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+      with:
+        client-id: ${{ inputs.module-app-client-id }}
+        private-key: ${{ inputs.module-app-private-key }}
+        owner: ${{ github.repository_owner }}
+
     - name: Reach private Go modules
       if: inputs.go-private != ''
       shell: bash
@@ -216,7 +229,7 @@ runs:
         echo "::add-mask::$MODULE_TOKEN"
 
         if [ -z "$MODULE_TOKEN" ]; then
-          echo "::error::go-private is set but module-token is empty — go would fetch this prefix directly over git and be refused"
+          echo "::error::go-private is set but no module token was minted — check module-app-client-id and module-app-private-key"
           exit 1
         fi
 
@@ -245,7 +258,7 @@ runs:
           "https://github.com/"
       env:
         GO_PRIVATE: ${{ inputs.go-private }}
-        MODULE_TOKEN: ${{ inputs.module-token }}
+        MODULE_TOKEN: ${{ steps.module-token.outputs.token }}
 
     - name: Wire the fleet caches
       if: inputs.go-cache-bucket != ''
