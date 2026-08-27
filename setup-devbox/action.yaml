@@ -73,7 +73,15 @@ runs:
       # the line, so a value containing a quote or $( ) would execute.
       # Callers here are trusted, but this action is public and its next
       # caller may not be. Same reason for every env: block below.
-      run: echo "AWS_CONFIG_FILE=$GITHUB_WORKSPACE/$AWS_CONFIG_REL" >> "$GITHUB_ENV"
+      # Heredoc write with a random delimiter: GITHUB_ENV is
+      # line-oriented, so a value carrying a newline in the NAME=VALUE
+      # form writes a second variable of the caller's choosing (CodeQL
+      # envvar-injection). The delimiter is unguessable, so the value
+      # cannot terminate the block early either.
+      run: |
+        set -euo pipefail
+        d="EOF_$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')"
+        printf '%s<<%s\n%s\n%s\n' AWS_CONFIG_FILE "$d" "$GITHUB_WORKSPACE/$AWS_CONFIG_REL" "$d" >> "$GITHUB_ENV"
       env:
         AWS_CONFIG_REL: ${{ inputs.aws-config-file }}
 
@@ -251,7 +259,11 @@ runs:
           exit 1
         fi
 
-        echo "GOPRIVATE=$GO_PRIVATE" >> "$GITHUB_ENV"
+        # Belt on top of the validation above: the heredoc write with a
+        # random delimiter cannot mint a second variable even if the
+        # regex ever loosens (CodeQL envvar-injection).
+        d="EOF_$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')"
+        printf '%s<<%s\n%s\n%s\n' GOPRIVATE "$d" "$GO_PRIVATE" "$d" >> "$GITHUB_ENV"
 
         git config --global --replace-all \
           "url.https://x-access-token:$MODULE_TOKEN@github.com/.insteadOf" \
@@ -267,16 +279,26 @@ runs:
       # identity, so pointing GOCACHEPROG at S3 there would fail every
       # build. Empty means "use the plain Go caches", which is correct.
       run: |
+        set -euo pipefail
         {
           echo "GOCACHEPROG=go-cache-plugin"
           echo "GOCACHE_DIR=/tmp/gocache"
           echo "GOCACHE_KEY_PREFIX=gocache"
           echo "GOCACHE_METRICS=1"
-          echo "GOCACHE_S3_BUCKET=$CACHE_BUCKET"
-          echo "GOCACHE_S3_REGION=$CACHE_REGION"
         } >> "$GITHUB_ENV"
+        # Caller-supplied values go through heredoc writes with random
+        # delimiters — the NAME=VALUE form lets a value carrying a
+        # newline mint a second variable (CodeQL envvar-injection); the
+        # constants above carry no taint and stay plain.
+        write_env() {
+          local d
+          d="EOF_$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')"
+          printf '%s<<%s\n%s\n%s\n' "$1" "$d" "$2" "$d" >> "$GITHUB_ENV"
+        }
+        write_env GOCACHE_S3_BUCKET "$CACHE_BUCKET"
+        write_env GOCACHE_S3_REGION "$CACHE_REGION"
         if [ -n "$CACHE_GOPROXY" ]; then
-          echo "GOPROXY=$CACHE_GOPROXY" >> "$GITHUB_ENV"
+          write_env GOPROXY "$CACHE_GOPROXY"
         fi
       env:
         CACHE_BUCKET: ${{ inputs.go-cache-bucket }}
