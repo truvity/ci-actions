@@ -254,23 +254,25 @@ runs:
         # VALIDATE before writing. GITHUB_ENV is line-oriented and
         # append-only, so a value carrying a newline writes a SECOND
         # variable of someone else's choosing. printf does not prevent
-        # that -- it formats, it does not sanitise -- which is what an
-        # earlier version of this comment wrongly claimed and CodeQL
-        # correctly flagged.
+        # that -- it formats, it does not sanitise.
         #
-        # `[[ =~ ]]`, not grep: grep matches line by line, so a value
-        # spanning lines passes it because every line satisfies the
-        # pattern individually. Bash anchors ^ and $ to the whole string
-        # and newline is outside the class, so the multi-line case is
-        # rejected. Same reasoning as the GO_PRIVATE check below.
+        # Checks for a NEWLINE, not a character set. An earlier version
+        # asserted ^[A-Za-z0-9_]+$ and rejected every real token: App
+        # installation tokens are 383 characters and contain dots, not the
+        # short ghs_XXXX shape that regex assumed. Guessing at the shape of
+        # someone else's credential is how a guard becomes an outage.
         #
-        # An installation token is minted by GitHub, not supplied by a
-        # caller, so this should never fire. It costs one comparison and
-        # removes the whole class.
-        if [[ ! "$MODULE_TOKEN" =~ ^[A-Za-z0-9_]+$ ]]; then
-          echo "::error::the minted token has an unexpected shape; refusing to write it to GITHUB_ENV"
-          exit 1
-        fi
+        # `case`, not `[[ =~ ]]`: the pattern is a literal newline/CR in a
+        # bracket expression, which needs no regex engine and cannot be
+        # confused by a token's own punctuation. Empty is rejected too --
+        # a masked value stripped somewhere upstream arrives empty, and
+        # writing CI_CONTENTS_TOKEN= would fail later and further away.
+        case "$MODULE_TOKEN" in
+          *[$'\n\r']* | "")
+            echo "::error::the minted token is empty or contains a newline; refusing to write it to GITHUB_ENV"
+            exit 1
+            ;;
+        esac
 
         d="EOF_$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')"
         printf '%s<<%s\n%s\n%s\n' "CI_CONTENTS_TOKEN" "$d" "$MODULE_TOKEN" "$d" >> "$GITHUB_ENV"
