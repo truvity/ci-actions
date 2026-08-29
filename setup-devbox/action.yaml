@@ -85,6 +85,17 @@ runs:
       # cannot terminate the block early either.
       run: |
         set -euo pipefail
+        # And write it with a RANDOM-DELIMITER heredoc, the multi-line form
+        # GitHub documents for GITHUB_ENV. 32 hex bytes of urandom make the
+        # delimiter unguessable, so a value carrying a newline cannot close
+        # the block early and open a variable of its own. CodeQL's own
+        # recommendation for this rule, and the stronger of the two it
+        # offers: the alternative strips newlines with `tr -d`, which mangles
+        # the value rather than preserving it.
+        #
+        # Belt and braces with the guard above, deliberately. The guard fails
+        # LOUDLY on anything unexpected; this stays structurally safe even if
+        # the guard is ever loosened.
         d="EOF_$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')"
         printf '%s<<%s\n%s\n%s\n' AWS_CONFIG_FILE "$d" "$GITHUB_WORKSPACE/$AWS_CONFIG_REL" "$d" >> "$GITHUB_ENV"
       env:
