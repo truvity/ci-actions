@@ -261,7 +261,8 @@ runs:
           exit 1
         fi
 
-        printf 'CI_CONTENTS_TOKEN=%s\n' "$MODULE_TOKEN" >> "$GITHUB_ENV"
+        d="EOF_$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')"
+        printf '%s<<%s\n%s\n%s\n' "CI_CONTENTS_TOKEN" "$d" "$MODULE_TOKEN" "$d" >> "$GITHUB_ENV"
 
     - name: Reach private Go modules
       if: inputs.go-private != ''
