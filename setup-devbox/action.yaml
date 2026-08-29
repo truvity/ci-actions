@@ -41,8 +41,13 @@ inputs:
     default: ""
   module-app-client-id:
     description: >-
-      Client id of a GitHub App with contents:read on the private module
-      repositories. The token is minted HERE rather than passed in:
+      Client id of a GitHub App with contents:read on the private
+      repositories this build must read. Supplying it mints a token
+      whether or not go-private is set: Go modules were the first use,
+      reading a sibling repository's files from a recipe is the general
+      one. The token also reaches the recipes as CI_CONTENTS_TOKEN.
+
+      The token is minted HERE rather than passed in:
       GitHub strips masked values from job outputs, so a token handed
       down from a previous job arrives empty — which is how this was
       first built, and it failed with the guard below.
@@ -203,14 +208,43 @@ runs:
         GITHUB_TOKEN: ${{ inputs.github-token }}
         RUNNER_ARCH: ${{ runner.arch }}
 
-    - name: Mint a token for the private modules
-      if: inputs.go-private != ''
+    # Gated on the App, NOT on go-private. Fetching private Go modules was
+    # the first use; reading a sibling repository's files from a recipe is
+    # the general one -- TrustForm's OpenAPI contracts sit in a private
+    # repository that GITHUB_TOKEN cannot read, which is the same problem
+    # wearing different clothes. A caller supplying the App but no
+    # go-private now gets a token and no git rewrite, which is exactly
+    # what a contracts fetch wants.
+    - name: Mint a token for reading private repositories
+      if: inputs.module-app-client-id != ''
       id: module-token
       uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
       with:
         client-id: ${{ inputs.module-app-client-id }}
         private-key: ${{ inputs.module-app-private-key }}
         owner: ${{ github.repository_owner }}
+
+    # Hand the token to the recipes as well as to git. A recipe that curls
+    # the GitHub API needs the token itself; the credential rewrite below
+    # only helps things that speak git.
+    #
+    # A DISTINCT name, never GH_TOKEN: `gh` reads GH_TOKEN implicitly, so
+    # overloading it would silently repoint every unrelated gh call in
+    # every recipe at a token scoped to other repositories, and the
+    # failure would surface far from here.
+    - name: Expose the token to recipes
+      if: steps.module-token.outputs.token != ''
+      shell: bash
+      env:
+        MODULE_TOKEN: ${{ steps.module-token.outputs.token }}
+      run: |
+        set -euo pipefail
+        echo "::add-mask::$MODULE_TOKEN"
+        # printf, not echo: GITHUB_ENV is line-oriented, so a value
+        # carrying a newline writes a second variable of someone else's
+        # choosing. A token has none, but the file is append-only and
+        # shared, so it is written defensively.
+        printf 'CI_CONTENTS_TOKEN=%s\n' "$MODULE_TOKEN" >> "$GITHUB_ENV"
 
     - name: Reach private Go modules
       if: inputs.go-private != ''
