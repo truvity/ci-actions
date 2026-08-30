@@ -39,6 +39,26 @@ inputs:
       any use: GOPRIVATE means "fetch this directly over git", and a
       private repository refuses an unauthenticated fetch.
     default: ""
+  codeartifact-domain:
+    description: >-
+      CodeArtifact domain to log into, e.g. "truvity". Empty means the
+      repository has no private npm dependencies and the step is
+      skipped entirely -- most do not, and an unconditional login would
+      make every build pay an STS call for nothing.
+
+      Set it and `yarn install` can reach @scope packages without each
+      repository re-implementing the token dance in its own justfile.
+    default: ""
+  codeartifact-domain-owner:
+    description: Account that owns the CodeArtifact domain.
+    default: ""
+  codeartifact-region:
+    description: >-
+      Region the domain lives in. NOT necessarily the region the build
+      runs in -- truvity's domain is eu-west-1 while the cluster is
+      eu-central-1, and defaulting to the caller's region silently
+      looks up a domain that does not exist there.
+    default: ""
   module-app-client-id:
     description: >-
       Client id of a GitHub App with contents:read on the private
@@ -336,6 +356,55 @@ runs:
       env:
         GO_PRIVATE: ${{ inputs.go-private }}
         MODULE_TOKEN: ${{ steps.module-token.outputs.token }}
+
+    - name: Log in to CodeArtifact
+      if: inputs.codeartifact-domain != ''
+      shell: bash
+      # The token comes from the DEFAULT credential chain deliberately: on a
+      # runner that is the pool's pod identity, which carries
+      # <cluster>-codeartifact-read. Nothing to configure per repository.
+      #
+      # Fails LOUDLY on an empty token, which is the whole reason this step
+      # exists. Every repo that needed CodeArtifact had its own copy of
+      #
+      #   export CODEARTIFACT_AUTH_TOKEN="$(aws codeartifact ... || echo '')"
+      #
+      # and that `|| echo ''` turned an IAM failure into an anonymous fetch,
+      # so it surfaced as "Invalid authentication (as an anonymous user)" --
+      # a message naming npm while the cause was a missing IAM grant. It cost
+      # a day to find (2026-08-30).
+      run: |
+        set -euo pipefail
+
+        if ! token="$(aws codeartifact get-authorization-token \
+            --domain "$CA_DOMAIN" \
+            --domain-owner "$CA_OWNER" \
+            --region "$CA_REGION" \
+            --query authorizationToken --output text)"; then
+          echo "::error::CodeArtifact login failed for domain $CA_DOMAIN. The identity" \
+               "this build runs as needs codeartifact:GetAuthorizationToken plus" \
+               "sts:GetServiceBearerToken — see <cluster>-codeartifact-read."
+          exit 1
+        fi
+
+        if [ -z "$token" ] || [ "$token" = "None" ]; then
+          echo "::error::CodeArtifact returned an empty token for domain $CA_DOMAIN;" \
+               "refusing to continue, because an empty token fetches anonymously" \
+               "and fails later as an npm authentication error."
+          exit 1
+        fi
+
+        echo "::add-mask::$token"
+
+        # Heredoc with a random delimiter, same as GOPRIVATE above: a value
+        # containing a newline must not be able to define a second variable.
+        d="EOF_$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')"
+        printf '%s<<%s\n%s\n%s\n' CODEARTIFACT_AUTH_TOKEN "$d" "$token" "$d" >> "$GITHUB_ENV"
+      env:
+        CA_DOMAIN: ${{ inputs.codeartifact-domain }}
+        CA_OWNER: ${{ inputs.codeartifact-domain-owner }}
+        CA_REGION: ${{ inputs.codeartifact-region }}
+
 
     - name: Wire the fleet caches
       if: inputs.go-cache-bucket != ''
