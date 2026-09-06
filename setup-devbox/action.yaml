@@ -376,7 +376,20 @@ runs:
       run: |
         set -euo pipefail
 
-        if ! token="$(aws codeartifact get-authorization-token \
+        # The CLI comes from the PATH on a hosted runner and from devbox on
+        # an ARC runner, whose image ships no aws at all (everything but
+        # nix arrives through the project's devbox). The first stable-tier
+        # release (dms v0.37.0, 2026-09-07) died here on "aws: command not
+        # found". tail -n1 + CR strip: devbox prefixes Info lines to stdout.
+        aws_cli() {
+          if command -v aws >/dev/null 2>&1; then
+            command aws "$@"
+          else
+            devbox run -- aws "$@" | tail -n1 | tr -d '\r'
+          fi
+        }
+
+        if ! token="$(aws_cli codeartifact get-authorization-token \
             --domain "$CA_DOMAIN" \
             --domain-owner "$CA_OWNER" \
             --region "$CA_REGION" \
