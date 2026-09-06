@@ -14,15 +14,15 @@
 #   linux/arm64=tcp://<arm64 builder>:1234 linux/amd64=tcp://<amd64 builder>:1234
 #   linux/arm64,linux/amd64=tcp://<one builder>:1234
 #
-# ONE node or TWO is not a detail. With two nodes buildx pushes each
-# node's image under the requested tag and then writes the merged
-# manifest list under the SAME tag — two writes, one tag — and an
-# IMMUTABLE repository (every stable registry) refuses the second
-# (dms v0.33.0, truvity/dms#13). A stable release therefore registers
-# ONE node that declares both platforms, which works exactly when the
-# foreign platform's stages execute nothing (FROM/COPY/USER only —
-# bar's images; dms after truvity/dms#18). A mutable preview registry
-# takes two nodes and native builds on both.
+# Two nodes and an immutable registry: a plain `docker buildx build
+# --push` on a multi-node builder pushes one node's image under the
+# requested tag and then writes the merged manifest list under the
+# SAME tag — two writes, one tag — and an immutable repository (every
+# stable registry) refuses the second (dms v0.33.0, truvity/dms#13).
+# The release pipeline (gemaal ≥ 0.22) therefore never lets buildx
+# push a tag: each platform is pushed by digest and the tags are
+# written once, after every build landed. With that in place a stable
+# release registers both nodes, exactly like a snapshot on devel.
 #
 # ARC runners only: the endpoints resolve nowhere else; gate the step
 # on `runner.environment == 'self-hosted'`. Registry auth is the
