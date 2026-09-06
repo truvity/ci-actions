@@ -80,7 +80,8 @@ runs:
         run docker buildx use "$BUILDER"
         run docker buildx inspect --bootstrap "$BUILDER" | tee "$RUNNER_TEMP/buildx-$BUILDER.txt"
         for entry in $NODES; do
-          for p in ${entry%%=*//,/ }; do
+          platforms="${entry%%=*}"
+          for p in ${platforms//,/ }; do
             grep -q "$p" "$RUNNER_TEMP/buildx-$BUILDER.txt" || { echo "::error::builder $BUILDER does not offer $p"; exit 1; }
           done
         done
