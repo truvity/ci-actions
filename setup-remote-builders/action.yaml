@@ -1,0 +1,87 @@
+# Register the CI plane's warm BuildKit builders as one buildx builder
+# (INF-414 on devel, INF-640 on the stable tier). Rootless buildkitd
+# StatefulSets live in the ci-cache namespace of the cluster the runner
+# runs in; registered client-side as nodes of a single builder, a
+# `docker buildx build --platform linux/amd64,linux/arm64` builds each
+# platform on the node that declares it — natively, on a hot layer
+# cache. No daemon on the runner (the runner image ships client-only
+# docker + buildx), no QEMU.
+#
+# WHICH nodes is the caller's — an org variable, never a literal here
+# (this repository is public; internal DNS is a particular). One entry
+# per node, `platforms=endpoint`, whitespace-separated, e.g.
+#
+#   linux/arm64=tcp://<arm64 builder>:1234 linux/amd64=tcp://<amd64 builder>:1234
+#   linux/arm64,linux/amd64=tcp://<one builder>:1234
+#
+# ONE node or TWO is not a detail. With two nodes buildx pushes each
+# node's image under the requested tag and then writes the merged
+# manifest list under the SAME tag — two writes, one tag — and an
+# IMMUTABLE repository (every stable registry) refuses the second
+# (dms v0.33.0, truvity/dms#13). A stable release therefore registers
+# ONE node that declares both platforms, which works exactly when the
+# foreign platform's stages execute nothing (FROM/COPY/USER only —
+# bar's images; dms after truvity/dms#18). A mutable preview registry
+# takes two nodes and native builds on both.
+#
+# ARC runners only: the endpoints resolve nowhere else; gate the step
+# on `runner.environment == 'self-hosted'`. Registry auth is the
+# caller's: whatever `docker login` / amazon-ecr-login wrote to
+# ~/.docker/config.json is forwarded to the builder at push time, so
+# log in BEFORE building, not before registering.
+name: Setup remote builders
+description: Register the CI plane's BuildKit builders as one buildx builder (nodes from a caller variable)
+
+inputs:
+  remote-builders:
+    description: >-
+      Builder nodes, whitespace-separated `platforms=endpoint` entries
+      (platforms comma-separated). From the caller's org variable.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Register the remote builders
+      shell: bash
+      env:
+        NODES: ${{ inputs.remote-builders }}
+      run: |
+        set -euo pipefail
+        # The builder name is a literal: it is written to GITHUB_ENV
+        # below, and an input there is exactly what CodeQL's
+        # environment-injection query objects to.
+        BUILDER=ci
+        [ -n "${NODES// /}" ] || { echo "::error::remote-builders is empty — set the org variable or skip this step"; exit 1; }
+        # docker + buildx resolve from the job's PATH; through devbox
+        # when the project has one (a devbox docker only finds the
+        # plugins it can see, hence the symlink), and the runner image's
+        # system-wide plugin path covers the rest.
+        run() { if [ -f devbox.json ]; then devbox run -- "$@"; else "$@"; fi; }
+        if plugin="$(run sh -c 'command -v docker-buildx' 2>/dev/null)" && [ -n "$plugin" ]; then
+          mkdir -p ~/.docker/cli-plugins
+          ln -sf "$plugin" ~/.docker/cli-plugins/docker-buildx
+        fi
+        # rm is the ONLY tolerated failure (builder absent on a fresh
+        # ephemeral runner); registrations must fail the step — a
+        # builder missing a platform surfaces later as a baffling "no
+        # match for platform" build error.
+        run docker buildx rm "$BUILDER" 2>/dev/null || true
+        first=1
+        for entry in $NODES; do
+          platforms="${entry%%=*}"; endpoint="${entry#*=}"
+          if [ "$first" = 1 ]; then
+            run docker buildx create --name "$BUILDER" --driver remote "$endpoint" --platform "$platforms"
+            first=0
+          else
+            run docker buildx create --append --name "$BUILDER" --driver remote "$endpoint" --platform "$platforms"
+          fi
+        done
+        run docker buildx use "$BUILDER"
+        run docker buildx inspect --bootstrap "$BUILDER" | tee "$RUNNER_TEMP/buildx-$BUILDER.txt"
+        for entry in $NODES; do
+          for p in ${entry%%=*//,/ }; do
+            grep -q "$p" "$RUNNER_TEMP/buildx-$BUILDER.txt" || { echo "::error::builder $BUILDER does not offer $p"; exit 1; }
+          done
+        done
+        echo "BUILDX_BUILDER=$BUILDER" >> "$GITHUB_ENV"
