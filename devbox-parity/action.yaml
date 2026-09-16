@@ -1,0 +1,301 @@
+# One repository's version parity, as a pull request.
+#
+# devbox LEADS; the other manifests FOLLOW. The toolchain in the shell is
+# what builds, lints and tests, so anything that names the same tool
+# elsewhere has to agree with the devbox pin, never run ahead of it:
+#
+#   pair        leader (devbox)          follower
+#   go          the go binary + the Go   go.mod's `toolchain` directive —
+#               golangci-lint was built  never the `go` language line
+#               with (nixpkgs)
+#   playwright  playwright-driver /      @playwright/test and playwright in
+#               playwright-test          package.json (browsers come from
+#               (nixpkgs)                nixpkgs; npm must not get ahead)
+#
+# This is the devbox-update workflow's logic, lifted into an action that
+# works on a checkout so a fleet job can run it per repository. The rules
+# and every pitfall are in docs/devbox-update.md; the pairs are in
+# docs/fleet.md. Adding a pair is adding a step here and a row there.
+#
+# Everything reaches the shell through env. jq is the runner's, never
+# `devbox run -- jq` (devbox re-quotes argv and mangles the program).
+name: devbox-parity
+description: Refresh devbox packages on the full day, align every follower to its devbox pin, and open one auto-merging pull request if anything moved.
+
+inputs:
+  token:
+    description: A token that may push a branch and open a pull request in this repository — the App's, not GITHUB_TOKEN.
+    required: true
+  working-directory:
+    description: Where the repository is checked out.
+    required: false
+    default: .
+  base:
+    description: The branch to open the pull request against.
+    required: false
+    default: master
+  label:
+    description: Label for the pull request; created if missing.
+    required: false
+    default: dependencies
+  mode:
+    description: "`auto` (full update on full-update-day, align only otherwise), `full`, or `align`."
+    required: false
+    default: auto
+  full-update-day:
+    description: ISO weekday (1 = Monday) on which `auto` runs the full devbox update.
+    required: false
+    default: "1"
+  module-dirs:
+    description: JSON array of directories holding further go.mod files to align, relative to the working directory. The root module is always considered.
+    required: false
+    default: "[]"
+  git-user:
+    description: Commit author name — the App's bot login.
+    required: false
+    default: github-actions[bot]
+  git-email:
+    description: Commit author email — the App's noreply address.
+    required: false
+    default: 41898282+github-actions[bot]@users.noreply.github.com
+
+outputs:
+  changed:
+    description: "`true` when a pull request was opened or updated."
+    value: ${{ steps.pr.outputs.changed }}
+  pull-request:
+    description: The pull request URL, when one exists.
+    value: ${{ steps.pr.outputs.url }}
+
+runs:
+  using: composite
+  steps:
+    # The self-hosted image bakes nix, devbox and the build tools — not the
+    # GitHub CLI the hosted image happens to preinstall. Install only what
+    # is missing, pinned, for the runner's own architecture: the pool is
+    # arm64, hosted runners are amd64, and a hardcoded arch put an amd64
+    # binary on an arm64 node ("Exec format error").
+    - name: Ensure gh
+      shell: bash
+      run: |
+        command -v gh >/dev/null && { echo "gh present: $(gh --version | head -1)"; exit 0; }
+        v=2.97.0
+        case "$(uname -m)" in
+          x86_64)          arch=amd64 ;;
+          aarch64 | arm64) arch=arm64 ;;
+          *) echo "unsupported arch: $(uname -m)"; exit 1 ;;
+        esac
+        curl -fsSL -o /tmp/gh.tgz "https://github.com/cli/cli/releases/download/v${v}/gh_${v}_linux_${arch}.tar.gz"
+        mkdir -p /tmp/gh && tar xzf /tmp/gh.tgz -C /tmp/gh --strip-components=1
+        echo "/tmp/gh/bin" >> "$GITHUB_PATH"
+        echo "gh installed: v${v}"
+
+    - name: Decide the mode
+      id: mode
+      shell: bash
+      env:
+        MODE: ${{ inputs.mode }}
+        FULL_DAY: ${{ inputs.full-update-day }}
+      run: |
+        case "$MODE" in
+          full)  full=true ;;
+          align) full=false ;;
+          *)     [ "$(date -u +%u)" = "$FULL_DAY" ] && full=true || full=false ;;
+        esac
+        echo "full=$full" >> "$GITHUB_OUTPUT"
+        echo "mode=$MODE (weekday $(date -u +%u), full-update-day $FULL_DAY) -> full=$full"
+
+    - name: devbox update
+      if: steps.mode.outputs.full == 'true'
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: devbox update
+
+    # Pair: go. Align the TOOLCHAIN directive — never the language
+    # directive. Rule: toolchain = newest patch of the line golangci-lint
+    # was built against, never downward; the `go` line is read only, and a
+    # language minor ABOVE the cap means a human created a mismatch —
+    # report, touch nothing. Repeated for every module directory.
+    - name: "Pair: go toolchain follows the devbox go"
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        MODULE_DIRS: ${{ inputs.module-dirs }}
+      run: |
+        set -euo pipefail
+
+        dirs=$(jq -r '["."] + . | unique | .[]' <<<"$MODULE_DIRS")
+        latest_cache=""
+
+        for dir in $dirs; do
+          [ -f "$dir/go.mod" ] || { echo "$dir: no go.mod — nothing to align"; continue; }
+
+          lang=$(awk '/^go /{print $2; exit}' "$dir/go.mod")
+          tc=$(awk '/^toolchain /{sub(/^go/,"",$2); print $2; exit}' "$dir/go.mod")
+          tc=${tc:-$lang}
+          if (cd "$dir" && devbox run -- golangci-lint version) >/tmp/glci 2>/dev/null; then
+            built=$(grep -o 'built with go[0-9.]*' /tmp/glci | grep -o '[0-9][0-9.]*$')
+          else
+            built=$(cd "$dir" && devbox run -- go env GOVERSION | grep -o '[0-9][0-9.]*')
+          fi
+          cap=$(echo "$built" | cut -d. -f1-2)
+          echo "$dir: language $lang, toolchain $tc; cap: go $cap line (golangci built with $built)"
+
+          if [ "$(printf '%s\n%s\n' "$(echo "$lang" | cut -d. -f1-2)" "$cap" | sort -V | tail -1)" != "$cap" ]; then
+            echo "::warning::$dir: language directive $lang is above the golangci-lint cap $cap — a human set this; not touching go.mod"
+            continue
+          fi
+
+          # One go.dev lookup per cap line, shared across modules.
+          case "$latest_cache" in
+            "$cap="*) latest=${latest_cache#*=} ;;
+            *)
+              latest=$(curl -fsS --max-time 30 'https://go.dev/dl/?mode=json&include=all' \
+                | jq -r --arg m "go$cap." '[.[].version | select(startswith($m))] | first // empty' \
+                || true)
+              latest_cache="$cap=$latest"
+              ;;
+          esac
+          if [ -z "$latest" ]; then
+            echo "$dir: go.dev unreachable — toolchain stays $tc this run"
+            continue
+          fi
+          target=${latest#go}
+
+          top=$(printf '%s\n%s\n' "$tc" "$target" | sort -V | tail -1)
+          if [ "$top" = "$tc" ]; then
+            echo "$dir: toolchain $tc already at or above $target — no change"
+            continue
+          fi
+          echo "$dir: aligning toolchain $tc -> $target (language stays $lang)"
+          if [ "$target" = "$lang" ]; then
+            (cd "$dir" && devbox run -- go mod edit -toolchain=none)
+          else
+            (cd "$dir" && devbox run -- go mod edit -toolchain="go$target")
+          fi
+          git diff -- "$dir/go.mod"
+        done
+
+    # Pair: playwright. The nix package ships the browsers; the npm package
+    # must match it exactly or the tests run a driver the browsers were not
+    # built for. The devbox.lock version is the truth; package.json follows,
+    # and the lockfile is regenerated by the repository's own package
+    # manager so nothing else in it moves.
+    - name: "Pair: @playwright/test follows the devbox playwright"
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: |
+        set -euo pipefail
+        [ -f devbox.lock ] && [ -f package.json ] || { echo "no devbox.lock + package.json pair — nothing to align"; exit 0; }
+
+        want=$(jq -r '
+          .packages // {} | to_entries[]
+          | select(.key | test("^playwright(-driver|-test)?@"))
+          | .value.version // empty' devbox.lock | head -1)
+        [ -n "$want" ] || { echo "devbox does not pin playwright — nothing to align"; exit 0; }
+
+        have=$(jq -r '
+          [ (.dependencies // {}), (.devDependencies // {}) ]
+          | map(."@playwright/test" // .playwright // empty) | first // empty' package.json)
+        [ -n "$have" ] || { echo "package.json does not depend on playwright — nothing to align"; exit 0; }
+
+        if [ "$have" = "$want" ]; then
+          echo "playwright $want already aligned"
+          exit 0
+        fi
+        echo "aligning playwright $have -> $want (devbox leads)"
+
+        tmp=$(mktemp)
+        jq --arg v "$want" '
+          def pin: if . == null then . else with_entries(if .key == "@playwright/test" or .key == "playwright" then .value = $v else . end) end;
+          .dependencies |= pin | .devDependencies |= pin' package.json > "$tmp"
+        mv "$tmp" package.json
+
+        # Regenerate the lockfile with the repository's own package manager,
+        # through devbox so the pinned manager is the one that runs.
+        pm=$(jq -r '.packageManager // ""' package.json)
+        if [ -f yarn.lock ]; then
+          case "$pm" in
+            yarn@1* | "") devbox run -- yarn install --ignore-scripts ;;
+            *)            devbox run -- yarn install --mode=update-lockfile ;;
+          esac
+        elif [ -f pnpm-lock.yaml ]; then
+          devbox run -- pnpm install --lockfile-only
+        elif [ -f package-lock.json ]; then
+          devbox run -- npm install --package-lock-only --ignore-scripts
+        else
+          echo "::warning::no lockfile found — package.json moved, nothing else"
+        fi
+        git diff --stat
+
+    - name: Open a pull request if anything moved
+      id: pr
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        GH_TOKEN: ${{ inputs.token }}
+        BASE: ${{ inputs.base }}
+        LABEL: ${{ inputs.label }}
+        MODULE_DIRS: ${{ inputs.module-dirs }}
+        GIT_USER: ${{ inputs.git-user }}
+        GIT_EMAIL: ${{ inputs.git-email }}
+      run: |
+        set -euo pipefail
+
+        # The movement gate names every follower, so a change to any of
+        # them is a PR — a go.mod-only change was invisible before v2.10.0.
+        paths=(devbox.json devbox.lock go.mod package.json yarn.lock pnpm-lock.yaml package-lock.json)
+        while IFS= read -r d; do paths+=("$d/go.mod"); done < <(jq -r '.[]' <<<"$MODULE_DIRS")
+
+        if git diff --quiet -- "${paths[@]}"; then
+          echo "everything already at parity"
+          echo "changed=false" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+
+        # ONE fixed branch, force-pushed: a same-day re-run UPDATES the open
+        # PR instead of colliding with yesterday's branch name.
+        branch="chore/devbox-update"
+        git config user.name "$GIT_USER"
+        git config user.email "$GIT_EMAIL"
+        git checkout -B "$branch"
+        git add -- "${paths[@]}" 2>/dev/null || true
+        git commit -m "chore(deps): update devbox packages and align the followers"
+        # Inside devbox, so the repository's pre-push hooks find the
+        # repository's tools: the hooks are the safety net that vets the
+        # aligned directive, so they must be able to run, not be skipped.
+        devbox run -- git push --force origin "$branch"
+
+        gh label create "$LABEL" --force --color 0366d6 --description "Dependency updates" >/dev/null
+
+        url=$(gh pr list --head "$branch" --state open --json url --jq '.[0].url')
+        if [ -n "$url" ]; then
+          echo "open PR for $branch already exists — updated in place by the push"
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+
+        url=$(gh pr create \
+          --title "chore(deps): update devbox packages and align the followers" \
+          --body "Automated parity: \`devbox update\` on the configured weekday, and every follower aligned to its devbox pin — the go toolchain directive (language minor capped by golangci-lint's build Go, patch = newest of that line, never downward) and the playwright npm package (exactly the nix-pinned driver). Nix packages are outside Renovate's reach and the followers are owned here, so the pairs can never disagree." \
+          --base "$BASE" \
+          --label "$LABEL")
+
+        # Arm auto-merge ONLY where required checks exist. With none,
+        # `--auto` merges IMMEDIATELY, unvalidated. GraphQL refUpdateRule,
+        # not REST: REST needs admin:read, which this token does not carry.
+        # shellcheck disable=SC2016  # $o/$r/$b are GraphQL variables, not shell
+        repo=$(gh repo view --json nameWithOwner --jq .nameWithOwner)
+        gated=$(gh api graphql \
+          -f query='query($o:String!,$r:String!,$b:String!){repository(owner:$o,name:$r){ref(qualifiedName:$b){refUpdateRule{requiredStatusCheckContexts}}}}' \
+          -f o="${repo%/*}" -f r="${repo#*/}" -f b="refs/heads/${BASE}" \
+          --jq '.data.repository.ref.refUpdateRule.requiredStatusCheckContexts | length' 2>/dev/null || echo 0)
+        if [ "${gated:-0}" -ge 1 ]; then
+          gh pr merge --auto --rebase "$branch"
+        else
+          echo "no required status checks on ${BASE} — leaving the PR for a human to merge"
+        fi
+
+        echo "changed=true" >> "$GITHUB_OUTPUT"
+        echo "url=$url" >> "$GITHUB_OUTPUT"

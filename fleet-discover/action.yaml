@@ -1,0 +1,166 @@
+# Which repositories a fleet job works on.
+#
+# The App's installation is the source: every repository the App can see,
+# narrowed by four rules that each have a reason.
+#
+#   estate        `public` or `private` (or `all`). The public estate's
+#                 job runs on GitHub-hosted runners and the private
+#                 estate's on a self-hosted pool; a job must never touch
+#                 the other estate's repositories, so the App's
+#                 installation scope alone is not the boundary — this is.
+#   archived      skipped, always. Nothing should open a PR there.
+#   require-check the default branch must have at least one REQUIRED
+#                 status check. Automation that merges on green needs a
+#                 green to wait for; with nothing gating the merge, a
+#                 `--auto` merge lands immediately and unvalidated.
+#   require-file  a file that marks the repository as opted in
+#                 (`renovate.json`, `devbox.json`). Opt-in is a file, not
+#                 a workflow — a repository connects nothing in Actions.
+#
+# Everything reaches the shell through env, never spliced into script
+# text. curl + jq only: the self-hosted image ships no gh.
+name: fleet-discover
+description: List the repositories a fleet job should process, from the App installation the token belongs to.
+
+inputs:
+  token:
+    description: An App INSTALLATION token. The repositories it can see are the candidates.
+    required: true
+  estate:
+    description: "`public`, `private` or `all` — which visibility to keep."
+    required: false
+    default: all
+  require-check:
+    description: Skip repositories whose default branch has no required status check.
+    required: false
+    default: "true"
+  require-file:
+    description: Skip repositories that do not carry this file at the root of the default branch. Empty means no file rule.
+    required: false
+    default: ""
+  filter:
+    description: An RE2 regular expression over `owner/name`; only matches are kept. Empty means everything.
+    required: false
+    default: ""
+  api-url:
+    description: The REST API base. Override only for a test double.
+    required: false
+    default: https://api.github.com
+
+outputs:
+  repositories:
+    description: JSON array of `owner/name` strings, sorted.
+    value: ${{ steps.discover.outputs.repositories }}
+  count:
+    description: How many were kept.
+    value: ${{ steps.discover.outputs.count }}
+
+runs:
+  using: composite
+  steps:
+    - name: Discover
+      id: discover
+      shell: bash
+      env:
+        TOKEN: ${{ inputs.token }}
+        ESTATE: ${{ inputs.estate }}
+        REQUIRE_CHECK: ${{ inputs.require-check }}
+        REQUIRE_FILE: ${{ inputs.require-file }}
+        FILTER: ${{ inputs.filter }}
+        API: ${{ inputs.api-url }}
+      run: |
+        set -euo pipefail
+
+        case "$ESTATE" in
+          public | private | all) ;;
+          *) echo "::error::estate must be public, private or all (got '$ESTATE')"; exit 1 ;;
+        esac
+
+        api() {
+          curl -fsS --max-time 60 \
+            -H "Authorization: Bearer $TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "$@"
+        }
+
+        # Every repository the installation reaches, paginated. `total_count`
+        # is authoritative; a page beyond the end returns an empty list.
+        all='[]'
+        page=1
+        while :; do
+          chunk=$(api "$API/installation/repositories?per_page=100&page=$page" | jq -c '.repositories')
+          all=$(jq -c --argjson c "$chunk" '. + $c' <<<"$all")
+          [ "$(jq 'length' <<<"$chunk")" -lt 100 ] && break
+          page=$((page + 1))
+        done
+
+        # The four rules. Each one that trips is recorded with its reason,
+        # so the step summary says why a repository was NOT processed —
+        # "renovate has never opened a PR here" must never again be a
+        # silent baseline.
+        kept='[]'
+        skipped='[]'
+
+        gql() {
+          # $1 owner, $2 name → number of required contexts, or "null"
+          # when there is no protection at all. GraphQL rather than the
+          # REST protection endpoint: REST needs admin:read, which an
+          # installation token does not carry, and 404s on private repos.
+          jq -n --arg o "$1" --arg r "$2" \
+            '{query: "query($o:String!,$r:String!){repository(owner:$o,name:$r){defaultBranchRef{refUpdateRule{requiredStatusCheckContexts}}}}", variables: {o: $o, r: $r}}' \
+          | api -X POST "$API/graphql" -d @- \
+          | jq -r '.data.repository.defaultBranchRef.refUpdateRule.requiredStatusCheckContexts | if . == null then "null" else length end'
+        }
+
+        while IFS=$'\t' read -r full visibility archived default_branch; do
+          reason=""
+          if [ -n "$FILTER" ] && ! jq -en --arg f "$full" --arg re "$FILTER" '$f | test($re)' >/dev/null; then
+            reason="does not match filter"
+          elif [ "$archived" = "true" ]; then
+            reason="archived"
+          elif [ "$ESTATE" != "all" ] && [ "$visibility" != "$ESTATE" ]; then
+            reason="visibility $visibility, estate $ESTATE"
+          else
+            owner=${full%/*}; name=${full#*/}
+            if [ "$REQUIRE_CHECK" = "true" ]; then
+              n=$(gql "$owner" "$name")
+              if [ "$n" = "null" ] || [ "$n" -lt 1 ]; then
+                reason="no required status check on $default_branch"
+              fi
+            fi
+            if [ -z "$reason" ] && [ -n "$REQUIRE_FILE" ]; then
+              if ! api -o /dev/null "$API/repos/$full/contents/$REQUIRE_FILE?ref=$default_branch" 2>/dev/null; then
+                reason="no $REQUIRE_FILE"
+              fi
+            fi
+          fi
+
+          if [ -z "$reason" ]; then
+            kept=$(jq -c --arg r "$full" '. + [$r]' <<<"$kept")
+          else
+            skipped=$(jq -c --arg r "$full" --arg why "$reason" '. + [{repo: $r, reason: $why}]' <<<"$skipped")
+          fi
+        done < <(jq -r '.[] | [.full_name, .visibility, (.archived|tostring), .default_branch] | @tsv' <<<"$all")
+
+        kept=$(jq -c 'sort' <<<"$kept")
+        count=$(jq 'length' <<<"$kept")
+
+        {
+          echo "## fleet-discover — estate \`$ESTATE\`"
+          echo
+          echo "**$count** repositories to process out of $(jq 'length' <<<"$all") the App can see."
+          echo
+          if [ "$count" -gt 0 ]; then
+            jq -r '.[] | "- " + .' <<<"$kept"
+            echo
+          fi
+          if [ "$(jq 'length' <<<"$skipped")" -gt 0 ]; then
+            echo "| skipped | why |"
+            echo "|---|---|"
+            jq -r '.[] | "| " + .repo + " | " + .reason + " |"' <<<"$skipped"
+          fi
+        } | tee -a "$GITHUB_STEP_SUMMARY"
+
+        echo "repositories=$kept" >> "$GITHUB_OUTPUT"
+        echo "count=$count" >> "$GITHUB_OUTPUT"
