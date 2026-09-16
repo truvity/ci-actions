@@ -259,7 +259,17 @@ runs:
         git config user.name "$GIT_USER"
         git config user.email "$GIT_EMAIL"
         git checkout -B "$branch"
-        git add -- "${paths[@]}" 2>/dev/null || true
+        # Stage only followers that exist. One `git add` naming a path that
+        # is absent (pnpm-lock.yaml in a yarn repository) refuses the WHOLE
+        # command and stages nothing — which, behind `|| true`, surfaced as
+        # "no changes added to commit" in every repository that moved.
+        for path in "${paths[@]}"; do
+          if [ -e "$path" ]; then git add -- "$path"; fi
+        done
+        if git diff --cached --quiet; then
+          echo "::error::followers changed but nothing was staged: $(git status --porcelain | tr '\n' ' ')"
+          exit 1
+        fi
         git commit -m "chore(deps): update devbox packages and align the followers"
         # Inside devbox, so the repository's pre-push hooks find the
         # repository's tools: the hooks are the safety net that vets the
