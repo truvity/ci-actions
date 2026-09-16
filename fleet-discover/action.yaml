@@ -84,16 +84,22 @@ runs:
             "$@"
         }
 
-        # Every repository the installation reaches, paginated. `total_count`
-        # is authoritative; a page beyond the end returns an empty list.
-        all='[]'
+        # Every repository the installation reaches, paginated, reduced to
+        # the four fields discovery reads AS EACH PAGE ARRIVES and collected
+        # in a file. Never through argv: a page of full repository objects
+        # is several megabytes, and passing it to jq as --argjson died with
+        # "Argument list too long" on the first real organisation.
+        pages=$(mktemp)
         page=1
         while :; do
-          chunk=$(api "$API/installation/repositories?per_page=100&page=$page" | jq -c '.repositories')
-          all=$(jq -c --argjson c "$chunk" '. + $c' <<<"$all")
-          [ "$(jq 'length' <<<"$chunk")" -lt 100 ] && break
+          api "$API/installation/repositories?per_page=100&page=$page" \
+            | jq -c '[.repositories[] | {full_name, visibility, archived, default_branch}]' >"$pages.page"
+          cat "$pages.page" >>"$pages"
+          [ "$(jq 'length' "$pages.page")" -lt 100 ] && break
           page=$((page + 1))
         done
+        all=$(jq -cs 'add // []' "$pages")
+        rm -f "$pages" "$pages.page"
 
         # The four rules. Each one that trips is recorded with its reason,
         # so the step summary says why a repository was NOT processed —
