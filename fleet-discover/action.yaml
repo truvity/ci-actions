@@ -42,6 +42,15 @@ inputs:
     description: An RE2 regular expression over `owner/name`; only matches are kept. Empty means everything.
     required: false
     default: ""
+  repositories:
+    description: >-
+      JSON array of repository NAMES (no owner) the caller has enrolled.
+      When set, only these are kept, and a listed repository the App
+      cannot see is reported as an error — the enrolment says it should
+      be processed, so its absence is a fault, not a preference. Empty
+      means every repository the installation can see.
+    required: false
+    default: ""
   api-url:
     description: The REST API base. Override only for a test double.
     required: false
@@ -54,6 +63,9 @@ outputs:
   count:
     description: How many were kept.
     value: ${{ steps.discover.outputs.count }}
+  missing:
+    description: JSON array of enrolled names the App cannot see (not installed, renamed, deleted).
+    value: ${{ steps.discover.outputs.missing }}
 
 runs:
   using: composite
@@ -67,6 +79,7 @@ runs:
         REQUIRE_CHECK: ${{ inputs.require-check }}
         REQUIRE_FILE: ${{ inputs.require-file }}
         FILTER: ${{ inputs.filter }}
+        ENROLLED: ${{ inputs.repositories }}
         API: ${{ inputs.api-url }}
       run: |
         set -euo pipefail
@@ -119,9 +132,17 @@ runs:
           | jq -r '.data.repository.defaultBranchRef.refUpdateRule.requiredStatusCheckContexts | if . == null then "null" else length end'
         }
 
+        enrolled=$(jq -c 'if type == "array" then . else [] end' <<<"${ENROLLED:-[]}" 2>/dev/null || echo '[]')
+        if [ -n "$ENROLLED" ] && [ "$(jq 'length' <<<"$enrolled")" -eq 0 ]; then
+          echo "::error::repositories is not a non-empty JSON array of names: $ENROLLED"
+          exit 1
+        fi
+
         while IFS=$'\t' read -r full visibility archived default_branch; do
           reason=""
-          if [ -n "$FILTER" ] && ! jq -en --arg f "$full" --arg re "$FILTER" '$f | test($re)' >/dev/null; then
+          if [ -n "$ENROLLED" ] && ! jq -e --arg n "${full#*/}" 'index($n)' <<<"$enrolled" >/dev/null; then
+            reason="not enrolled"
+          elif [ -n "$FILTER" ] && ! jq -en --arg f "$full" --arg re "$FILTER" '$f | test($re)' >/dev/null; then
             reason="does not match filter"
           elif [ "$archived" = "true" ]; then
             reason="archived"
@@ -152,6 +173,14 @@ runs:
         kept=$(jq -c 'sort' <<<"$kept")
         count=$(jq 'length' <<<"$kept")
 
+        # Enrolled but invisible to the App: not installed on it, renamed or
+        # deleted. Error annotations, one per repository, so the run page
+        # names every fault; the rest of the estate still runs.
+        missing=$(jq -c --argjson all "$(jq -c '[.[].full_name | split("/")[1]]' <<<"$all")" '[.[] | select(. as $n | $all | index($n) | not)] | sort' <<<"$enrolled")
+        for name in $(jq -r '.[]' <<<"$missing"); do
+          echo "::error::$name is enrolled but the App cannot see it — install the App on it, or remove it from the list"
+        done
+
         {
           echo "## fleet-discover — estate \`$ESTATE\`"
           echo
@@ -161,12 +190,20 @@ runs:
             jq -r '.[] | "- " + .' <<<"$kept"
             echo
           fi
-          if [ "$(jq 'length' <<<"$skipped")" -gt 0 ]; then
+          if [ "$(jq 'length' <<<"$missing")" -gt 0 ]; then
+            echo "**Enrolled but not reachable by the App:** $(jq -r 'join(", ")' <<<"$missing")"
+            echo
+          fi
+          # "not enrolled" is the normal case for most of an installation
+          # once a list is in use; listing each one would bury the rest.
+          shown=$(jq -c '[.[] | select(.reason != "not enrolled")]' <<<"$skipped")
+          if [ "$(jq 'length' <<<"$shown")" -gt 0 ]; then
             echo "| skipped | why |"
             echo "|---|---|"
-            jq -r '.[] | "| " + .repo + " | " + .reason + " |"' <<<"$skipped"
+            jq -r '.[] | "| " + .repo + " | " + .reason + " |"' <<<"$shown"
           fi
         } | tee -a "$GITHUB_STEP_SUMMARY"
 
         echo "repositories=$kept" >> "$GITHUB_OUTPUT"
         echo "count=$count" >> "$GITHUB_OUTPUT"
+        echo "missing=$missing" >> "$GITHUB_OUTPUT"
