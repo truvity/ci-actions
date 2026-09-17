@@ -451,3 +451,33 @@ runs:
         CACHE_BUCKET: ${{ inputs.go-cache-bucket }}
         CACHE_REGION: ${{ inputs.go-cache-region }}
         CACHE_GOPROXY: ${{ inputs.goproxy }}
+
+    # `devbox run` re-applies the `env` block of devbox.json on top of the
+    # job environment, so a GOPROXY pinned there silently beats the one
+    # written above: every module download goes to the public proxy while
+    # the job looks correctly wired. A warning rather than a failure — the
+    # build still works, just without the proxy — so existing callers keep
+    # going while the line gets removed.
+    - name: Guard GOPROXY against devbox.json
+      if: inputs.goproxy != ''
+      shell: bash
+      run: |
+        set -euo pipefail
+        file="devbox.json"
+        if [ ! -f "$file" ]; then
+          exit 0
+        fi
+        if ! command -v jq >/dev/null 2>&1; then
+          echo "jq not on PATH; skipping the devbox.json GOPROXY check"
+          exit 0
+        fi
+        # `// empty` covers both a missing env block and a missing key; a
+        # file jq cannot parse (devbox tolerates comments) skips the check
+        # rather than failing the job.
+        if ! pinned=$(jq -r '.env.GOPROXY // empty' "$file" 2>/dev/null); then
+          echo "$file is not plain JSON; skipping the GOPROXY check"
+          exit 0
+        fi
+        if [ -n "$pinned" ]; then
+          echo "::warning file=${file}::${file} sets env.GOPROXY (${pinned}). devbox run re-applies that env block, so it overrides the CI module proxy passed as the goproxy input for every recipe. Remove GOPROXY from ${file}; laptops fall back to Go's default proxy."
+        fi
