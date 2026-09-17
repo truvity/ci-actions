@@ -10,15 +10,21 @@
 #                 installation scope alone is not the boundary — this is.
 #   archived      skipped, always. Nothing should open a PR there.
 #   require-check the default branch must have at least one REQUIRED
-#                 status check. Automation that merges on green needs a
-#                 green to wait for; with nothing gating the merge, a
-#                 `--auto` merge lands immediately and unvalidated.
+#                 status check, from EITHER a repository ruleset or
+#                 classic branch protection. Automation that merges on
+#                 green needs a green to wait for; with nothing gating
+#                 the merge, a `--auto` merge lands immediately and
+#                 unvalidated. A source that cannot be read is
+#                 `unknown`, never `no`: the repository is kept and the
+#                 summary says the rule was not decided.
 #   require-file  a file that marks the repository as opted in
 #                 (`renovate.json`, `devbox.json`). Opt-in is a file, not
 #                 a workflow — a repository connects nothing in Actions.
 #
 # Everything reaches the shell through env, never spliced into script
-# text. curl + jq only: the self-hosted image ships no gh.
+# text. curl + jq only: the self-hosted image ships no gh. The rules
+# themselves live in discover.sh next to this file, so they can be
+# exercised against a stub API (hack/discover-cases.sh).
 name: fleet-discover
 description: List the repositories a fleet job should process, from the App installation the token belongs to.
 
@@ -31,7 +37,11 @@ inputs:
     required: false
     default: all
   require-check:
-    description: Skip repositories whose default branch has no required status check.
+    description: >-
+      Skip repositories whose default branch has no required status
+      check. Both sources count: a repository ruleset and classic branch
+      protection. A source that cannot be read leaves the rule undecided
+      and the repository is kept.
     required: false
     default: "true"
   require-file:
@@ -81,129 +91,4 @@ runs:
         FILTER: ${{ inputs.filter }}
         ENROLLED: ${{ inputs.repositories }}
         API: ${{ inputs.api-url }}
-      run: |
-        set -euo pipefail
-
-        case "$ESTATE" in
-          public | private | all) ;;
-          *) echo "::error::estate must be public, private or all (got '$ESTATE')"; exit 1 ;;
-        esac
-
-        api() {
-          curl -fsS --max-time 60 \
-            -H "Authorization: Bearer $TOKEN" \
-            -H "Accept: application/vnd.github+json" \
-            -H "X-GitHub-Api-Version: 2022-11-28" \
-            "$@"
-        }
-
-        # Every repository the installation reaches, paginated, reduced to
-        # the four fields discovery reads AS EACH PAGE ARRIVES and collected
-        # in a file. Never through argv: a page of full repository objects
-        # is several megabytes, and passing it to jq as --argjson died with
-        # "Argument list too long" on the first real organisation.
-        pages=$(mktemp)
-        page=1
-        while :; do
-          api "$API/installation/repositories?per_page=100&page=$page" \
-            | jq -c '[.repositories[] | {full_name, visibility, archived, default_branch}]' >"$pages.page"
-          cat "$pages.page" >>"$pages"
-          [ "$(jq 'length' "$pages.page")" -lt 100 ] && break
-          page=$((page + 1))
-        done
-        all=$(jq -cs 'add // []' "$pages")
-        rm -f "$pages" "$pages.page"
-
-        # The four rules. Each one that trips is recorded with its reason,
-        # so the step summary says why a repository was NOT processed —
-        # "renovate has never opened a PR here" must never again be a
-        # silent baseline.
-        kept='[]'
-        skipped='[]'
-
-        gql() {
-          # $1 owner, $2 name → number of required contexts, or "null"
-          # when there is no protection at all. GraphQL rather than the
-          # REST protection endpoint: REST needs admin:read, which an
-          # installation token does not carry, and 404s on private repos.
-          jq -n --arg o "$1" --arg r "$2" \
-            '{query: "query($o:String!,$r:String!){repository(owner:$o,name:$r){defaultBranchRef{refUpdateRule{requiredStatusCheckContexts}}}}", variables: {o: $o, r: $r}}' \
-          | api -X POST "$API/graphql" -d @- \
-          | jq -r '.data.repository.defaultBranchRef.refUpdateRule.requiredStatusCheckContexts | if . == null then "null" else length end'
-        }
-
-        enrolled=$(jq -c 'if type == "array" then . else [] end' <<<"${ENROLLED:-[]}" 2>/dev/null || echo '[]')
-        if [ -n "$ENROLLED" ] && [ "$(jq 'length' <<<"$enrolled")" -eq 0 ]; then
-          echo "::error::repositories is not a non-empty JSON array of names: $ENROLLED"
-          exit 1
-        fi
-
-        while IFS=$'\t' read -r full visibility archived default_branch; do
-          reason=""
-          if [ -n "$ENROLLED" ] && ! jq -e --arg n "${full#*/}" 'index($n)' <<<"$enrolled" >/dev/null; then
-            reason="not enrolled"
-          elif [ -n "$FILTER" ] && ! jq -en --arg f "$full" --arg re "$FILTER" '$f | test($re)' >/dev/null; then
-            reason="does not match filter"
-          elif [ "$archived" = "true" ]; then
-            reason="archived"
-          elif [ "$ESTATE" != "all" ] && [ "$visibility" != "$ESTATE" ]; then
-            reason="visibility $visibility, estate $ESTATE"
-          else
-            owner=${full%/*}; name=${full#*/}
-            if [ "$REQUIRE_CHECK" = "true" ]; then
-              n=$(gql "$owner" "$name")
-              if [ "$n" = "null" ] || [ "$n" -lt 1 ]; then
-                reason="no required status check on $default_branch"
-              fi
-            fi
-            if [ -z "$reason" ] && [ -n "$REQUIRE_FILE" ]; then
-              if ! api -o /dev/null "$API/repos/$full/contents/$REQUIRE_FILE?ref=$default_branch" 2>/dev/null; then
-                reason="no $REQUIRE_FILE"
-              fi
-            fi
-          fi
-
-          if [ -z "$reason" ]; then
-            kept=$(jq -c --arg r "$full" '. + [$r]' <<<"$kept")
-          else
-            skipped=$(jq -c --arg r "$full" --arg why "$reason" '. + [{repo: $r, reason: $why}]' <<<"$skipped")
-          fi
-        done < <(jq -r '.[] | [.full_name, .visibility, (.archived|tostring), .default_branch] | @tsv' <<<"$all")
-
-        kept=$(jq -c 'sort' <<<"$kept")
-        count=$(jq 'length' <<<"$kept")
-
-        # Enrolled but invisible to the App: not installed on it, renamed or
-        # deleted. Error annotations, one per repository, so the run page
-        # names every fault; the rest of the estate still runs.
-        missing=$(jq -c --argjson all "$(jq -c '[.[].full_name | split("/")[1]]' <<<"$all")" '[.[] | select(. as $n | $all | index($n) | not)] | sort' <<<"$enrolled")
-        for name in $(jq -r '.[]' <<<"$missing"); do
-          echo "::error::$name is enrolled but the App cannot see it — install the App on it, or remove it from the list"
-        done
-
-        {
-          echo "## fleet-discover — estate \`$ESTATE\`"
-          echo
-          echo "**$count** repositories to process out of $(jq 'length' <<<"$all") the App can see."
-          echo
-          if [ "$count" -gt 0 ]; then
-            jq -r '.[] | "- " + .' <<<"$kept"
-            echo
-          fi
-          if [ "$(jq 'length' <<<"$missing")" -gt 0 ]; then
-            echo "**Enrolled but not reachable by the App:** $(jq -r 'join(", ")' <<<"$missing")"
-            echo
-          fi
-          # "not enrolled" is the normal case for most of an installation
-          # once a list is in use; listing each one would bury the rest.
-          shown=$(jq -c '[.[] | select(.reason != "not enrolled")]' <<<"$skipped")
-          if [ "$(jq 'length' <<<"$shown")" -gt 0 ]; then
-            echo "| skipped | why |"
-            echo "|---|---|"
-            jq -r '.[] | "| " + .repo + " | " + .reason + " |"' <<<"$shown"
-          fi
-        } | tee -a "$GITHUB_STEP_SUMMARY"
-
-        echo "repositories=$kept" >> "$GITHUB_OUTPUT"
-        echo "count=$count" >> "$GITHUB_OUTPUT"
-        echo "missing=$missing" >> "$GITHUB_OUTPUT"
+      run: bash "$GITHUB_ACTION_PATH/discover.sh"

@@ -295,18 +295,39 @@ runs:
           --label "$LABEL")
 
         # Arm auto-merge ONLY where required checks exist. With none,
-        # `--auto` merges IMMEDIATELY, unvalidated. GraphQL refUpdateRule,
-        # not REST: REST needs admin:read, which this token does not carry.
-        # shellcheck disable=SC2016  # $o/$r/$b are GraphQL variables, not shell
+        # `--auto` merges IMMEDIATELY, unvalidated.
+        #
+        # A branch can require a check in two unrelated ways and EITHER
+        # is a green to wait for:
+        #
+        #   rulesets  the effective-rules endpoint, already merged across
+        #             every ruleset that applies to the branch. Metadata:
+        #             read, which every installation token carries.
+        #   classic   branch protection. REST first — authoritative and
+        #             viewer-independent — but it needs Administration:
+        #             read, which this token does not carry, so it falls
+        #             back to GraphQL's refUpdateRule, which answers for
+        #             any viewer (`null` = no protection at all).
+        #
+        # Reading classic protection alone left every ruleset-gated
+        # repository unarmed. An unreadable source still means "leave it
+        # for a human": failing toward a manual merge is the safe side.
         repo=$(gh repo view --json nameWithOwner --jq .nameWithOwner)
-        gated=$(gh api graphql \
-          -f query='query($o:String!,$r:String!,$b:String!){repository(owner:$o,name:$r){ref(qualifiedName:$b){refUpdateRule{requiredStatusCheckContexts}}}}' \
-          -f o="${repo%/*}" -f r="${repo#*/}" -f b="refs/heads/${BASE}" \
-          --jq '.data.repository.ref.refUpdateRule.requiredStatusCheckContexts | length' 2>/dev/null || echo 0)
-        if [ "${gated:-0}" -ge 1 ]; then
+        ruleset_checks=$(gh api "repos/${repo}/rules/branches/${BASE}?per_page=100" \
+          --jq '[.[] | select(.type == "required_status_checks") | (.parameters.required_status_checks // []) | length] | add // 0' 2>/dev/null || echo 0)
+        # shellcheck disable=SC2016  # $o/$r/$b are GraphQL variables, not shell
+        classic_checks=$(gh api "repos/${repo}/branches/${BASE}/protection" \
+          --jq '(.required_status_checks.contexts // []) | length' 2>/dev/null \
+          || gh api graphql \
+            -f query='query($o:String!,$r:String!,$b:String!){repository(owner:$o,name:$r){ref(qualifiedName:$b){refUpdateRule{requiredStatusCheckContexts}}}}' \
+            -f o="${repo%/*}" -f r="${repo#*/}" -f b="refs/heads/${BASE}" \
+            --jq '.data.repository.ref.refUpdateRule.requiredStatusCheckContexts | length' 2>/dev/null \
+          || echo 0)
+        if [ "${ruleset_checks:-0}" -ge 1 ] || [ "${classic_checks:-0}" -ge 1 ]; then
+          echo "required checks on ${BASE}: ${ruleset_checks:-0} from rulesets, ${classic_checks:-0} from classic protection — arming auto-merge"
           gh pr merge --auto --rebase "$branch"
         else
-          echo "no required status checks on ${BASE} — leaving the PR for a human to merge"
+          echo "no required status check on ${BASE} — neither a ruleset nor classic branch protection requires one; leaving the PR for a human to merge"
         fi
 
         echo "changed=true" >> "$GITHUB_OUTPUT"
