@@ -270,10 +270,12 @@ runs:
           echo "::error::followers changed but nothing was staged: $(git status --porcelain | tr '\n' ' ')"
           exit 1
         fi
-        git commit -m "chore(deps): update devbox packages and align the followers"
-        # Inside devbox, so the repository's pre-push hooks find the
-        # repository's tools: the hooks are the safety net that vets the
-        # aligned directive, so they must be able to run, not be skipped.
+        # Inside devbox, like the push below: a repository whose pre-commit
+        # hook calls one of its own tools (moonx, for example) fails with
+        # "command not found" on a hosted runner otherwise. The hooks are
+        # the safety net that vets the aligned directive, so they must be
+        # able to run, not be skipped.
+        devbox run -- git commit -m "chore(deps): update devbox packages and align the followers"
         devbox run -- git push --force origin "$branch"
 
         gh label create "$LABEL" --force --color 0366d6 --description "Dependency updates" >/dev/null
