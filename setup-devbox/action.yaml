@@ -25,6 +25,26 @@ inputs:
     default: ""
   go-cache-region:
     default: ""
+  go-cache-endpoint:
+    description: >-
+      S3 endpoint URL for the Go build cache, for an S3-COMPATIBLE store
+      that is not AWS — Cloudflare R2, MinIO, Ceph. Empty keeps the AWS
+      default, so every existing caller is unaffected.
+
+      go-cache-plugin already understands this as --s3-endpoint-url /
+      GOCACHE_S3_ENDPOINT_URL; the action simply never passed it, which
+      made the cache AWS-only by omission rather than by decision.
+
+      From the CALLER's org variable: an endpoint carries an account id,
+      and this repository is public.
+    default: ""
+  go-cache-path-style:
+    description: >-
+      Address the cache bucket path-style (endpoint/bucket/key) rather
+      than virtual-hosted (bucket.endpoint/key). Needed by stores whose
+      wildcard certificate does not cover a bucket subdomain, and
+      harmless where it is not. "true" to enable.
+    default: ""
   goproxy:
     description: In-cluster Go module proxy with a public fallback.
     default: ""
@@ -444,12 +464,23 @@ runs:
         }
         write_env GOCACHE_S3_BUCKET "$CACHE_BUCKET"
         write_env GOCACHE_S3_REGION "$CACHE_REGION"
+        # Only when given: an empty endpoint must leave the AWS default
+        # alone rather than write an empty one, which the SDK would take
+        # literally and fail to resolve.
+        if [ -n "$CACHE_ENDPOINT" ]; then
+          write_env GOCACHE_S3_ENDPOINT_URL "$CACHE_ENDPOINT"
+        fi
+        if [ -n "$CACHE_PATH_STYLE" ]; then
+          write_env GOCACHE_S3_PATH_STYLE "$CACHE_PATH_STYLE"
+        fi
         if [ -n "$CACHE_GOPROXY" ]; then
           write_env GOPROXY "$CACHE_GOPROXY"
         fi
       env:
         CACHE_BUCKET: ${{ inputs.go-cache-bucket }}
         CACHE_REGION: ${{ inputs.go-cache-region }}
+        CACHE_ENDPOINT: ${{ inputs.go-cache-endpoint }}
+        CACHE_PATH_STYLE: ${{ inputs.go-cache-path-style }}
         CACHE_GOPROXY: ${{ inputs.goproxy }}
 
     # `devbox run` re-applies the `env` block of devbox.json on top of the
