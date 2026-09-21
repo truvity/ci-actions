@@ -1,0 +1,35 @@
+# CANONICAL COPY — the security caller every repository that runs
+# govulncheck carries as `.github/workflows/security.yaml`. The
+# caller-parity check compares each enrolled repository against this
+# file; copy it verbatim into a new repository.
+#
+# What is compared is SUBSTANCE: comment lines, blank lines, the `cron:`
+# line and the pinned ref of this library are all ignored, so the prose
+# below is yours to rewrite and the schedule yours to stagger. Everything
+# else has to match. See docs/fleet.md, "caller-parity".
+name: Security
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+  schedule:
+    - cron: "0 6 * * *" # daily 6am UTC
+
+permissions:
+  contents: read
+
+jobs:
+  # The same recipe the shared workflow runs everywhere else, instead of
+  # a hand-rolled copy that installed devbox through an UNPINNED
+  # `curl | bash` -- eight repositories carried that identical block.
+  #
+  # Deliberately NOT in ci.yaml's recipe list, and deliberately not a
+  # required context. A standard-library advisory with no released fix
+  # would otherwise wedge every pull request on a finding nobody can act
+  # on.
+  govulncheck:
+    uses: truvity/ci-workflows/.github/workflows/check.yaml@ea3c238133634f69f0c51240ede27bb270e24dc0 # v3.0.1
+    with:
+      recipes: '["vuln"]'

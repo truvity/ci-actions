@@ -1,0 +1,73 @@
+# Do the estate's shared caller workflows still say the same thing?
+#
+# Every repository carries a few thin callers that delegate to this
+# library. Two of them are one kit in substance: `security.yaml` and
+# `auto-release.yaml` are the same workflow everywhere, differing only
+# in the prose they explain themselves with and in one deliberately
+# staggered `cron:` minute. Measured across the public estate on
+# 2026-09-21: security.yaml identical in 11 of 11 repositories that
+# carry it (four prose variants, one workflow), auto-release.yaml
+# identical in 12 of 13 — the thirteenth had lost its `push:` trigger,
+# and so its security-release lane, with nothing to say so.
+#
+# The canonical copies are the files in `kits/` next to this action, so
+# they are pinned by the same SHA the workflow pins the action with, and
+# the "pins are current" gate in self-check.yaml already guards them.
+# One file per caller; the target path is `.github/workflows/<name>`.
+# Adding a third kit is dropping a file in.
+#
+# THIS ACTION REPORTS. It opens no branch and no pull request and
+# rewrites nothing: the estate reads what would change before anything
+# changes it. `fail-on-diff` is the lever for turning the report into a
+# gate once the estate is clean.
+name: caller-parity
+description: Compare each repository's shared caller workflows against the canonical copies, and report the differences.
+
+inputs:
+  token:
+    description: >-
+      An App INSTALLATION token that can read the contents of every
+      repository passed in `repositories`. Read-only is enough.
+    required: true
+  repositories:
+    description: JSON array of `owner/name` strings, as fleet-discover emits.
+    required: true
+  kits-dir:
+    description: >-
+      Directory holding the canonical copies. Empty uses this action's
+      own `kits/`. Point it at a checkout of the caller repository to
+      keep an estate's own copies there instead.
+    required: false
+    default: ""
+  fail-on-diff:
+    description: >-
+      Fail the job when a repository differs. `false` reports only,
+      which is what the first version of this check is for.
+    required: false
+    default: "false"
+  api-url:
+    description: The REST API base. Override only for a test double.
+    required: false
+    default: https://api.github.com
+
+outputs:
+  differences:
+    description: How many repository files differ from their canonical copy.
+    value: ${{ steps.compare.outputs.differences }}
+  absent:
+    description: How many of the compared files a repository does not carry at all.
+    value: ${{ steps.compare.outputs.absent }}
+
+runs:
+  using: composite
+  steps:
+    - name: Compare
+      id: compare
+      shell: bash
+      env:
+        TOKEN: ${{ inputs.token }}
+        REPOSITORIES: ${{ inputs.repositories }}
+        KITS: ${{ inputs.kits-dir || format('{0}/kits', github.action_path) }}
+        FAIL_ON_DIFF: ${{ inputs.fail-on-diff }}
+        API: ${{ inputs.api-url }}
+      run: bash "$GITHUB_ACTION_PATH/caller-parity.sh"
