@@ -1,0 +1,11 @@
+name: tagged-pins
+description: >-
+  Refuse a truvity/ci-workflows pin that does not name a release. Reads
+  the tag list with `git ls-remote` on a public repository, so it needs no
+  token, no API and no toolchain beyond git and bash.
+
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: ${{ github.action_path }}/tagged-pins.sh
