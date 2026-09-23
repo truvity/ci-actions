@@ -1,0 +1,30 @@
+name: public-runners
+description: >-
+  Refuse a self-hosted runner in a PUBLIC repository. Runs on a hosted
+  runner itself, before any job that would land on the estate's own
+  infrastructure, and needs no toolchain beyond bash.
+
+inputs:
+  runners:
+    description: >-
+      The runner labels the caller asked for, whitespace separated. Empty
+      entries are ignored, so a caller can pass optional tier inputs
+      straight through.
+    required: true
+  visibility:
+    description: >-
+      The calling repository's visibility, normally
+      `github.event.repository.visibility`. When the event payload carries
+      none, the action asks the API with the job's own token.
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        RUNNERS: ${{ inputs.runners }}
+        VISIBILITY: ${{ inputs.visibility }}
+        GH_TOKEN: ${{ github.token }}
+      run: ${{ github.action_path }}/public-runners.sh
