@@ -497,25 +497,31 @@ runs:
         # is down costs a cold build rather than a failed one, and a probe
         # in bash would only add a way to be wrong about it.
         #
-        # --local-budget IS NOT OPTIONAL IN A CONTAINER. Left at 0 the agent
-        # sizes its local cache from the FILESYSTEM, which on a node is
-        # hundreds of gigabytes; inside a cgroup that is not a budget at
-        # all. Everything it writes there becomes page cache charged to the
-        # container's memory limit, and `memory.peak` counts reclaimable
-        # page cache. On 2026-09-23 that took gitops' jobs from 54-76% of
-        # their limit with ZERO limit hits to 100% with 59,190 of them: two
-        # runners were starved to death mid-step and the one that survived
-        # took 3.4x as long.
+        # NO --local-budget, deliberately, and it was here for a day.
         #
-        # 2 GiB, and the number matters less than the cap existing. The
-        # local tier buys little in CI anyway -- the directory is discarded
-        # when the job ends, and within one job the toolchain rarely asks
-        # for the same action twice. The real cache is one hop away.
+        # The agent used to size its local cache from the FILESYSTEM, which
+        # in a container is the node's disk. Everything it writes there is
+        # page cache charged to the container's memory limit, so on
+        # 2026-09-23 gitops' jobs went from 54-76% of their limit with ZERO
+        # reclaim events to 100% with 59,190: two runners were starved to
+        # death mid-step. The cap here was the emergency answer.
+        #
+        # ci-cache 0.1.2 derives the budget from the cgroup instead, at a
+        # quarter of the container's memory limit. A number written here
+        # WINS over that derivation, so leaving one would pin every runner
+        # tier to the same figure regardless of its size -- 2 GiB is a
+        # third of the small tier and a twelfth of the large one. The
+        # agent knows which box it is in; this file does not.
+        #
+        # The floor that matters is the runner image: an image whose agent
+        # predates 0.1.2 would go back to sizing from the node. ci-plane
+        # ships it from 2.2.0, and an image with no agent at all is refused
+        # above rather than silently mis-sized.
         #
         # --metrics so the job log carries the agent's one-line summary at
         # exit. Without it a run tells you nothing about hits, misses or
         # bytes, which is the whole question a cache has to answer.
-        write_env GOCACHEPROG "ci-cache agent --remote ${CACHE_SERVER}/go/build --cache-dir ${RUNNER_TEMP}/ci-cache --local-budget 2147483648 --metrics"
+        write_env GOCACHEPROG "ci-cache agent --remote ${CACHE_SERVER}/go/build --cache-dir ${RUNNER_TEMP}/ci-cache --metrics"
 
         if [ -n "$CACHE_GOPROXY" ]; then
           write_env GOPROXY "$CACHE_GOPROXY"
