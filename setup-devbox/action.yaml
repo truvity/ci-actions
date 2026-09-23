@@ -463,10 +463,20 @@ runs:
       run: |
         set -euo pipefail
 
-        # The binary ships in the runner image. If the image predates it,
-        # say so HERE: GOCACHEPROG naming a missing program fails at the
-        # first `go` invocation, with a message about the toolchain rather
-        # than about this action.
+        # A GitHub-hosted runner can reach neither the binary nor an
+        # in-cluster service, so asking for one there is a mistake to step
+        # around rather than to fail on -- the same reading the bucket
+        # branch takes of a hosted runner with no VPC endpoint. Skipping
+        # leaves the plain Go caches, which work.
+        if [ "${RUNNER_ENVIRONMENT:-}" = "github-hosted" ]; then
+          echo "::notice::go-cache-server ignored on a GitHub-hosted runner"
+          exit 0
+        fi
+
+        # On a SELF-HOSTED runner the binary ships in the image, so its
+        # absence means the image predates it. Say so HERE: GOCACHEPROG
+        # naming a missing program fails at the first `go` invocation,
+        # with a message about the toolchain rather than about this action.
         if ! command -v ci-cache >/dev/null 2>&1; then
           echo "::error::ci-cache not on PATH — runner image too old for go-cache-server"
           exit 1
