@@ -45,6 +45,20 @@ inputs:
       wildcard certificate does not cover a bucket subdomain, and
       harmless where it is not. "true" to enable.
     default: ""
+  go-cache-server:
+    description: >-
+      Base URL of a truvity/ci-cache server, scheme and authority only —
+      the action appends the front-end path. Comes from the CALLER's org
+      variable, like the bucket inputs; this repository is public and
+      must never contain an estate's address, which is why there is no
+      example here.
+
+      TAKES PRECEDENCE over go-cache-bucket when both are set, because a
+      caller moving from one to the other moves an org variable and its
+      workflow pin at different times, and the newer path should win
+      during that window rather than the order of two `if` conditions
+      deciding it.
+    default: ""
   goproxy:
     description: In-cluster Go module proxy with a public fallback.
     default: ""
@@ -439,8 +453,50 @@ runs:
         CA_REGION: ${{ inputs.codeartifact-region }}
 
 
+    # The cache SERVER path (truvity/ci-cache). Runs instead of the bucket
+    # step below, never beside it: two steps both writing GOCACHEPROG would
+    # leave the last one to win by file order, which is not a decision
+    # anybody made.
+    - name: Wire the fleet caches (cache server)
+      if: inputs.go-cache-server != ''
+      shell: bash
+      run: |
+        set -euo pipefail
+
+        # The binary ships in the runner image. If the image predates it,
+        # say so HERE: GOCACHEPROG naming a missing program fails at the
+        # first `go` invocation, with a message about the toolchain rather
+        # than about this action.
+        if ! command -v ci-cache >/dev/null 2>&1; then
+          echo "::error::ci-cache not on PATH — runner image too old for go-cache-server"
+          exit 1
+        fi
+
+        # Caller-supplied values go through heredoc writes with random
+        # delimiters — the NAME=VALUE form lets a value carrying a newline
+        # mint a second variable (CodeQL envvar-injection).
+        write_env() {
+          local d
+          d="EOF_$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')"
+          printf '%s<<%s\n%s\n%s\n' "$1" "$d" "$2" "$d" >> "$GITHUB_ENV"
+        }
+
+        # No bucket, region, endpoint or metrics: the agent talks to the
+        # server and the server owns the object store. Nothing here probes
+        # the server either -- the agent fails OPEN inside the process, so a
+        # cache that is down costs a cold build rather than a failed one,
+        # and a probe in bash would only add a way to be wrong about it.
+        write_env GOCACHEPROG "ci-cache agent --remote ${CACHE_SERVER}/go/build --cache-dir ${RUNNER_TEMP}/ci-cache"
+
+        if [ -n "$CACHE_GOPROXY" ]; then
+          write_env GOPROXY "$CACHE_GOPROXY"
+        fi
+      env:
+        CACHE_SERVER: ${{ inputs.go-cache-server }}
+        CACHE_GOPROXY: ${{ inputs.goproxy }}
+
     - name: Wire the fleet caches
-      if: inputs.go-cache-bucket != ''
+      if: inputs.go-cache-bucket != '' && inputs.go-cache-server == ''
       shell: bash
       # Only when asked: hosted runners have no VPC endpoint and no pool
       # identity, so pointing GOCACHEPROG at S3 there would fail every
