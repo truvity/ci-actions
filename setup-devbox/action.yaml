@@ -491,12 +491,31 @@ runs:
           printf '%s<<%s\n%s\n%s\n' "$1" "$d" "$2" "$d" >> "$GITHUB_ENV"
         }
 
-        # No bucket, region, endpoint or metrics: the agent talks to the
-        # server and the server owns the object store. Nothing here probes
-        # the server either -- the agent fails OPEN inside the process, so a
-        # cache that is down costs a cold build rather than a failed one,
-        # and a probe in bash would only add a way to be wrong about it.
-        write_env GOCACHEPROG "ci-cache agent --remote ${CACHE_SERVER}/go/build --cache-dir ${RUNNER_TEMP}/ci-cache"
+        # No bucket, region or endpoint: the agent talks to the server and
+        # the server owns the object store. Nothing here probes the server
+        # either -- the agent fails OPEN inside the process, so a cache that
+        # is down costs a cold build rather than a failed one, and a probe
+        # in bash would only add a way to be wrong about it.
+        #
+        # --local-budget IS NOT OPTIONAL IN A CONTAINER. Left at 0 the agent
+        # sizes its local cache from the FILESYSTEM, which on a node is
+        # hundreds of gigabytes; inside a cgroup that is not a budget at
+        # all. Everything it writes there becomes page cache charged to the
+        # container's memory limit, and `memory.peak` counts reclaimable
+        # page cache. On 2026-09-23 that took gitops' jobs from 54-76% of
+        # their limit with ZERO limit hits to 100% with 59,190 of them: two
+        # runners were starved to death mid-step and the one that survived
+        # took 3.4x as long.
+        #
+        # 2 GiB, and the number matters less than the cap existing. The
+        # local tier buys little in CI anyway -- the directory is discarded
+        # when the job ends, and within one job the toolchain rarely asks
+        # for the same action twice. The real cache is one hop away.
+        #
+        # --metrics so the job log carries the agent's one-line summary at
+        # exit. Without it a run tells you nothing about hits, misses or
+        # bytes, which is the whole question a cache has to answer.
+        write_env GOCACHEPROG "ci-cache agent --remote ${CACHE_SERVER}/go/build --cache-dir ${RUNNER_TEMP}/ci-cache --local-budget 2147483648 --metrics"
 
         if [ -n "$CACHE_GOPROXY" ]; then
           write_env GOPROXY "$CACHE_GOPROXY"
