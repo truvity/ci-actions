@@ -47,17 +47,19 @@ inputs:
     default: ""
   go-cache-server:
     description: >-
-      Base URL of a truvity/ci-cache server, scheme and authority only —
-      the action appends the front-end path. Comes from the CALLER's org
-      variable, like the bucket inputs; this repository is public and
-      must never contain an estate's address, which is why there is no
-      example here.
+      RETIRED and ignored. It named a truvity/ci-cache server, which was
+      measured out of the Go path: the server reached parity with the
+      bucket in its own best case, lost to the bucket in CI, and a profile
+      showed the fetch rate is set by the build's own parallelism rather
+      than by anything a cache does.
 
-      TAKES PRECEDENCE over go-cache-bucket when both are set, because a
-      caller moving from one to the other moves an org variable and its
-      workflow pin at different times, and the newer path should win
-      during that window rather than the order of two `if` conditions
-      deciding it.
+      Passing it produces a warning rather than silence, because ignoring
+      a dead input quietly is the fault that started this: an org variable
+      named a module proxy removed two releases earlier and nothing said
+      so for days.
+
+      Kept until a major so a caller's pin and its org variable can move
+      separately.
     default: ""
   goproxy:
     description: In-cluster Go module proxy with a public fallback.
@@ -453,133 +455,43 @@ runs:
         CA_REGION: ${{ inputs.codeartifact-region }}
 
 
-    # The cache SERVER path (truvity/ci-cache). Runs instead of the bucket
-    # step below, never beside it: two steps both writing GOCACHEPROG would
-    # leave the last one to win by file order, which is not a decision
-    # anybody made.
-    - name: Wire the fleet caches (cache server)
+    # The caches are wired by truvity/ci-cache, not here.
+    #
+    # The chart that runs them, the clients that talk to them and the
+    # configuration that points one at the other only agree if they are
+    # versioned together. They were not, and it showed: an org variable
+    # named a Go module proxy that had been removed two releases earlier,
+    # GOPROXY used `|` so Go fell through in four milliseconds, and every
+    # preview job lost its module cache for days with nothing failing.
+    #
+    # This action keeps the WHEN -- which jobs get a cache at all -- and
+    # ci-cache owns the HOW. Callers keep one pin, to this workflow, and
+    # never name the cache action themselves.
+    - name: Wire the fleet caches
+      uses: truvity/ci-cache/setup@f6c6c999b1648cd76b7bc42dbfeadee156c3cf9d # ci-cache setup action
+      with:
+        bucket: ${{ inputs.go-cache-bucket }}
+        region: ${{ inputs.go-cache-region }}
+        endpoint: ${{ inputs.go-cache-endpoint }}
+        path-style: ${{ inputs.go-cache-path-style }}
+        goproxy: ${{ inputs.goproxy }}
+
+    # go-cache-server is retired and does nothing.
+    #
+    # It pointed at truvity/ci-cache's own server, which was measured out of
+    # the Go path: it reached parity with the bucket in its own best case,
+    # lost to the bucket in CI, and a profile showed the fetch rate is set
+    # by the build's own parallelism rather than by anything a cache does.
+    #
+    # Ignoring it silently would be the same mistake the module proxy made,
+    # so a caller still passing it gets told. The input stays until a major
+    # so that a caller's pin and its org variable can move separately.
+    - name: Warn on the retired cache-server input
       if: inputs.go-cache-server != ''
       shell: bash
       run: |
-        set -euo pipefail
+        echo "::warning::go-cache-server is retired and ignored; the Go build cache goes straight to go-cache-bucket. Remove the input and the CI_GOCACHE_SERVER org variable."
 
-        # A GitHub-hosted runner can reach neither the binary nor an
-        # in-cluster service, so asking for one there is a mistake to step
-        # around rather than to fail on -- the same reading the bucket
-        # branch takes of a hosted runner with no VPC endpoint. Skipping
-        # leaves the plain Go caches, which work.
-        if [ "${RUNNER_ENVIRONMENT:-}" = "github-hosted" ]; then
-          echo "::notice::go-cache-server ignored on a GitHub-hosted runner"
-          exit 0
-        fi
-
-        # On a SELF-HOSTED runner the binary ships in the image, so its
-        # absence means the image predates it. Say so HERE: GOCACHEPROG
-        # naming a missing program fails at the first `go` invocation,
-        # with a message about the toolchain rather than about this action.
-        if ! command -v ci-cache >/dev/null 2>&1; then
-          echo "::error::ci-cache not on PATH — runner image too old for go-cache-server"
-          exit 1
-        fi
-
-        # Caller-supplied values go through heredoc writes with random
-        # delimiters — the NAME=VALUE form lets a value carrying a newline
-        # mint a second variable (CodeQL envvar-injection).
-        write_env() {
-          local d
-          d="EOF_$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')"
-          printf '%s<<%s\n%s\n%s\n' "$1" "$d" "$2" "$d" >> "$GITHUB_ENV"
-        }
-
-        # No bucket, region or endpoint: the agent talks to the server and
-        # the server owns the object store. Nothing here probes the server
-        # either -- the agent fails OPEN inside the process, so a cache that
-        # is down costs a cold build rather than a failed one, and a probe
-        # in bash would only add a way to be wrong about it.
-        #
-        # NO --local-budget, deliberately, and it was here for a day.
-        #
-        # The agent used to size its local cache from the FILESYSTEM, which
-        # in a container is the node's disk. Everything it writes there is
-        # page cache charged to the container's memory limit, so on
-        # 2026-09-23 gitops' jobs went from 54-76% of their limit with ZERO
-        # reclaim events to 100% with 59,190: two runners were starved to
-        # death mid-step. The cap here was the emergency answer.
-        #
-        # ci-cache 0.1.2 derives the budget from the cgroup instead, at a
-        # quarter of the container's memory limit. A number written here
-        # WINS over that derivation, so leaving one would pin every runner
-        # tier to the same figure regardless of its size -- 2 GiB is a
-        # third of the small tier and a twelfth of the large one. The
-        # agent knows which box it is in; this file does not.
-        #
-        # The floor that matters is the runner image: an image whose agent
-        # predates 0.1.2 would go back to sizing from the node. ci-plane
-        # ships it from 2.2.0, and an image with no agent at all is refused
-        # above rather than silently mis-sized.
-        #
-        # --metrics so the job log carries the agent's one-line summary at
-        # exit. Without it a run tells you nothing about hits, misses or
-        # bytes, which is the whole question a cache has to answer.
-        write_env GOCACHEPROG "ci-cache agent --remote ${CACHE_SERVER}/go/build --cache-dir ${RUNNER_TEMP}/ci-cache --metrics"
-
-        if [ -n "$CACHE_GOPROXY" ]; then
-          write_env GOPROXY "$CACHE_GOPROXY"
-        fi
-      env:
-        CACHE_SERVER: ${{ inputs.go-cache-server }}
-        CACHE_GOPROXY: ${{ inputs.goproxy }}
-
-    - name: Wire the fleet caches
-      if: inputs.go-cache-bucket != '' && inputs.go-cache-server == ''
-      shell: bash
-      # Only when asked: hosted runners have no VPC endpoint and no pool
-      # identity, so pointing GOCACHEPROG at S3 there would fail every
-      # build. Empty means "use the plain Go caches", which is correct.
-      run: |
-        set -euo pipefail
-        {
-          echo "GOCACHEPROG=go-cache-plugin"
-          echo "GOCACHE_DIR=/tmp/gocache"
-          echo "GOCACHE_KEY_PREFIX=gocache"
-          echo "GOCACHE_METRICS=1"
-        } >> "$GITHUB_ENV"
-        # Caller-supplied values go through heredoc writes with random
-        # delimiters — the NAME=VALUE form lets a value carrying a
-        # newline mint a second variable (CodeQL envvar-injection); the
-        # constants above carry no taint and stay plain.
-        write_env() {
-          local d
-          d="EOF_$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')"
-          printf '%s<<%s\n%s\n%s\n' "$1" "$d" "$2" "$d" >> "$GITHUB_ENV"
-        }
-        write_env GOCACHE_S3_BUCKET "$CACHE_BUCKET"
-        write_env GOCACHE_S3_REGION "$CACHE_REGION"
-        # Only when given: an empty endpoint must leave the AWS default
-        # alone rather than write an empty one, which the SDK would take
-        # literally and fail to resolve.
-        if [ -n "$CACHE_ENDPOINT" ]; then
-          write_env GOCACHE_S3_ENDPOINT_URL "$CACHE_ENDPOINT"
-        fi
-        if [ -n "$CACHE_PATH_STYLE" ]; then
-          write_env GOCACHE_S3_PATH_STYLE "$CACHE_PATH_STYLE"
-        fi
-        if [ -n "$CACHE_GOPROXY" ]; then
-          write_env GOPROXY "$CACHE_GOPROXY"
-        fi
-      env:
-        CACHE_BUCKET: ${{ inputs.go-cache-bucket }}
-        CACHE_REGION: ${{ inputs.go-cache-region }}
-        CACHE_ENDPOINT: ${{ inputs.go-cache-endpoint }}
-        CACHE_PATH_STYLE: ${{ inputs.go-cache-path-style }}
-        CACHE_GOPROXY: ${{ inputs.goproxy }}
-
-    # `devbox run` re-applies the `env` block of devbox.json on top of the
-    # job environment, so a GOPROXY pinned there silently beats the one
-    # written above: every module download goes to the public proxy while
-    # the job looks correctly wired. A warning rather than a failure — the
-    # build still works, just without the proxy — so existing callers keep
-    # going while the line gets removed.
     - name: Guard GOPROXY against devbox.json
       if: inputs.goproxy != ''
       shell: bash
