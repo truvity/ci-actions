@@ -51,23 +51,77 @@ esac
 
 # --- every input the cache needs crosses the seam -------------------------
 #
-# Listed explicitly rather than derived: the point is to notice when the
-# action downstream grows an input this one does not pass, and a rule that
-# derived the list from the same file could not notice that.
+# DERIVED from the downstream action at the SHA this one pins, not from a
+# list kept here. The list was kept here until 2026-09-24, with a comment
+# arguing that deriving it "could not notice when the action downstream
+# grows an input this one does not pass" -- which had it exactly backwards.
+# Deriving from THIS file would be circular; reading the OTHER repository
+# is the only thing that can notice.
+#
+# It cost something to learn. ci-cache/setup declares nine inputs and this
+# action passed five. `bazel-remote` and `npm-registry` were never passed,
+# so the moon and yarn checks could not fire in any job in the estate --
+# silently, because an unset value makes those branches no-ops. It surfaced
+# only when bar's first run on the new pin printed no moon line at all.
+#
+# Fetched at the PINNED sha, so this asks about the version actually in
+# use rather than whatever ci-cache's master says today.
 checked=$((checked + 1))
-for pair in "bucket:go-cache-bucket" "region:go-cache-region" \
-            "endpoint:go-cache-endpoint" "path-style:go-cache-path-style" \
-            "goproxy:goproxy"; do
-    to="${pair%%:*}"; from="${pair##*:}"
-    got="$(step_field "Wire the fleet caches" ".with.\"$to\"")"
-    case "$got" in
-        *"inputs.$from"*) ;;
-        *)
-            echo "FAIL [inputs]: ci-cache/setup's \"$to\" is wired to \"$got\", expected inputs.$from"
-            fail=$((fail + 1))
-            ;;
-    esac
-done
+
+pin="$(step_field "Wire the fleet caches" ".uses")"
+sha="${pin##*@}"
+case "$sha" in
+    [0-9a-f]*) ;;
+    *) echo "FAIL [inputs]: cannot read a sha out of \"$pin\""; fail=$((fail + 1)); sha="" ;;
+esac
+
+if [ -n "$sha" ]; then
+    downstream="$(mktemp)"
+    url="https://raw.githubusercontent.com/truvity/ci-cache/${sha}/setup/action.yaml"
+
+    # A guard that passes when it could not look is the failure mode this
+    # whole file exists to prevent, so a fetch failure is a FAILURE and not
+    # a skip.
+    if ! curl -fsSL --max-time 20 -o "$downstream" "$url"; then
+        echo "FAIL [inputs]: could not fetch $url — the seam went unchecked"
+        fail=$((fail + 1))
+    else
+        # Declared THERE but deliberately not passed here, each with the
+        # reason. Anything not on this list must cross, or this fails.
+        #
+        #   languages       setup-devbox does not second-guess detection;
+        #                   the action reads the tree, which is the whole
+        #                   point of it owning detection.
+        #   client-version  the action pins the clients that match its own
+        #                   release; a caller choosing them would defeat
+        #                   versioning the bundle together.
+        #   bazel-remote    NOT WIRED YET, and the reason is not this
+        #   npm-registry    action's: the estate has no org variable naming
+        #                   either host, so there is nothing to pass. The
+        #                   values live in each repository's own
+        #                   .moon/workspace.yml and .yarnrc.yml today.
+        #                   Tracked in the cache bundle work; remove them from
+        #                   this list the moment a variable exists, and the
+        #                   guard will then insist they cross.
+        exempt=" languages client-version bazel-remote npm-registry "
+
+        for to in $(yq -r '.inputs | keys | .[]' "$downstream"); do
+            case "$exempt" in *" $to "*) continue ;; esac
+
+            got="$(step_field "Wire the fleet caches" ".with.\"$to\"")"
+            case "$got" in
+                *"inputs."*) ;;
+                *)
+                    echo "FAIL [inputs]: ci-cache/setup declares \"$to\" and this action does not pass it"
+                    echo "               (wired to \"$got\"); pass it, or exempt it with a reason"
+                    fail=$((fail + 1))
+                    ;;
+            esac
+        done
+    fi
+
+    rm -f "$downstream"
+fi
 
 # --- the retired input is refused loudly, not ignored quietly -------------
 #
