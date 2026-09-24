@@ -13,8 +13,18 @@
 # The canonical copies are the files in `kits/` next to this action, so
 # they are pinned by the same SHA the workflow pins the action with, and
 # the "pins are current" gate in self-check.yaml already guards them.
-# One file per caller; the target path is `.github/workflows/<name>`.
-# Adding a third kit is dropping a file in.
+# One file per kit; by default the target path is
+# `.github/workflows/<name>` and the whole file is compared. Adding a kit
+# of that shape is dropping a file in.
+#
+# `kits/kits.yaml` is for the ones that are not that shape: a kit that
+# lives somewhere else, or that is a BLOCK inside a file the repository
+# also fills with settings of its own. The import bans are the second
+# kind — golangci-lint v2 cannot extend a configuration from a URL, so
+# they are a hand copy in every Go repository that has them, and what a
+# copy has to keep is the data rather than the text. The manifest also
+# carries `enabled`, which is how a kit ships written but not yet
+# compared.
 #
 # THIS ACTION REPORTS. It opens no branch and no pull request and
 # rewrites nothing: the estate reads what would change before anything

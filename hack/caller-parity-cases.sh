@@ -246,5 +246,131 @@ else
   check "fail-on-diff fails the job" "exit 1" "exit 1"
 fi
 
+# A kit turned off in the manifest is NOT compared, and the report says
+# which. That lever is the only thing between "shipped disabled" and
+# "shipped and quietly doing nothing".
+check "the disabled kit is not a column" 0 \
+  "$(grep -c 'golangci-depguard.yaml |' "$work/summary" || true)"
+check "the report names what it did not compare" 1 \
+  "$(grep -c 'turned off in .*kits.yaml.* and NOT compared: golangci-depguard.yaml' "$work/summary" || true)"
+
+# ---------------------------------------------------------------------
+# A kit that is a BLOCK inside a file the repository also fills with its
+# own settings.
+#
+# golangci-lint v2 cannot extend a configuration from a URL, so the
+# import bans are a hand copy in every Go repository that has them. What
+# a copy has to keep is the DATA: a repository that reindents it, writes
+# its own comments around it or orders the keys differently has the same
+# bans, and a comparison that called any of those a difference would be
+# noise nobody reads. A repository missing one `deny` entry does not have
+# the same bans, and neither does one that dropped the block entirely --
+# and "dropped the block" is not "absent", because the file it belongs in
+# is right there.
+#
+# Run with the kit ENABLED, which is not how it ships. The shipped
+# manifest turns it off until the estate-wide pass; these cases are what
+# make turning it on a one-line change rather than a first run in anger.
+
+lintkits="$work/kits-lint"
+mkdir -p "$lintkits"
+cp "$kits/golangci-depguard.yaml" "$lintkits/golangci-depguard.yaml"
+sed -e 's/^  enabled: false$/  enabled: true/' "$kits/kits.yaml" >"$lintkits/kits.yaml"
+
+# The block as a repository carries it: under `linters.settings`, beside
+# that repository's own settings.
+their_config() { # stdin: the depguard fragment
+  {
+    echo 'version: "2"'
+    echo
+    echo 'linters:'
+    echo '  enable:'
+    echo '    - depguard'
+    echo
+    echo '  settings:'
+    sed -e '/^[[:space:]]*#/d' -e '/^[[:space:]]*$/d' -e 's/^/    /'
+  }
+}
+
+for case in lint-identical lint-reindented lint-entry-missing lint-block-absent lint-file-absent; do
+  mkdir -p "$work/repos/$case"
+done
+
+their_config <"$kits/golangci-depguard.yaml" >"$work/repos/lint-identical/.golangci.yaml"
+
+# Its own comments, its own blank lines, and flow style for one entry:
+# the same data, written differently.
+{
+  echo '# Our lint configuration. The import bans below are copied from'
+  echo '# the canonical block and kept in step by hand.'
+  their_config <"$kits/golangci-depguard.yaml"
+} >"$work/repos/lint-reindented/.golangci.yaml"
+
+# One ban gone. THE DEFECT THIS CHECK EXISTS FOR: a repository that fell
+# behind the canonical copy, with nothing to say so.
+sed -e '/pkg: github.com\/pkg\/errors/,+1d' "$kits/golangci-depguard.yaml" \
+  | their_config >"$work/repos/lint-entry-missing/.golangci.yaml"
+
+# A lint configuration with no import bans at all. The file is there, so
+# this is a difference and not an absence.
+cat >"$work/repos/lint-block-absent/.golangci.yaml" <<'EOF'
+version: "2"
+
+linters:
+  enable:
+    - errcheck
+EOF
+
+# `lint-file-absent` carries nothing: no .golangci.yaml, which is correct
+# for a repository with no Go in it.
+
+: >"$GITHUB_OUTPUT"
+: >"$GITHUB_STEP_SUMMARY"
+if ! KITS="$lintkits" FAIL_ON_DIFF=false \
+  REPOSITORIES='["stub/lint-identical","stub/lint-reindented","stub/lint-entry-missing","stub/lint-block-absent","stub/lint-file-absent"]' \
+  bash "$root/caller-parity/caller-parity.sh" >"$work/log-lint" 2>&1; then
+  cat "$work/log-lint"
+  echo "::error::caller-parity.sh failed on the block kit"
+  exit 1
+fi
+
+check "a verbatim block is at parity" "| stub/lint-identical | same |" "$(row lint-identical)"
+check "its own comments and indentation are not a difference" "| stub/lint-reindented | same |" "$(row lint-reindented)"
+check "a missing ban IS a difference" "| stub/lint-entry-missing | differs |" "$(row lint-entry-missing)"
+check "a file with no block at all differs, it is not absent" "| stub/lint-block-absent | differs |" "$(row lint-block-absent)"
+check "a repository with no lint configuration is absent" "| stub/lint-file-absent | absent |" "$(row lint-file-absent)"
+
+check "two block differences" "differences=2" "$(grep '^differences=' "$GITHUB_OUTPUT")"
+check "one absent configuration" "absent=1" "$(grep '^absent=' "$GITHUB_OUTPUT")"
+
+# The warning names the path the manifest gave, not the default one.
+check "the warning names the repository's own path" 1 \
+  "$(grep -c '^::warning::stub/lint-entry-missing: .golangci.yaml differs' "$work/log-lint" || true)"
+
+# The diff is over the DATA, so it names the ban rather than a line of
+# YAML -- which is what makes it actionable in a repository that writes
+# the block differently.
+# The diff is over the DATA, so it names the ban rather than a line of
+# YAML -- which is what makes it actionable in a repository that writes
+# the block differently. Scoped to one repository's diff block, because
+# the block-absent case legitimately removes every ban and would make a
+# whole-summary count say nothing.
+diff_for() { # $1 case — that repository's diff block
+  awk -v want="+++ stub/$1 " '
+    index($0, want) == 1 { inside = 1; next }
+    inside && $0 == "```" { exit }
+    inside { print }
+  ' "$GITHUB_STEP_SUMMARY"
+}
+
+check "the diff shows the missing ban as REMOVED, and only that ban" 1 \
+  "$(diff_for lint-entry-missing | grep -c '^-.*\"pkg\"' || true)"
+check "the missing ban is named" 1 \
+  "$(diff_for lint-entry-missing | grep -c '^-.*github.com/pkg/errors' || true)"
+check "nothing is reported as added" 0 \
+  "$(diff_for lint-entry-missing | grep -c '^+.*\"pkg\"' || true)"
+check "a repository with no block at all loses every ban" 1 \
+  "$([ "$(diff_for lint-block-absent | grep -c '^-.*\"pkg\"' || true)" -gt 5 ] && echo 1 || echo 0)"
+
 [ "$fail" = 0 ] || { echo "::error::caller-parity does not compare as documented"; exit 1; }
 echo "all cases pass"
