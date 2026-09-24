@@ -21,7 +21,11 @@
 # Everything arrives through the environment, never spliced into script
 # text: TOKEN, API, REPOSITORIES, KITS, FAIL_ON_DIFF from the action's
 # inputs, GITHUB_OUTPUT and GITHUB_STEP_SUMMARY from the runner.
-# curl + jq only: the self-hosted image ships no gh.
+#
+# curl, jq and yq; no gh, because the self-hosted image ships none. yq is
+# needed only for the kit manifest and for kits compared as a subtree, and
+# this job runs on a GitHub-hosted runner, where it is present — the same
+# reason the enrolment step upstream already uses it.
 set -euo pipefail
 
 work=$(mktemp -d)
@@ -58,6 +62,17 @@ substance() {
     -e 's#\(uses:[[:space:]]*[^@[:space:]]*/\.github/workflows/[^@[:space:]]*\)@[0-9a-f]\{40\}#\1@<pinned>#'
 }
 
+# One subtree of a YAML file, as canonical JSON: keys sorted, comments
+# gone, indentation irrelevant. What a copied BLOCK has to keep is its
+# data, and comparing its text would report a reindentation the linter
+# reading it cannot see.
+#
+# A path that matches nothing prints `null`, which differs from any kit —
+# a repository that dropped the block has fallen behind it.
+subtree() { # $1 file, $2 jq-style path
+  yq -o=json -I=0 "$2" "$1" 2>/dev/null | jq -S . 2>/dev/null || echo 'null'
+}
+
 # One request, kept whole: the body in $HTTP_BODY, the status in
 # $HTTP_STATUS. `curl -f` throws the body away and collapses every 4xx
 # into one exit code, and "this repository does not carry the file" and
@@ -76,8 +91,58 @@ http() {
   HTTP_BODY=${raw%$'\n'*}
 }
 
+# WHERE A KIT LIVES, AND HOW MUCH OF IT IS SHARED.
+#
+# Most kits are a whole file at `.github/workflows/<name>`, which is what
+# a caller workflow is. A lint configuration is not: the shared thing is a
+# BLOCK inside a file the repository also fills with settings that are
+# legitimately its own, and comparing the whole file would report every
+# repository as differing over things nobody else has an opinion about.
+#
+# kits/kits.yaml says so, per kit, and says nothing about the ones that
+# are the default shape. It is not itself a kit, and is skipped by name.
+manifest="$KITS/kits.yaml"
+if [ -f "$manifest" ]; then
+  # Loudly, not by falling back to the defaults: a missing yq would turn
+  # every manifest entry into "a whole file at .github/workflows/<name>",
+  # which for a lint kit means reading a path that is not there and
+  # reporting the whole estate absent.
+  command -v yq >/dev/null || { echo "::error::$manifest needs yq, which is not on PATH"; exit 1; }
+else
+  manifest=""
+fi
+
+# setting <kit file name> <key> <default>
+#
+# The name and the key go through the environment, not into the
+# expression: a kit file name is a path fragment and splicing one into a
+# yq program is how a filename becomes code.
+#
+# `// ""` is NOT used, deliberately. yq's alternative operator treats
+# `false` as absent, so `enabled: false` would read as unset and every
+# kit turned off would be compared anyway — silently, which is the only
+# way a lever can be worse than not having one. `null` is the absent
+# answer and nothing else is.
+setting() {
+  local value='null'
+  if [ -n "$manifest" ]; then
+    value=$(KIT="$1" FIELD="$2" yq -r '.[strenv(KIT)][strenv(FIELD)]' "$manifest" 2>/dev/null || echo 'null')
+  fi
+  [ "$value" != "null" ] && { printf '%s' "$value"; return; }
+  printf '%s' "$3"
+}
+
 kits=()
-while read -r kit; do kits+=("$kit"); done < <(find "$KITS" -maxdepth 1 -name '*.yaml' | sort)
+skipped=()
+while read -r kit; do
+  name=$(basename "$kit")
+  [ "$name" = "kits.yaml" ] && continue
+  if [ "$(setting "$name" enabled true)" != "true" ]; then
+    skipped+=("$name")
+    continue
+  fi
+  kits+=("$kit")
+done < <(find "$KITS" -maxdepth 1 -name '*.yaml' | sort)
 if [ "${#kits[@]}" -eq 0 ]; then
   echo "::error::no kit files in $KITS"
   exit 1
@@ -117,25 +182,44 @@ for repo in $(jq -r '.[]' <<<"$repositories"); do
 
   for kit in "${kits[@]}"; do
     name=$(basename "$kit")
+    path=$(setting "$name" path ".github/workflows/$name")
+    compare=$(setting "$name" compare "")
+    within=$(setting "$name" within ".")
     state=unreadable
-    # Kit file names are plain (`[a-z-]+.yaml`), so the path needs no
-    # escaping; the ref is the default branch this repository reported.
-    http "$API/repos/$repo/contents/.github/workflows/$name?ref=$branch"
+    # Kit file names are plain (`[a-z-]+.yaml`) and so are the paths in
+    # the manifest; the ref is the default branch this repository
+    # reported.
+    http "$API/repos/$repo/contents/$path?ref=$branch"
     case "$HTTP_STATUS" in
       200)
         # The repository is in the installation and the token carries
         # contents: read, so a 404 here means the file is not there.
         jq -r '.content // empty' <<<"$HTTP_BODY" | tr -d '\n' | base64 -d >"$work/theirs" 2>/dev/null || : >"$work/theirs"
-        substance <"$work/theirs" >"$work/theirs.substance"
-        substance <"$kit" >"$work/ours.substance"
+        if [ -n "$compare" ]; then
+          # A BLOCK inside a larger file, compared as data rather than as
+          # text: canonical JSON, keys sorted. Comments and key order are
+          # not what a copied block has to keep, and the alternative --
+          # normalising the text -- would report an indentation change
+          # that the linter cannot see.
+          #
+          # A subtree that is not there reads as `null`, which differs
+          # from the kit. That is the answer: a repository that dropped
+          # the block has fallen behind it, and it is not "absent",
+          # because the file it belongs in is right there.
+          subtree "$work/theirs" "$compare" >"$work/theirs.substance"
+          subtree "$kit" "$within" >"$work/ours.substance"
+        else
+          substance <"$work/theirs" >"$work/theirs.substance"
+          substance <"$kit" >"$work/ours.substance"
+        fi
         if cmp -s "$work/ours.substance" "$work/theirs.substance"; then
           state=same
         else
           state=differs
           differences=$((differences + 1))
-          diff -u --label "kits/$name (canonical)" --label "$repo .github/workflows/$name" \
+          diff -u --label "kits/$name (canonical)" --label "$repo $path" \
             "$work/ours.substance" "$work/theirs.substance" >"$work/${repo//\//__}.$name.diff" || true
-          echo "::warning::$repo: .github/workflows/$name differs from the canonical kit"
+          echo "::warning::$repo: $path differs from the canonical kit"
         fi
         ;;
       404)
@@ -143,7 +227,7 @@ for repo in $(jq -r '.[]' <<<"$repositories"); do
         absent=$((absent + 1))
         ;;
       *)
-        echo "::warning::$repo: could not read .github/workflows/$name (HTTP $HTTP_STATUS) — not compared"
+        echo "::warning::$repo: could not read $path (HTTP $HTTP_STATUS) — not compared"
         unreadable=$((unreadable + 1))
         ;;
     esac
@@ -169,6 +253,10 @@ fi
   echo "**$differences** differ, **$absent** absent, **$unreadable** could not be read,"
   echo "across $(jq 'length' <<<"$repositories") repositories and ${#kits[@]} files."
   echo
+  if [ "${#skipped[@]}" -gt 0 ]; then
+    echo "Kits turned off in \`kits/kits.yaml\` and NOT compared: ${skipped[*]}."
+    echo
+  fi
   printf '| repository |'
   for kit in "${kits[@]}"; do printf ' %s |' "$(basename "$kit")"; done
   printf '\n|---|'
