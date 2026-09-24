@@ -1,11 +1,24 @@
 name: tagged-pins
 description: >-
-  Refuse a truvity/ci-workflows pin that does not name a release. Reads
-  the tag list with `git ls-remote` on a public repository, so it needs no
-  token, no API and no toolchain beyond git and bash.
+  Refuse a pin into one of this estate's shared CI repositories that does
+  not name a release. Reads each tag list with `git ls-remote` on a public
+  repository, so it needs no token, no API and no toolchain beyond git and
+  bash.
+
+inputs:
+  libraries:
+    description: >-
+      Whitespace- or comma-separated owner/repo list to judge pins into.
+      The default is both halves of the shared CI library: the workflows
+      and the actions they are built from. A repository that pins neither
+      gets "nothing to check" and costs a second.
+    required: false
+    default: truvity/ci-workflows truvity/ci-actions
 
 runs:
   using: composite
   steps:
     - shell: bash
+      env:
+        LIBRARIES: ${{ inputs.libraries }}
       run: ${{ github.action_path }}/tagged-pins.sh

@@ -1,0 +1,110 @@
+# This repository's own CI, and the one required context: `check`.
+#
+# Everything here is a composite action somebody else's pull request
+# executes. There is no unit test that can be written for that which is
+# not this: run the step bodies, against stubs, and read what they do.
+# The harnesses under hack/ are those runs.
+#
+# NO `pins are current` STEP, deliberately, and that absence is the point
+# of this repository existing. In ci-workflows, where the workflows and
+# the actions lived together, a workflow could not pin the commit that
+# introduced the action it ran -- the commit does not exist until the
+# merge, and rebase-merge rewrites it -- so a gate had to police the pin
+# and every action change became three steps. Nothing here pins anything
+# here.
+name: self-check
+
+on:
+  pull_request:
+    branches: [master]
+  push:
+    branches: [master]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: self-check-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # `check`, the estate's one canonical required-context name (gitops
+  # cfg/github.yaml merge-gate doctrine). It is also the WHOLE merge gate
+  # on this repository -- `review: none`, D-2026-09-24 -- so a case that
+  # is not run here is a case no one runs.
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 1
+
+      # A workflow with a syntax error does not go red -- GitHub declines
+      # to run it, which reads as "no CI configured" rather than as a
+      # failure. An estate-wide edit mangled runs-on in ten files on
+      # 2026-08-15 and it surfaced only because sibling PRs could not
+      # satisfy a required check.
+      #
+      # It lints the composites too, which is most of what is in here.
+      - name: actionlint
+        run: |
+          curl -fsSL -o actionlint.tgz \
+            https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz
+          tar xzf actionlint.tgz actionlint
+          ./actionlint -color
+
+      # The one rule that decides whether a repository is processed at
+      # all, run against a stub API. A wrong answer there is silent -- a
+      # repository the fleet skips looks exactly like a repository with
+      # nothing to do -- so the shapes it must survive are pinned here.
+      # No network and no token: the stub is a local http.server.
+      - name: discovery cases
+        run: ./hack/discover-cases.sh
+
+      # The other rule whose wrong answer is quiet: what counts as a
+      # DIFFERENCE between a repository's shared caller workflow and the
+      # canonical copy. Too strict and every repository differs over its
+      # own prose; too loose and a repository that dropped a trigger
+      # reads as at parity.
+      - name: caller-parity cases
+        run: ./hack/caller-parity-cases.sh
+
+      # What setup-devbox writes into GITHUB_ENV for each cache shape.
+      # The branches are EXECUTED against a stubbed environment rather
+      # than read, because this composite is estate-wide and reaches a
+      # repository only when its pin moves -- so a regression in the
+      # bucket path, the one every repository uses today, would be
+      # discovered one repository at a time over days.
+      - name: cache wiring cases
+        run: ./hack/cache-env-cases.sh
+
+      # The pin guard, against local remotes. It judges a LIST of
+      # libraries since the split, and a list is where it can be wrong in
+      # a way the old single-library shape could not: a second library
+      # whose pins are never looked at passes silently.
+      - name: tagged-pins cases
+        run: ./hack/tagged-pins-cases.sh
+
+      # The guard, asked of this repository. `git ls-remote` needs the
+      # tags of the libraries it judges, not of this checkout, so there is
+      # nothing to fetch first -- but the pins it finds are this
+      # repository's own, which today are none, and "nothing to check" is
+      # a verdict the step prints rather than a step that did not run.
+      - uses: ./tagged-pins
+
+      # The rule this library asks of every public caller, asked of
+      # itself. This repository is public and runs hosted, so the expected
+      # answer is "ok" -- which is the point. A guard nobody runs is a
+      # guard nobody knows is broken.
+      - uses: ./public-runners
+        with:
+          runners: ubuntu-latest
+          visibility: ${{ github.event.repository.visibility }}
+
+      # This repository is PUBLIC and its history cannot be unpublished.
+      # Everything particular -- account ids, role ARNs, registry hosts,
+      # bucket names, internal DNS -- belongs in the caller's org
+      # variables.
+      - name: leak canary
+        run: ./hack/leak-canary.sh

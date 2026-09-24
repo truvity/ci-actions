@@ -1,0 +1,53 @@
+# A verbatim copy of the canonical kit that lives in this repository at
+# caller-parity/kits/auto-release.yaml, with a cron minute of its own.
+# caller-parity compares every enrolled repository against that file, and
+# this repository is not exempt from the rule it ships.
+#
+# What is compared is SUBSTANCE: comment lines, blank lines, the `cron:`
+# line and the pinned ref of the library are all ignored -- which is why
+# this prose can differ and the minute below can be ours alone.
+#
+# Releases matter more here than in most repositories: truvity/ci-workflows
+# pins these actions by the COMMIT OF A TAG, so an action change that never
+# gets tagged is an action change nothing can pin (INF-971).
+#
+# The chain's last mile: when renovate's automerged bumps have moved
+# master past the latest release, the shared workflow cuts the next
+# patch tag. DOUBLY GUARDED, off by default: the issuer must be
+# configured for the organisation AND vars.AUTO_RELEASE must be "true"
+# — flipping it is the deliberate policy act. The v* tag ruleset must
+# carry the tagging App's bypass or the push is rejected.
+#
+# NO APP KEY HERE. The job exchanges its own GitHub identity token at the
+# access-roster issuer for an installation token of the catalogue App,
+# narrowed to this repository and to `contents: write` +
+# `pull_requests: read`. `id-token: write` below is what the exchange
+# needs; the shared workflow can only narrow what is granted here.
+name: Auto Release
+
+on:
+  # STAGGER THIS MINUTE, per repository: repositories that tag in the
+  # same minute produce downstream pin pull requests that race each
+  # other's rebases. It is the one line caller-parity does not compare.
+  schedule:
+    - cron: "41 5 * * 1"
+  workflow_dispatch:
+  # Security lane: a push whose merged PR carries renovate's `security`
+  # label releases immediately; every other push exits quietly in the
+  # shared workflow, and the weekly schedule stays the lane for ordinary
+  # bumps.
+  push:
+    branches: [master]
+
+permissions:
+  contents: read
+  id-token: write # the token exchange, in the shared workflow's job
+
+jobs:
+  tag:
+    if: vars.AUTO_RELEASE == 'true' && vars.ACCESS_ROSTER_ISSUER != ''
+    uses: truvity/ci-workflows/.github/workflows/auto-release.yaml@b29d4561863fe6be8ae5984ad2dd9b6e3db2f91f # v3.8.0
+    with:
+      token-source: access-roster
+      access-roster-issuer: ${{ vars.ACCESS_ROSTER_ISSUER }}
+      github-app: truvity-ci-automation
