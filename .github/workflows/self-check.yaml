@@ -126,12 +126,8 @@ jobs:
   # every pull request should not carry, and stays NOT REQUIRED for a
   # second reason below.
   #
-  # KNOWN FLAKE, not fixed here: v0.8.0's hack/kind/verify.sh reads NATS
-  # back through `kubectl run --rm -i`, which can lose the pod's output to
-  # an attach race independent of anything this action does. A fix is in
-  # progress in truvity/policy; move this job's policy-version to the
-  # release that carries it once that ships, rather than working around
-  # the race from here.
+  # v0.8.1 is the first release with reliable NATS verification (fixes the
+  # attach race in hack/kind/verify.sh).
   cluster-kind:
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -140,15 +136,13 @@ jobs:
         with:
           fetch-depth: 1
 
-      # v0.8.0 is truvity/policy's latest release at the time this test
-      # was written; hack/discover-cases.sh-style pinning applies here
-      # too -- a version, not `master`, so a change to the box does not
-      # silently retarget what this job proves.
+      # v0.8.1 is pinned as a version, not `master`, so a change to the box
+      # does not silently retarget what this job proves.
       - name: launch the box in the background
         uses: ./cluster
         with:
           mode: kind
-          policy-version: v0.8.0
+          policy-version: v0.8.1
           namespace: e2e-test
           background: "true"
 
