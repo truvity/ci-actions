@@ -1,0 +1,199 @@
+name: cluster
+description: >-
+  Stand up the end-to-end test cluster for the caller's tier and export the
+  same five things (KUBECONFIG, SNAPSHOT_REGISTRY, GEMAAL_TIER,
+  GEMAAL_NAMESPACE, GEMAAL_RELEASE) whichever tier it is. A public repository
+  runs `mode: kind`, a disposable box on the runner itself. A private
+  repository runs `mode: shared`, the estate's own development cluster. The
+  rest of the job — build, install, test — reads the same five things either
+  way and does not know which tier it is on.
+
+inputs:
+  mode:
+    description: 'kind (disposable, on the runner) | shared (the estate''s development cluster) | wait (block on a `background: true` kind launch started earlier in this job)'
+    required: true
+
+  # mode: kind
+  policy-version:
+    description: >-
+      Release tag of truvity/policy whose hack/kind/ box to run (e.g.
+      v0.8.0). The box stays owned by truvity/policy: this fetches it at
+      that exact tag rather than copying it here, so a change to the box
+      ships through policy's own release, not through this repository.
+      Required for mode: kind.
+    required: false
+    default: ""
+  namespace:
+    description: Fixed namespace the caller installs into. Same meaning in both modes.
+    required: false
+    default: e2e
+  release:
+    description: >-
+      Release name the caller installs under. Default matches
+      truvity/ci-workflows' integration.yaml: `<job>-r<run id>-a<run
+      attempt>`, unique per lane and per attempt so parallel jobs and
+      re-runs never collide.
+    required: false
+    default: ""
+  background:
+    description: >-
+      mode: kind only. true starts the box in the background and returns
+      immediately (outputs are set right away — they are paths and fixed
+      strings, known before the cluster exists — but the cluster is not
+      ready yet). Call this action again with mode: wait before using the
+      cluster. false (default) blocks until the box is up and verified.
+    required: false
+    default: "false"
+  state-dir:
+    description: >-
+      Where a background kind launch keeps its log, pid and resolved
+      outputs so a later mode: wait invocation (a separate step, with no
+      memory of this one) can find them. Default is stable for the whole
+      job, which is the point — wait takes no inputs of its own.
+    required: false
+    default: ""
+
+  # mode: shared
+  expected-identity:
+    description: >-
+      Cluster identity `kubectl auth whoami` must report, e.g.
+      `github:<owner>/<repo>`. Required for mode: shared — a wrong identity
+      fails before anything is built, not as an RBAC error later.
+    required: false
+    default: ""
+  kubeconfig:
+    description: >-
+      Repo-relative kubeconfig, the one a laptop uses, whose exec plugin
+      exchanges this job's GitHub token for a short-lived cluster
+      credential. Required for mode: shared.
+    required: false
+    default: ""
+  aws-config-file:
+    description: >-
+      Repo-relative aws.ini, the one a laptop uses. Its [default] must
+      carry no credential. Required for mode: shared.
+    required: false
+    default: ""
+  ecr-registries:
+    description: >-
+      Comma-delimited AWS account ids to log into (aws-actions/amazon-ecr-login's
+      own input). Empty skips the login and leaves SNAPSHOT_REGISTRY empty.
+    required: false
+    default: ""
+
+outputs:
+  kubeconfig:
+    description: Absolute path to a kubeconfig already pointed at the right context. Also exported as $KUBECONFIG.
+    value: ${{ steps.kind.outputs.kubeconfig || steps.wait.outputs.kubeconfig || steps.shared-finish.outputs.kubeconfig }}
+  snapshot-registry:
+    description: Registry host to push snapshot images to. Also exported as $SNAPSHOT_REGISTRY.
+    value: ${{ steps.kind.outputs.snapshot-registry || steps.wait.outputs.snapshot-registry || steps.shared-finish.outputs.snapshot-registry }}
+  gemaal-tier:
+    description: '"kind" or "shared". Also exported as $GEMAAL_TIER.'
+    value: ${{ steps.kind.outputs.gemaal-tier || steps.wait.outputs.gemaal-tier || steps.shared-finish.outputs.gemaal-tier }}
+  gemaal-namespace:
+    description: The namespace the caller installs into. Also exported as $GEMAAL_NAMESPACE.
+    value: ${{ steps.kind.outputs.gemaal-namespace || steps.wait.outputs.gemaal-namespace || steps.shared-finish.outputs.gemaal-namespace }}
+  gemaal-release:
+    description: The release name the caller installs under. Also exported as $GEMAAL_RELEASE.
+    value: ${{ steps.kind.outputs.gemaal-release || steps.wait.outputs.gemaal-release || steps.shared-finish.outputs.gemaal-release }}
+
+runs:
+  using: composite
+  steps:
+    - name: mode is one this action knows
+      shell: bash
+      env:
+        MODE: ${{ inputs.mode }}
+      run: |
+        set -euo pipefail
+        case "$MODE" in
+          kind|shared|wait) ;;
+          *) echo "::error::mode must be kind, shared or wait — got '$MODE'"; exit 1 ;;
+        esac
+
+    # shared: refused FIRST, before any credential (kubeconfig, AWS) is
+    # even resolved, let alone exchanged. A fork's pull request must never
+    # reach this branch — see cluster/fork-guard.sh.
+    - name: shared refuses a fork pull request
+      if: inputs.mode == 'shared'
+      shell: bash
+      run: ${{ github.action_path }}/fork-guard.sh
+
+    # kind: this action's own pinned toolchain, never the caller's devbox.
+    # Two reasons. First, mode: kind exists precisely so a repository with
+    # no devbox at all (or a different one) can run the same suite — it is
+    # the public-repo tier, and requiring a specific bootstrap would defeat
+    # that. Second, truvity/policy's own devbox.json pins kind, kubectl and
+    # helm to "latest" — there is no version contract to inherit from it,
+    # so pinning them here by commit SHA (the actions) and version (the
+    # binaries) is strictly MORE reproducible than what the box's own
+    # authors run.
+    - name: kind (binary only — up.sh creates the cluster)
+      if: inputs.mode == 'kind'
+      uses: helm/kind-action@06c1ae10762d3b9c1644e7fe69596ae519e015a2 # v1.15.0
+      with:
+        version: v0.33.0
+        install_only: "true"
+    - name: kubectl
+      if: inputs.mode == 'kind'
+      uses: azure/setup-kubectl@0c5e050edfed71b2b50731ab044d42489d51c129 # v4.0.0
+      with:
+        version: v1.34.1
+    - name: helm
+      if: inputs.mode == 'kind'
+      uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+      with:
+        version: v3.22.0
+
+    - name: kind cluster (policy's box, at its pinned release)
+      if: inputs.mode == 'kind'
+      id: kind
+      shell: bash
+      env:
+        POLICY_VERSION: ${{ inputs.policy-version }}
+        NAMESPACE: ${{ inputs.namespace }}
+        RELEASE: ${{ inputs.release }}
+        BACKGROUND: ${{ inputs.background }}
+        STATE_DIR: ${{ inputs.state-dir }}
+      run: ${{ github.action_path }}/kind-launch.sh
+
+    - name: wait for a background kind launch
+      if: inputs.mode == 'wait'
+      id: wait
+      shell: bash
+      env:
+        STATE_DIR: ${{ inputs.state-dir }}
+      run: ${{ github.action_path }}/kind-wait.sh
+
+    # shared: resolve the files and prove identity BEFORE anything that
+    # spends a credential (ECR login below). Never in parallel with
+    # another accessctl exchange in this job — each exec call spends a
+    # one-use token.
+    - name: shared cluster identity
+      if: inputs.mode == 'shared'
+      id: shared-identity
+      shell: bash
+      env:
+        KUBECONFIG_INPUT: ${{ inputs.kubeconfig }}
+        AWS_CONFIG_FILE_INPUT: ${{ inputs.aws-config-file }}
+        EXPECTED_IDENTITY: ${{ inputs.expected-identity }}
+      run: ${{ github.action_path }}/shared-connect.sh
+
+    - name: ECR login
+      if: inputs.mode == 'shared' && inputs.ecr-registries != ''
+      id: ecr-login
+      uses: aws-actions/amazon-ecr-login@03f1aad4c6c7ffd436567f42f9384779290529bd # v2.1.7
+      with:
+        registries: ${{ inputs.ecr-registries }}
+        mask-password: "true"
+
+    - name: shared cluster outputs
+      if: inputs.mode == 'shared'
+      id: shared-finish
+      shell: bash
+      env:
+        NAMESPACE: ${{ inputs.namespace }}
+        RELEASE: ${{ inputs.release }}
+        ECR_REGISTRY: ${{ steps.ecr-login.outputs.registry }}
+      run: ${{ github.action_path }}/shared-finish.sh

@@ -86,6 +86,14 @@ jobs:
       - name: tagged-pins cases
         run: ./hack/tagged-pins-cases.sh
 
+      # cluster's mode: shared hands out this repository's kubeconfig,
+      # aws.ini and (optionally) an ECR login, so the one thing that must
+      # never be true is a fork pull request reaching it. Run against
+      # fake event payloads: no network, no token, and the actual guard
+      # script rather than a description of what it should do.
+      - name: fork-guard cases
+        run: ./hack/fork-guard-cases.sh
+
       # The guard, asked of this repository. `git ls-remote` needs the
       # tags of the libraries it judges, not of this checkout, so there is
       # nothing to fetch first -- but the pins it finds are this
@@ -108,3 +116,59 @@ jobs:
       # variables.
       - name: leak canary
         run: ./hack/leak-canary.sh
+
+  # cluster's mode: kind, proved end to end rather than read: a real
+  # release tarball, a real kind cluster, the tools this action installs
+  # for itself -- and the background/wait pattern, the one path a plain
+  # foregrounded run would never exercise. NOT part of `check`: it needs
+  # network and a container runtime, and the box alone measures minutes
+  # (hack/kind/README.md, in truvity/policy), which a required context on
+  # every pull request should not carry.
+  cluster-kind:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 1
+
+      # v0.8.0 is truvity/policy's latest release at the time this test
+      # was written; hack/discover-cases.sh-style pinning applies here
+      # too -- a version, not `master`, so a change to the box does not
+      # silently retarget what this job proves.
+      - name: launch the box in the background
+        uses: ./cluster
+        with:
+          mode: kind
+          policy-version: v0.8.0
+          namespace: e2e-test
+          background: "true"
+
+      # background: true's whole point: these are known before the
+      # cluster is ready, because they are paths and fixed strings, not
+      # anything the box computes.
+      - name: outputs are set before the cluster is ready
+        run: |
+          set -euo pipefail
+          [ "$GEMAAL_TIER" = kind ]
+          [ "$GEMAAL_NAMESPACE" = e2e-test ]
+          [ "$SNAPSHOT_REGISTRY" = localhost:5001 ]
+          [ -n "$GEMAAL_RELEASE" ]
+          [ -n "$KUBECONFIG" ]
+
+      - name: wait for it
+        uses: ./cluster
+        with:
+          mode: wait
+
+      - name: the cluster answers, through the exported KUBECONFIG
+        run: kubectl get nodes
+
+      - name: the local registry is reachable from the runner
+        run: curl -fsS http://localhost:5001/v2/ >/dev/null
+
+      - name: what the box saw, if it did not come up
+        if: failure()
+        run: |
+          kubectl get pods -A || true
+          cat "$RUNNER_TEMP/cluster-action/log" || true
