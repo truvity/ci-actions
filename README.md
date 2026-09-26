@@ -55,6 +55,82 @@ no drift check. It is safe because of rule 2.
 | [`setup-remote-builders`](setup-remote-builders/) | Attaches the remote builders a cross-architecture image build needs |
 | [`public-runners`](public-runners/) | Refuses a public repository that has been pointed at self-hosted runners |
 | [`tagged-pins`](tagged-pins/) | Refuses a pin into the shared CI library that names no release |
+| [`cluster`](cluster/) | Stands up the end-to-end test cluster — a disposable kind box or the estate's shared cluster — behind one identical set of outputs |
+
+## `cluster`: one end-to-end cluster, two tiers
+
+Both a public repository and a private one run the same integration suite
+against a real cluster; only *which* cluster differs. A public
+repository's pull requests come from forks, so it gets a disposable kind
+box, stood up from nothing, on the runner itself. A private repository's
+own CI identity can be trusted with the estate's shared development
+cluster, so it uses that instead. `cluster/` is the seam: whichever tier
+runs, the rest of the job reads the same five things and does not know
+which one it is on.
+
+```yaml
+- uses: truvity/ci-actions/cluster@<sha> # vX.Y.Z
+  with:
+    mode: kind                 # or: shared
+    policy-version: v0.8.0     # kind only
+    namespace: e2e
+# ... build, install, migrate, test — reading $KUBECONFIG, $SNAPSHOT_REGISTRY,
+# $GEMAAL_TIER, $GEMAAL_NAMESPACE, $GEMAAL_RELEASE either way
+```
+
+**`mode: kind`.** Fetches [truvity/policy](https://github.com/truvity/policy)'s
+`hack/kind/` box — its kind cluster, CloudNativePG, NATS with JetStream,
+Gateway API CRDs and S3 stand-in — at the exact release tag `policy-version`
+names, so the box stays owned by truvity/policy and a change to it ships
+through policy's own release rather than through this repository. It
+needs kind, kubectl and helm, which this action installs itself at pinned
+versions — never the caller's devbox: mode: kind exists precisely so a
+repository with no devbox at all can run the suite, and policy's own
+devbox pins these three to "latest" anyway, so there is no version
+contract to inherit from it. It then wires a local image registry into
+the cluster (`localhost:5001`, kind's own [documented
+recipe](https://kind.sigs.k8s.io/docs/user/local-registry/)) so the rest
+of the job can push a snapshot image from the runner and have the cluster
+pull the same tag — skipped if the pinned policy release already brings
+its own registry on that port, so a caller is never told to bind a port
+twice. The kubeconfig it exports is an explicit file under `$RUNNER_TEMP`,
+never the default `~/.kube/config` — a job's other kubectl or helm calls
+(mode: shared, elsewhere in the same workflow) must never be repointed by
+this one running.
+
+**`background: true` / `mode: wait`.** Standing the box up costs a few
+minutes even on a hosted runner with nothing cached. Passing
+`background: true` starts it and returns immediately — the outputs are
+already set, because they are paths and fixed strings known before the
+cluster exists, not anything the box computes — so the same job can build
+its images while the box comes up. A later step calls this action again
+with `mode: wait` (no other inputs — it finds the earlier launch by
+`state-dir`, which defaults to a fixed path under `$RUNNER_TEMP` for the
+whole job) to block until the box is ready and re-emit the same outputs.
+Skipping `wait` and using the cluster immediately after a `background: true`
+launch races the box.
+
+**`mode: shared`.** **Refuses a fork pull request outright**, before
+resolving a kubeconfig, reading an `aws.ini` or attempting an ECR login —
+checked against `$GITHUB_EVENT_PATH` directly, not a caller-supplied
+input, so it cannot be defeated by passing the wrong value. Then resolves
+`kubeconfig` and `aws-config-file` (repo-relative, the same files a laptop
+uses — their exec plugin/credential process exchanges this job's GitHub
+token for a cluster/AWS credential), proves `kubectl auth whoami` reports
+`expected-identity` (three tries, stderr kept — a wrong identity fails
+before anything is built, not as a mysterious RBAC error later), and logs
+into `ecr-registries` if given. `SNAPSHOT_REGISTRY` is the first registry
+[`amazon-ecr-login`](https://github.com/aws-actions/amazon-ecr-login)
+actually logged into. Never call this action twice in parallel within a
+job in this mode: each identity exchange spends a one-use token.
+
+`GEMAAL_TIER` is `kind` or `shared`; `GEMAAL_RELEASE` defaults to
+`<job>-r<run id>-a<run attempt>` in both modes, matching
+truvity/ci-workflows' `integration.yaml`, so parallel jobs and re-runs
+never collide over a release name.
+
+No organisation particulars live in this action, in either mode: account
+ids, hostnames, cluster names and namespaces all arrive as inputs.
 
 ## Docs
 
@@ -78,6 +154,7 @@ hack/discover-cases.sh       fleet-discover's required-check rule, against a stu
 hack/caller-parity-cases.sh  what counts as a DIFFERENCE from the canonical caller
 hack/cache-env-cases.sh      what setup-devbox writes into GITHUB_ENV per cache shape
 hack/tagged-pins-cases.sh    the pin guard, against local git remotes
+hack/fork-guard-cases.sh     cluster's fork refusal, against fake event payloads
 hack/leak-canary.sh          rule 2, mechanically
 ```
 
@@ -85,6 +162,12 @@ They need no network, no token and no cluster; each builds its own stub
 and throws it away. `self-check.yaml` runs all of them under the `check`
 context, which is **the whole merge gate** on this repository — a case
 that is not run there is a case nobody runs.
+
+`cluster`'s `mode: kind` is the one exception: proving it needs a real
+kind cluster and a container runtime, which `check` deliberately does not
+carry. `self-check.yaml`'s separate `cluster-kind` job runs it end to end
+— a real release tarball, a real cluster, the background/wait pattern —
+but is not part of `check` and is not required.
 
 ## Merging
 
