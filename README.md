@@ -80,23 +80,31 @@ which one it is on.
 
 **`mode: kind`.** Fetches [truvity/policy](https://github.com/truvity/policy)'s
 `hack/kind/` box — its kind cluster, CloudNativePG, NATS with JetStream,
-Gateway API CRDs and S3 stand-in — at the exact release tag `policy-version`
-names, so the box stays owned by truvity/policy and a change to it ships
-through policy's own release rather than through this repository. It
-needs kind, kubectl and helm, which this action installs itself at pinned
-versions — never the caller's devbox: mode: kind exists precisely so a
-repository with no devbox at all can run the suite, and policy's own
-devbox pins these three to "latest" anyway, so there is no version
-contract to inherit from it. It then wires a local image registry into
-the cluster (`localhost:5001`, kind's own [documented
-recipe](https://kind.sigs.k8s.io/docs/user/local-registry/)) so the rest
-of the job can push a snapshot image from the runner and have the cluster
-pull the same tag — skipped if the pinned policy release already brings
-its own registry on that port, so a caller is never told to bind a port
-twice. The kubeconfig it exports is an explicit file under `$RUNNER_TEMP`,
-never the default `~/.kube/config` — a job's other kubectl or helm calls
-(mode: shared, elsewhere in the same workflow) must never be repointed by
-this one running.
+Gateway API CRDs, an S3 stand-in and a local image registry — at the
+exact release tag `policy-version` names, so the box stays owned by
+truvity/policy and a change to it ships through policy's own release
+rather than through this repository. It needs kind, kubectl and helm,
+which this action installs itself at pinned versions — never the
+caller's devbox: mode: kind exists precisely so a repository with no
+devbox at all can run the suite, and policy's own devbox pins these
+three to "latest" anyway, so there is no version contract to inherit
+from it. The kubeconfig it exports is an explicit file under
+`$RUNNER_TEMP`, never the default `~/.kube/config` — a job's other
+kubectl or helm calls (mode: shared, elsewhere in the same workflow)
+must never be repointed by this one running.
+
+**`SNAPSHOT_REGISTRY` is the box's own registry, not something this
+action stands up.** hack/kind/up.sh already runs kind's [documented local
+registry recipe](https://kind.sigs.k8s.io/docs/user/local-registry/) on
+`localhost:5001` (`hack/kind/versions.env`'s `REGISTRY_PORT`), wires it
+into every node's containerd, and hack/kind/verify.sh already proves a
+push and a pull through it. The box is the one owner of what a kind lane
+provides, so this action does not create a second registry or any other
+infrastructure the box did not ask for — it only checks the box's own
+claim after `up.sh` returns, and **fails loudly, naming the pinned
+version,** if that particular release does not publish one on 5001. A
+version this action's `SNAPSHOT_REGISTRY` contract does not hold for is a
+version to not pin, not a version to work around.
 
 **`background: true` / `mode: wait`.** Standing the box up costs a few
 minutes even on a hosted runner with nothing cached. Passing
@@ -124,10 +132,23 @@ into `ecr-registries` if given. `SNAPSHOT_REGISTRY` is the first registry
 actually logged into. Never call this action twice in parallel within a
 job in this mode: each identity exchange spends a one-use token.
 
-`GEMAAL_TIER` is `kind` or `shared`; `GEMAAL_RELEASE` defaults to
-`<job>-r<run id>-a<run attempt>` in both modes, matching
-truvity/ci-workflows' `integration.yaml`, so parallel jobs and re-runs
-never collide over a release name.
+**This mode assumes a toolchain, deliberately.** Unlike mode: kind, this
+action installs nothing for mode: shared — `kubectl` (and the exec plugin
+a repo-relative kubeconfig names, e.g. `accessctl`) must already be on
+`PATH`, the same way truvity/ci-workflows' `integration.yaml` runs it
+today, normally from the caller's own devbox via `setup-devbox`. A
+private repository's own CI identity is who mode: shared trusts, and that
+identity's devbox is part of what it trusts.
+
+`GEMAAL_TIER` is `kind` or `shared` (a fixed string, not left unset):
+[gemaal's `harness.DetectTier`](https://github.com/truvity/gemaal)
+(`pkg/harness/tier.go`, v0.24.0) reads `$GEMAAL_TIER` "when set (any
+value — `TierKind` is the only one the harness treats specially today)",
+so any non-`kind` value — `shared` included — falls back to exactly the
+shared-cluster behaviour every existing caller already gets from leaving
+it unset. `GEMAAL_RELEASE` defaults to `<job>-r<run id>-a<run attempt>`
+in both modes, matching truvity/ci-workflows' `integration.yaml`, so
+parallel jobs and re-runs never collide over a release name.
 
 No organisation particulars live in this action, in either mode: account
 ids, hostnames, cluster names and namespaces all arrive as inputs.

@@ -123,7 +123,15 @@ jobs:
   # foregrounded run would never exercise. NOT part of `check`: it needs
   # network and a container runtime, and the box alone measures minutes
   # (hack/kind/README.md, in truvity/policy), which a required context on
-  # every pull request should not carry.
+  # every pull request should not carry, and stays NOT REQUIRED for a
+  # second reason below.
+  #
+  # KNOWN FLAKE, not fixed here: v0.8.0's hack/kind/verify.sh reads NATS
+  # back through `kubectl run --rm -i`, which can lose the pod's output to
+  # an attach race independent of anything this action does. A fix is in
+  # progress in truvity/policy; move this job's policy-version to the
+  # release that carries it once that ships, rather than working around
+  # the race from here.
   cluster-kind:
     runs-on: ubuntu-latest
     timeout-minutes: 20

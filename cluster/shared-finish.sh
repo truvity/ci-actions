@@ -29,6 +29,12 @@ registry=${registry%%,*}
 
 emit KUBECONFIG "$KUBECONFIG" kubeconfig
 emit SNAPSHOT_REGISTRY "$registry" snapshot-registry
+# "shared", not unset: gemaal's harness.DetectTier (pkg/harness/tier.go,
+# v0.24.0) reads GEMAAL_TIER "when set (any value — TierKind is the only
+# one the harness treats specially today)", so a non-"kind" value falls
+# back to exactly the shared-cluster behaviour every caller already gets
+# from leaving it unset — and a caller of THIS action gets to branch on
+# GEMAAL_TIER without a third "empty means shared" rule to remember.
 emit GEMAAL_TIER shared gemaal-tier
 emit GEMAAL_NAMESPACE "$namespace" gemaal-namespace
 emit GEMAAL_RELEASE "$release" gemaal-release

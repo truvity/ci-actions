@@ -1,8 +1,17 @@
 #!/usr/bin/env bash
 # mode: kind. Fetches truvity/policy's hack/kind/ box AT A PINNED RELEASE,
 # runs it (up.sh already runs verify.sh at its own last step — see that
-# script), wires a local image registry into the cluster, and exports the
-# five things every caller reads regardless of tier.
+# script), and exports the five things every caller reads regardless of
+# tier.
+#
+# The box is the ONE owner of what a kind lane provides, registry
+# included: hack/kind/up.sh already stands up `kind-registry` on
+# `localhost:${REGISTRY_PORT}` (versions.env), wires it into containerd on
+# every node, and hack/kind/verify.sh already proves a push and a pull
+# through it. This action does not create a second registry, or any other
+# infrastructure the box did not ask for — it only asserts the box's own
+# claim (see the postcondition below) and reports SNAPSHOT_REGISTRY as
+# whatever `localhost:5001` means for the pinned version.
 #
 # The box is fetched from a release TARBALL rather than vendored here or
 # published as a release asset of its own: truvity/policy already tags
@@ -71,6 +80,10 @@ fi
 # hard-codes a path — it only ever calls `kubectl config use-context`.
 kubeconfig="$state_dir/kubeconfig"
 
+# localhost:5001 is the box's own convention (hack/kind/versions.env:
+# REGISTRY_PORT), not a port this action picked — see the postcondition
+# in run_script below, which fails loudly, naming the pinned version, if
+# a particular release's box does not actually publish one there.
 outputs_file="$state_dir/outputs.env"
 cat >"$outputs_file" <<ENV
 KUBECONFIG=$kubeconfig
@@ -98,7 +111,18 @@ export KUBECONFIG="$kubeconfig"
 export PATH="$PATH"
 cd "$box"
 ./up.sh
-"$here/kind-registry-up.sh" "$kubeconfig"
+
+# SNAPSHOT_REGISTRY=localhost:5001 is a claim about the PINNED VERSION's
+# own box, checked here rather than assumed: whether a kind lane gets a
+# registry, and on which port, is entirely up.sh's decision, and this
+# action must not silently paper over a future release that changes it.
+# A version that does not provide one on 5001 fails loudly, naming
+# itself, instead of a caller finding an unreachable registry three steps
+# later.
+if ! docker ps --format '{{.Ports}}' | grep -q ':5001->'; then
+  echo "::error::truvity/policy@${policy_version}'s hack/kind/ box did not publish a registry on localhost:5001 — SNAPSHOT_REGISTRY cannot be honoured for this policy-version. Pin a release whose hack/kind/versions.env sets REGISTRY_PORT=5001 (the box is the one owner of what a kind lane provides; this action does not stand up its own)." >&2
+  exit 1
+fi
 SCRIPT
 chmod +x "$run_script"
 
