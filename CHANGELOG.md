@@ -4,6 +4,41 @@ Every release of truvity/ci-actions, newest first. Pin the commit of a
 tag (`git rev-parse vX.Y.Z^{commit}`), never the tag object and never
 an untagged commit; `tagged-pins` refuses anything else.
 
+## v1.3.0
+
+`policy-conformance` checker fixes, found triaging the first estate-wide
+scorecard against fresh clones of all public repos:
+
+- **C1**: appVersion was judged whenever `Chart.yaml` declared the key,
+  not only "when the repo ships an image" as the rule itself says. A
+  chart-only repository (every `goreleaser` build `skip: true`) is now
+  detected, and its appVersion left alone.
+- **C11**: a ko `repositories:` entry with `base_import_paths: false`
+  publishes the bare repository — the checker always appended the
+  build's main-package basename regardless, inventing an image never
+  pushed. A `ghcr.io/...` string inside a YAML comment was also read as
+  a live reference. Both fixed; the repeated-name verdict is computed
+  after deduplicating images, so the same image named twice no longer
+  inflates its own sibling count.
+- **C11**: a component sharing a registry prefix with sibling images is
+  only flagged as "repeats the repository name" when it is the SOLE
+  image under that prefix — the degenerate case the rule means.
+- **C12**: `@latest` was flagged anywhere in `README.md`, including
+  prose warning against it. Now only matched inside a fenced code block.
+- **New: a named-exemption mechanism.** `.github/policy-conformance.yaml`'s
+  `exempt:` map names a rule, a reason, and — for a chart-scoped rule
+  (C1, C2) — which charts it covers, for the genuine cases where a rule's
+  plain text does not fit a repository's kind (a library chart, a fork
+  of a non-MIT upstream, a CRD chart whose version tracks an upstream
+  pin). Distinct from the existing `skip:` input: an exemption is
+  committed and reviewed, not silenced per run. C9 reports a new
+  `EXEMPT` verdict rather than `PASS`; C5's exemption suppresses only
+  the missing-latest-tag-heading sub-check. See
+  [truvity/policy `docs/contracts/component.md`'s Exemptions
+  section](https://github.com/truvity/policy/blob/master/docs/contracts/component.md#exemptions).
+- `hack/policy-conformance-cases.sh` gets one case per fix above, plus
+  the exemption mechanism.
+
 ## v1.2.0
 
 - **`policy-conformance`**, a new action: checks the calling repository
