@@ -138,7 +138,9 @@ breaks C4 "no Justfile" \
 breaks C4 "a Justfile that never runs the canary" \
   "echo 'check:' >Justfile" "never mentions"
 breaks C5 "no heading for the latest tag" \
-  "git tag -a v1.2.0 -m v1.2.0 && git push -q origin v1.2.0" "no heading for v1.2.0"
+  "git commit -q --allow-empty -m next && git push -q origin master && git tag -a v1.2.0 -m v1.2.0 && git push -q origin v1.2.0 && git fetch -q origin" "no heading for v1.2.0"
+breaks C5 "no heading for the higher of two tags on one commit" \
+  "git tag -a v1.1.1 -m v1.1.1 && git push -q origin v1.1.1" "no heading for v1.1.1"
 breaks C5 "headings oldest first" \
   "printf '## v1.0.0\n\n## v1.1.0\n' >CHANGELOG.md" "newest first"
 breaks C5 "a Keep-a-Changelog style heading" \
