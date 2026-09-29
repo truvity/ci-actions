@@ -135,28 +135,31 @@ for `cluster`. `master` carries unreleased work, listed under
 
 ## Development
 
+`just check` runs what CI runs on every pull request. Set up your
+environment with `direnv allow`, or run `devbox run just <recipe>` to
+call a recipe without direnv.
+
 There is no unit test for a composite action that is not "run its step
-bodies and read what they do". That is what `hack/` is:
+bodies and read what they do". That is what `hack/` is, with recipes for
+each:
 
-```
-hack/discover-cases.sh            fleet-discover's required-check rule, against a stub API
-hack/caller-parity-cases.sh       what counts as a DIFFERENCE from the canonical caller
-hack/policy-kit-current.sh        the golangci-depguard kit against truvity/policy, over HTTPS
-hack/cache-env-cases.sh           what setup-devbox writes into GITHUB_ENV, per cache shape
-hack/tagged-pins-cases.sh         the pin guard, against local git remotes
-hack/fork-guard-cases.sh          cluster's fork refusal, against fake event payloads
-hack/policy-conformance-cases.sh  each contract rule failing on its own defect, on fixture repositories
-hack/leak-canary.sh               the public rule, mechanically
-```
+- `just lint` — actionlint over every workflow and composite.
+- `just discover` — fleet-discover's required-check rule, against a stub API.
+- `just parity` — what counts as a DIFFERENCE from the canonical caller.
+- `just kit` — the golangci-depguard kit against truvity/policy.
+- `just cache-env` — what setup-devbox writes into GITHUB_ENV, per cache shape.
+- `just pins-cases` — the pin guard, against local git remotes.
+- `just fork-guard` — cluster's fork refusal, against fake event payloads.
+- `just pins` — verify all pins point to release tags.
+- `just runners` — verify the repository uses public runners.
+- `just leak-canary` — scan for secrets and sensitive data.
+- `just check` — run all recipes (the merge gate).
 
-Each runs on its own from the repository root with bash, git, jq,
-curl, yq and python3; there is no Justfile. All but `hack/policy-kit-current.sh` need no
-network and no token. `self-check.yaml` runs every one of them, plus
-actionlint, `tagged-pins`, `public-runners` and `policy-conformance`
-against this repository, under the `check` context. `check` is the
-whole merge gate: no approving review, and no bypass. Renovate opens a
-pull request like anyone else and GitHub's auto-merge finishes it when
-`check` goes green.
+All but `kit` need no network and no token. `self-check.yaml` runs every
+one of them plus `policy-conformance` against this repository, under the
+`check` context. `check` is the whole merge gate: no approving review,
+and no bypass. Renovate opens a pull request like anyone else and
+GitHub's auto-merge finishes it when `check` goes green.
 
 `cluster`'s `mode: kind` needs a real kind cluster and a container
 runtime, so `self-check.yaml`'s separate `cluster-kind` job proves it

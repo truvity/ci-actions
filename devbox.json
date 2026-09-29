@@ -1,0 +1,8 @@
+{
+  "$schema": "https://www.jetify.com/schemas/devbox/0.11.2.json",
+  "packages": [
+    "just@1.40.0",
+    "jq@1.7.1",
+    "yq-go@4.44.2"
+  ]
+}
