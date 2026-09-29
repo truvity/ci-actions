@@ -62,15 +62,20 @@ substance() {
     -e 's#\(uses:[[:space:]]*[^@[:space:]]*/\.github/workflows/[^@[:space:]]*\)@[0-9a-f]\{40\}#\1@<pinned>#'
 }
 
-# One subtree of a YAML file, as canonical JSON: keys sorted, comments
-# gone, indentation irrelevant. What a copied BLOCK has to keep is its
-# data, and comparing its text would report a reindentation the linter
-# reading it cannot see.
+# One subtree of a YAML file, as canonical JSON: keys sorted, ARRAYS
+# sorted, comments gone, indentation irrelevant. What a copied BLOCK has
+# to keep is its data — the depguard `deny:` list is a set of bans, not a
+# sequence, and a repository that pasted it back with its entries in a
+# different order still has the same bans. `jq -S` alone sorts only
+# object keys; a list's own order survives it, so `walk` sorts every
+# array too before the two sides are compared.
 #
 # A path that matches nothing prints `null`, which differs from any kit —
 # a repository that dropped the block has fallen behind it.
 subtree() { # $1 file, $2 jq-style path
-  yq -o=json -I=0 "$2" "$1" 2>/dev/null | jq -S . 2>/dev/null || echo 'null'
+  yq -o=json -I=0 "$2" "$1" 2>/dev/null \
+    | jq -S 'walk(if type == "array" then sort else . end)' 2>/dev/null \
+    || echo 'null'
 }
 
 # One request, kept whole: the body in $HTTP_BODY, the status in

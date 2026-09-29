@@ -173,14 +173,19 @@ bodies and read what they do". That is what `hack/` is:
 ```
 hack/discover-cases.sh       fleet-discover's required-check rule, against a stub API
 hack/caller-parity-cases.sh  what counts as a DIFFERENCE from the canonical caller
+hack/policy-kit-current.sh   the golangci-depguard kit against truvity/policy, over HTTPS
 hack/cache-env-cases.sh      what setup-devbox writes into GITHUB_ENV per cache shape
 hack/tagged-pins-cases.sh    the pin guard, against local git remotes
 hack/fork-guard-cases.sh     cluster's fork refusal, against fake event payloads
 hack/leak-canary.sh          rule 2, mechanically
 ```
 
-They need no network, no token and no cluster; each builds its own stub
-and throws it away. `self-check.yaml` runs all of them under the `check`
+Every one but `hack/policy-kit-current.sh` needs no network, no token and
+no cluster; each builds its own stub and throws it away. That one is a
+live read of a public repository's tagged file, for the same reason
+`tagged-pins` itself reads real tags over git rather than a stub: the
+point is catching a copy falling behind its SOURCE, which a stub cannot
+have drifted from. `self-check.yaml` runs all of them under the `check`
 context, which is **the whole merge gate** on this repository — a case
 that is not run there is a case nobody runs.
 

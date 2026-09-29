@@ -46,6 +46,24 @@ mk() { # $1 case, $2 kit file name
   cat >"$work/repos/$1/$2"
 }
 
+# The depguard block as a repository carries it: under
+# `linters.settings`, beside that repository's own lint settings. Used
+# below for BOTH the basic cases (which want it verbatim and out of the
+# way) and the dedicated block-comparison cases further down (which want
+# it transformed).
+their_config() { # stdin: the depguard fragment
+  {
+    echo 'version: "2"'
+    echo
+    echo 'linters:'
+    echo '  enable:'
+    echo '    - depguard'
+    echo
+    echo '  settings:'
+    sed -e '/^[[:space:]]*#/d' -e '/^[[:space:]]*$/d' -e 's/^/    /'
+  }
+}
+
 for case in identical comments-differ cron-differs pin-differs trigger-missing extra-inputs extra-block absent forbidden repo-gone; do
   mkdir -p "$work/repos/$case"
 done
@@ -111,6 +129,15 @@ sed -e 's/^  govulncheck:$/  vuln:/' \
 # Carries security.yaml and releases nothing, so has no auto-release.yaml
 # — absent, which is a state of its own and not a difference.
 mk absent security.yaml <"$kits/security.yaml"
+
+# Every readable case above also carries the import-ban block, verbatim.
+# This section is about security.yaml and auto-release.yaml; giving each
+# of them the same, unremarkable golangci-depguard.yaml keeps that focus
+# — its column reads "same" straight down below, and the cases that are
+# actually ABOUT that kit are their own section, further down.
+for case in identical comments-differ cron-differs pin-differs trigger-missing extra-inputs extra-block absent; do
+  their_config <"$kits/golangci-depguard.yaml" >"$work/repos/$case/.golangci.yaml"
+done
 
 # `forbidden` and `repo-gone` carry nothing: the stub answers 403 for the
 # first repository's file reads and 404 for the second's repository read.
@@ -200,18 +227,21 @@ row() { # $1 case — the summary's row, verbatim
 }
 
 # The table is the check's whole output, so it is what the cases assert:
-# `| repository | auto-release.yaml | security.yaml |` (the kits are read
-# in sorted order).
-check "identical is at parity" "| stub/identical | same | same |" "$(row identical)"
-check "its own prose is not a difference" "| stub/comments-differ | same | same |" "$(row comments-differ)"
-check "a staggered cron is not a difference" "| stub/cron-differs | same | same |" "$(row cron-differs)"
-check "a library pin renovate has not moved is not a difference" "| stub/pin-differs | same | same |" "$(row pin-differs)"
-check "a dropped trigger IS a difference" "| stub/trigger-missing | differs | same |" "$(row trigger-missing)"
-check "an ADDED input IS a difference" "| stub/extra-inputs | same | differs |" "$(row extra-inputs)"
-check "an ADDED block and a renamed job ARE a difference" "| stub/extra-block | same | differs |" "$(row extra-block)"
-check "a file the repository does not carry is absent, not differing" "| stub/absent | absent | same |" "$(row absent)"
-check "a 403 is unreadable, not absent and not same" "| stub/forbidden | unreadable | unreadable |" "$(row forbidden)"
-check "a repository that cannot be read at all is unreadable" "| stub/repo-gone | unreadable | unreadable |" "$(row repo-gone)"
+# `| repository | auto-release.yaml | golangci-depguard.yaml | security.yaml |`
+# (the kits are read in sorted order — a third column now that the
+# depguard kit ships enabled; every case here carries it verbatim, so it
+# reads "same" straight down and stays out of the way of what these
+# cases are actually about).
+check "identical is at parity" "| stub/identical | same | same | same |" "$(row identical)"
+check "its own prose is not a difference" "| stub/comments-differ | same | same | same |" "$(row comments-differ)"
+check "a staggered cron is not a difference" "| stub/cron-differs | same | same | same |" "$(row cron-differs)"
+check "a library pin renovate has not moved is not a difference" "| stub/pin-differs | same | same | same |" "$(row pin-differs)"
+check "a dropped trigger IS a difference" "| stub/trigger-missing | differs | same | same |" "$(row trigger-missing)"
+check "an ADDED input IS a difference" "| stub/extra-inputs | same | same | differs |" "$(row extra-inputs)"
+check "an ADDED block and a renamed job ARE a difference" "| stub/extra-block | same | same | differs |" "$(row extra-block)"
+check "a file the repository does not carry is absent, not differing" "| stub/absent | absent | same | same |" "$(row absent)"
+check "a 403 is unreadable, not absent and not same" "| stub/forbidden | unreadable | unreadable | unreadable |" "$(row forbidden)"
+check "a repository that cannot be read at all is unreadable" "| stub/repo-gone | unreadable | unreadable | unreadable |" "$(row repo-gone)"
 
 check "three differences" "differences=3" "$(grep '^differences=' "$work/output")"
 check "one absent file" "absent=1" "$(grep '^absent=' "$work/output")"
@@ -246,53 +276,65 @@ else
   check "fail-on-diff fails the job" "exit 1" "exit 1"
 fi
 
-# A kit turned off in the manifest is NOT compared, and the report says
-# which. That lever is the only thing between "shipped disabled" and
-# "shipped and quietly doing nothing".
-check "the disabled kit is not a column" 0 \
+# The lever still works: a kit CAN be turned off in the manifest, and the
+# report says which and leaves it out of the table entirely. It is no
+# longer the shipped default — golangci-depguard.yaml ships ON, below —
+# but an estate still reaches for this while a new kit beds in, and
+# losing it silently is exactly what this harness exists to catch.
+offkits="$work/kits-off"
+mkdir -p "$offkits"
+cp "$kits"/*.yaml "$offkits/"
+sed -e 's/^  enabled: true$/  enabled: false/' "$kits/kits.yaml" >"$offkits/kits.yaml"
+
+: >"$GITHUB_OUTPUT"
+: >"$GITHUB_STEP_SUMMARY"
+if ! KITS="$offkits" FAIL_ON_DIFF=false \
+  REPOSITORIES='["stub/identical"]' \
+  bash "$root/caller-parity/caller-parity.sh" >"$work/log-off" 2>&1; then
+  cat "$work/log-off"
+  echo "::error::caller-parity.sh failed with a kit turned off"
+  exit 1
+fi
+check "a kit turned off in the manifest is not a column" 0 \
   "$(grep -c 'golangci-depguard.yaml |' "$work/summary" || true)"
 check "the report names what it did not compare" 1 \
   "$(grep -c 'turned off in .*kits.yaml.* and NOT compared: golangci-depguard.yaml' "$work/summary" || true)"
 
 # ---------------------------------------------------------------------
 # A kit that is a BLOCK inside a file the repository also fills with its
-# own settings.
+# own settings — the one this section exists for, golangci-depguard.yaml,
+# reads against the REAL kits directory: it ships enabled (kits.yaml,
+# above), so there is nothing here to force on any more.
 #
 # golangci-lint v2 cannot extend a configuration from a URL, so the
 # import bans are a hand copy in every Go repository that has them. What
 # a copy has to keep is the DATA: a repository that reindents it, writes
-# its own comments around it or orders the keys differently has the same
-# bans, and a comparison that called any of those a difference would be
-# noise nobody reads. A repository missing one `deny` entry does not have
-# the same bans, and neither does one that dropped the block entirely --
-# and "dropped the block" is not "absent", because the file it belongs in
-# is right there.
+# its own comments around it, orders the keys differently, or writes its
+# `deny:` entries in a different order has the same bans, and a
+# comparison that called any of those a difference would be noise nobody
+# reads. A repository missing one `deny` entry does not have the same
+# bans, and neither does one that dropped the block entirely -- and
+# "dropped the block" is not "absent", because the file it belongs in is
+# right there.
 #
-# Run with the kit ENABLED, which is not how it ships. The shipped
-# manifest turns it off until the estate-wide pass; these cases are what
-# make turning it on a one-line change rather than a first run in anger.
-
+# A repository that bans something EXTRA, the estate's rules do not: this
+# reads the same as the security.yaml / auto-release.yaml kits above --
+# `differs`, not `same` -- for the same reason those two cases exist
+# there. It is not a weaker set of bans, but it IS a repository doing
+# something the canonical copy does not say, and "a human decides which
+# side is wrong" (the repository's local addition, or the estate's rule)
+# is the whole design of this check; silently allowing local additions
+# would decide that question without anyone reading it.
+#
+# Only this one kit, isolated in its own directory: these stub
+# repositories carry no security.yaml or auto-release.yaml, and running
+# them against $kits whole would report those two absent on every row —
+# noise this section is not about.
 lintkits="$work/kits-lint"
 mkdir -p "$lintkits"
-cp "$kits/golangci-depguard.yaml" "$lintkits/golangci-depguard.yaml"
-sed -e 's/^  enabled: false$/  enabled: true/' "$kits/kits.yaml" >"$lintkits/kits.yaml"
+cp "$kits/golangci-depguard.yaml" "$kits/kits.yaml" "$lintkits/"
 
-# The block as a repository carries it: under `linters.settings`, beside
-# that repository's own settings.
-their_config() { # stdin: the depguard fragment
-  {
-    echo 'version: "2"'
-    echo
-    echo 'linters:'
-    echo '  enable:'
-    echo '    - depguard'
-    echo
-    echo '  settings:'
-    sed -e '/^[[:space:]]*#/d' -e '/^[[:space:]]*$/d' -e 's/^/    /'
-  }
-}
-
-for case in lint-identical lint-reindented lint-entry-missing lint-block-absent lint-file-absent; do
+for case in lint-identical lint-reindented lint-reordered lint-entry-missing lint-extra-rule lint-block-absent lint-file-absent; do
   mkdir -p "$work/repos/$case"
 done
 
@@ -306,10 +348,22 @@ their_config <"$kits/golangci-depguard.yaml" >"$work/repos/lint-identical/.golan
   their_config <"$kits/golangci-depguard.yaml"
 } >"$work/repos/lint-reindented/.golangci.yaml"
 
+# The same bans, pasted back in a different order. The list is a SET of
+# bans, not a sequence -- ordering it is not deciding anything.
+yq eval '.depguard.rules.main.deny |= reverse' "$kits/golangci-depguard.yaml" \
+  | their_config >"$work/repos/lint-reordered/.golangci.yaml"
+
 # One ban gone. THE DEFECT THIS CHECK EXISTS FOR: a repository that fell
 # behind the canonical copy, with nothing to say so.
 sed -e '/pkg: github.com\/pkg\/errors/,+1d' "$kits/golangci-depguard.yaml" \
   | their_config >"$work/repos/lint-entry-missing/.golangci.yaml"
+
+# Every canonical ban, PLUS one this repository added on its own. Nothing
+# is missing, so a comparison that only looks for gone lines would call
+# this parity -- and it would be wrong, the same way extra-inputs and
+# extra-block above are not parity either.
+yq eval '.depguard.rules.main.deny += [{"pkg": "github.com/example/locally-banned", "desc": "banned by this repository, not the estate"}]' \
+  "$kits/golangci-depguard.yaml" | their_config >"$work/repos/lint-extra-rule/.golangci.yaml"
 
 # A lint configuration with no import bans at all. The file is there, so
 # this is a difference and not an absence.
@@ -327,7 +381,7 @@ EOF
 : >"$GITHUB_OUTPUT"
 : >"$GITHUB_STEP_SUMMARY"
 if ! KITS="$lintkits" FAIL_ON_DIFF=false \
-  REPOSITORIES='["stub/lint-identical","stub/lint-reindented","stub/lint-entry-missing","stub/lint-block-absent","stub/lint-file-absent"]' \
+  REPOSITORIES='["stub/lint-identical","stub/lint-reindented","stub/lint-reordered","stub/lint-entry-missing","stub/lint-extra-rule","stub/lint-block-absent","stub/lint-file-absent"]' \
   bash "$root/caller-parity/caller-parity.sh" >"$work/log-lint" 2>&1; then
   cat "$work/log-lint"
   echo "::error::caller-parity.sh failed on the block kit"
@@ -336,11 +390,13 @@ fi
 
 check "a verbatim block is at parity" "| stub/lint-identical | same |" "$(row lint-identical)"
 check "its own comments and indentation are not a difference" "| stub/lint-reindented | same |" "$(row lint-reindented)"
+check "its own order is not a difference" "| stub/lint-reordered | same |" "$(row lint-reordered)"
 check "a missing ban IS a difference" "| stub/lint-entry-missing | differs |" "$(row lint-entry-missing)"
+check "an ADDED ban IS a difference too" "| stub/lint-extra-rule | differs |" "$(row lint-extra-rule)"
 check "a file with no block at all differs, it is not absent" "| stub/lint-block-absent | differs |" "$(row lint-block-absent)"
 check "a repository with no lint configuration is absent" "| stub/lint-file-absent | absent |" "$(row lint-file-absent)"
 
-check "two block differences" "differences=2" "$(grep '^differences=' "$GITHUB_OUTPUT")"
+check "three block differences" "differences=3" "$(grep '^differences=' "$GITHUB_OUTPUT")"
 check "one absent configuration" "absent=1" "$(grep '^absent=' "$GITHUB_OUTPUT")"
 
 # The warning names the path the manifest gave, not the default one.
@@ -371,6 +427,15 @@ check "nothing is reported as added" 0 \
   "$(diff_for lint-entry-missing | grep -c '^+.*\"pkg\"' || true)"
 check "a repository with no block at all loses every ban" 1 \
   "$([ "$(diff_for lint-block-absent | grep -c '^-.*\"pkg\"' || true)" -gt 5 ] && echo 1 || echo 0)"
+
+# The mirror image of the missing-ban case: the local addition shows up
+# as ADDED, and only as added — nothing canonical is reported gone.
+check "the local addition shows up as ADDED, and only that ban" 1 \
+  "$(diff_for lint-extra-rule | grep -c '^+.*\"pkg\"' || true)"
+check "the local addition is named" 1 \
+  "$(diff_for lint-extra-rule | grep -c '^+.*github.com/example/locally-banned' || true)"
+check "nothing canonical is reported removed" 0 \
+  "$(diff_for lint-extra-rule | grep -c '^-.*\"pkg\"' || true)"
 
 [ "$fail" = 0 ] || { echo "::error::caller-parity does not compare as documented"; exit 1; }
 echo "all cases pass"
