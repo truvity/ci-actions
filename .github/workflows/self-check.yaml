@@ -93,6 +93,13 @@ jobs:
       - name: tagged-pins cases
         run: ./hack/tagged-pins-cases.sh
 
+      # policy-conformance, against fixture repositories: one that meets
+      # every rule, then one rule broken at a time. A conformance check
+      # that says PASS everywhere cannot be told apart from one that looks
+      # at nothing, so each rule is proved to FAIL on its own defect.
+      - name: policy-conformance cases
+        run: ./hack/policy-conformance-cases.sh
+
       # cluster's mode: shared hands out this repository's kubeconfig,
       # aws.ini and (optionally) an ECR login, so the one thing that must
       # never be true is a fork pull request reaching it. Run against
@@ -118,6 +125,14 @@ jobs:
         with:
           runners: ubuntu-latest
           visibility: ${{ github.event.repository.visibility }}
+
+      # The contract, asked of this repository. Report-only: ci-actions has
+      # no charts, no Go module and no Justfile, so several rules skip and
+      # C4 reports; what matters here is that the action runs end to end
+      # from a real checkout, fetches its tags and writes its summary.
+      - uses: ./policy-conformance
+        with:
+          strict: "false"
 
       # This repository is PUBLIC and its history cannot be unpublished.
       # Everything particular -- account ids, role ARNs, registry hosts,
