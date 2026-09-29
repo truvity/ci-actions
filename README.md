@@ -149,9 +149,11 @@ each:
 - `just kit` — the golangci-depguard kit against truvity/policy.
 - `just cache-env` — what setup-devbox writes into GITHUB_ENV, per cache shape.
 - `just pins-cases` — the pin guard, against local git remotes.
+- `just conformance-cases` — policy-conformance rule tests against fixture repositories.
 - `just fork-guard` — cluster's fork refusal, against fake event payloads.
 - `just pins` — verify all pins point to release tags.
 - `just runners` — verify the repository uses public runners.
+- `just conformance` — run policy-conformance against this repository.
 - `just leak-canary` — scan for secrets and sensitive data.
 - `just check` — run all recipes (the merge gate).
 
