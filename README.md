@@ -14,7 +14,7 @@ contract.
 | [`recipe`](recipe/action.yaml) | Runs one task-runner recipe inside devbox, then fails if the working tree changed | `recipe` (required), `command` (`just`) | `check` |
 | [`public-runners`](public-runners/action.yaml) | Refuses a public repository that asks for self-hosted runners | `runners` (required), `visibility` | `check`, `integration`, `release-public` |
 | [`tagged-pins`](tagged-pins/action.yaml) | Refuses a pin into the shared CI libraries that is not the commit of a tag | `libraries` (ci-workflows, ci-actions, ci-cache) | `check` |
-| [`policy-conformance`](policy-conformance/README.md) | Checks a repository against the component contract, rules C1 to C12, one line per rule | `strict` (`false`), `skip`, `reason` | `check`, opt-in (from the next release) |
+| [`policy-conformance`](policy-conformance/README.md) | Checks a repository against the component contract, rules C1 to C12, one line per rule | `strict` (`false`), `skip`, `reason` | `check`, opt-in |
 | [`cluster`](cluster/README.md) | Stands up the end-to-end cluster (a disposable kind box, or a shared cluster) behind one set of outputs | `mode` (required), `policy-version`, `namespace`, `background` | `integration` (kind tier) |
 | [`setup-remote-builders`](setup-remote-builders/action.yaml) | Attaches the remote BuildKit builders a cross-architecture image build needs | `remote-builders` (required) | `integration` |
 | [`openbao-secrets`](openbao-secrets/action.yaml) | Reads a job's third-party secrets from OpenBao at run time | `issuer`, `address`, `path` (required), `keys` | `release-private` |
@@ -60,11 +60,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: truvity/ci-actions/public-runners@f0c56df8cb20d13c6ebd350f3e5f62d6dfbd4e08 # v1.1.0
+      - uses: truvity/ci-actions/public-runners@73a8e54d28025275f2b2750ae4bfc56f008b36cb # v1.3.0
         with:
           runners: ubuntu-latest
           visibility: ${{ github.event.repository.visibility }}
-      - uses: truvity/ci-actions/tagged-pins@f0c56df8cb20d13c6ebd350f3e5f62d6dfbd4e08 # v1.1.0
+      - uses: truvity/ci-actions/tagged-pins@73a8e54d28025275f2b2750ae4bfc56f008b36cb # v1.3.0
 ```
 
 The first action prints `ok ubuntu-latest` and `public repository,
@@ -127,11 +127,13 @@ check.
 
 ## Status
 
-Two tags: v1.0.0 (2026-09-24) and v1.1.0 (2026-09-26); neither has a
-GitHub release. ci-workflows pins v1.0.0 for most actions and v1.1.0
-for `cluster`. `master` carries unreleased work, listed under
-`Unreleased` in the [CHANGELOG](CHANGELOG.md), including
-`policy-conformance` and `setup-devbox`'s move to a tagged ci-cache pin.
+Four tags: v1.0.0 (2026-09-24), v1.1.0 (2026-09-26), v1.2.0 and v1.3.0
+(both 2026-09-29). v1.2.0 and v1.3.0 have a GitHub release each,
+v1.3.0 marked "Latest"; v1.0.0 and v1.1.0 do not. ci-workflows pins
+v1.3.0 for every action. `policy-conformance` and `setup-devbox`'s move
+to a tagged ci-cache pin, both once listed here as unreleased work,
+shipped in v1.2.0; see [CHANGELOG.md](CHANGELOG.md) for what shipped
+since.
 
 ## Development
 
@@ -175,9 +177,9 @@ A release is an annotated `vX.Y.Z` tag on `master`; add its heading to
 next patch tag each Monday when `master` has moved, and at once for a
 merged pull request labelled `security`, but only while
 `vars.AUTO_RELEASE` is `true` and `vars.ACCESS_ROSTER_ISSUER` is set.
-Every run so far has been skipped on that guard, so both tags were cut
-by hand. Nothing creates a GitHub release; consumers pin the tag's
-commit.
+Every run so far has been skipped on that guard, so all four tags were
+cut by hand; v1.2.0 and v1.3.0 also got a GitHub release by hand, v1.0.0
+and v1.1.0 did not. Consumers pin the tag's commit either way.
 
 `auto-release.yaml` is standalone rather than a call into ci-workflows'
 shared workflow, because ci-workflows pins these actions and the two
