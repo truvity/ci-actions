@@ -1,53 +1,117 @@
-# A verbatim copy of the canonical kit that lives in this repository at
-# caller-parity/kits/auto-release.yaml, with a cron minute of its own.
-# caller-parity compares every enrolled repository against that file, and
-# this repository is not exempt from the rule it ships.
+# Cut the next patch tag when master has moved past the latest release.
 #
-# What is compared is SUBSTANCE: comment lines, blank lines, the `cron:`
-# line and the pinned ref of the library are all ignored -- which is why
-# this prose can differ and the minute below can be ours alone.
+# INLINED, deliberately, rather than calling truvity/ci-workflows'
+# shared auto-release.yaml like every other repository does. ci-workflows
+# pins these actions, so a pin from here back into ci-workflows made the
+# two libraries pin each other: neither could be released without first
+# releasing the other's pin bump. This is the access-roster half of that
+# workflow, standalone; the logic is the same and so is the behaviour a
+# caller sees. caller-parity reports this file as differing from its kit
+# for exactly that reason, and that difference is the point.
 #
-# Releases matter more here than in most repositories: truvity/ci-workflows
-# pins these actions by the COMMIT OF A TAG, so an action change that never
-# gets tagged is an action change nothing can pin (INF-971).
+# Releases matter more here than in most repositories: ci-workflows pins
+# these actions by the COMMIT OF A TAG, so an action change that never
+# gets tagged is an action change nothing can pin.
 #
-# The chain's last mile: when renovate's automerged bumps have moved
-# master past the latest release, the shared workflow cuts the next
-# patch tag. DOUBLY GUARDED, off by default: the issuer must be
-# configured for the organisation AND vars.AUTO_RELEASE must be "true"
-# — flipping it is the deliberate policy act. The v* tag ruleset must
-# carry the tagging App's bypass or the push is rejected.
+# DOUBLY GUARDED, off by default: the issuer must be configured for the
+# organisation AND vars.AUTO_RELEASE must be "true". The v* tag ruleset
+# must carry the tagging App's bypass or the push is rejected.
 #
 # NO APP KEY HERE. The job exchanges its own GitHub identity token at the
 # access-roster issuer for an installation token of the catalogue App,
 # narrowed to this repository and to `contents: write` +
-# `pull_requests: read`. `id-token: write` below is what the exchange
-# needs; the shared workflow can only narrow what is granted here.
+# `pull_requests: read`.
 name: Auto Release
 
 on:
-  # STAGGER THIS MINUTE, per repository: repositories that tag in the
-  # same minute produce downstream pin pull requests that race each
-  # other's rebases. It is the one line caller-parity does not compare.
+  # Staggered per repository, so tags cut in the same minute do not race
+  # each other's downstream pin pull requests.
   schedule:
     - cron: "41 5 * * 1"
   workflow_dispatch:
   # Security lane: a push whose merged PR carries renovate's `security`
-  # label releases immediately; every other push exits quietly in the
-  # shared workflow, and the weekly schedule stays the lane for ordinary
-  # bumps.
+  # label releases immediately; every other push exits quietly and waits
+  # for the weekly schedule.
   push:
     branches: [master]
 
 permissions:
   contents: read
-  id-token: write # the token exchange, in the shared workflow's job
 
 jobs:
   tag:
     if: vars.AUTO_RELEASE == 'true' && vars.ACCESS_ROSTER_ISSUER != ''
-    uses: truvity/ci-workflows/.github/workflows/auto-release.yaml@b29d4561863fe6be8ae5984ad2dd9b6e3db2f91f # v3.8.0
-    with:
-      token-source: access-roster
-      access-roster-issuer: ${{ vars.ACCESS_ROSTER_ISSUER }}
-      github-app: truvity-ci-automation
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write # the token exchange
+    # Queue, never cancel: two near-simultaneous security merges must tag
+    # two DIFFERENT patch versions, so the second run has to see the
+    # first one's tag rather than race it.
+    concurrency:
+      group: auto-release-${{ github.repository }}
+      cancel-in-progress: false
+    steps:
+      - name: Name this repository
+        id: repo
+        env:
+          REPO: ${{ github.repository }}
+        run: echo "name=${REPO#*/}" >> "$GITHUB_OUTPUT"
+
+      - uses: truvity/access-roster@ee6588973567a514663b5ad559141c2313621fc3 # v1.39.1
+        id: token
+        with:
+          issuer: ${{ vars.ACCESS_ROSTER_ISSUER }}
+          github-app: truvity-ci-automation
+          repositories: ${{ steps.repo.outputs.name }}
+          permissions: contents:write,pull_requests:read
+
+      - name: Release only security-labeled pushes
+        id: gate
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ steps.token.outputs.github-token }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          labels=$(gh api "repos/$REPO/commits/$SHA/pulls" \
+            --jq '[.[].labels[].name] | join(",")')
+          case ",$labels," in
+          *,security,*)
+            echo "security-labeled merge — releasing outside the weekly batch" >> "$GITHUB_STEP_SUMMARY"
+            ;;
+          *)
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "push without a security-labeled PR — Monday's batch carries it" >> "$GITHUB_STEP_SUMMARY"
+            ;;
+          esac
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The tag list and the ancestry comparison both need history.
+          fetch-depth: 0
+          token: ${{ steps.token.outputs.github-token }}
+
+      - name: Cut the next patch tag if master moved
+        if: steps.gate.outputs.skip != 'true'
+        env:
+          BOT: truvity-ci-automation
+        run: |
+          set -euo pipefail
+          LATEST=$(git tag --list "v*" --sort=-version:refname | head -1)
+          if [ -z "$LATEST" ]; then
+            echo "no v* releases yet — a human cuts the first one" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          if [ "$(git rev-parse "$LATEST^{commit}")" = "$(git rev-parse HEAD)" ]; then
+            echo "master == $LATEST — nothing to release" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          NEXT=$(echo "$LATEST" | awk -F. '{printf "%s.%s.%d", $1, $2, $3+1}')
+          git config user.name "${BOT}[bot]"
+          git config user.email "${BOT}[bot]@users.noreply.github.com"
+          git tag -a "$NEXT" -m "$NEXT — automatic release: master moved past $LATEST"
+          git push origin "$NEXT"
+          echo "released $NEXT" >> "$GITHUB_STEP_SUMMARY"
