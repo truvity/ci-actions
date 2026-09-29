@@ -4,7 +4,7 @@ Every release of truvity/ci-actions, newest first. Pin the commit of a
 tag (`git rev-parse vX.Y.Z^{commit}`), never the tag object and never
 an untagged commit; `tagged-pins` refuses anything else.
 
-## Unreleased
+## v1.2.0
 
 - **`policy-conformance`**, a new action: checks the calling repository
   against the component contract's rules C1 to C12 (truvity/policy
