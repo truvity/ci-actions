@@ -70,6 +70,13 @@ jobs:
       - name: caller-parity cases
         run: ./hack/caller-parity-cases.sh
 
+      # The golangci-depguard kit is a hand copy of truvity/policy's
+      # lint/golangci-depguard.yaml, pinned by kits.yaml's `source:`. A
+      # live read, not a stub: truvity/policy is public and the point is
+      # to catch OUR copy falling behind THEIRS, which a stub cannot see.
+      - name: policy kit current
+        run: ./hack/policy-kit-current.sh
+
       # What setup-devbox writes into GITHUB_ENV for each cache shape.
       # The branches are EXECUTED against a stubbed environment rather
       # than read, because this composite is estate-wide and reaches a
