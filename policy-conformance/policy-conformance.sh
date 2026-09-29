@@ -183,7 +183,11 @@ latest_tag() {
     fi
   done
   [ -n "$base" ] || return 1
-  git describe --tags --abbrev=0 --match 'v[0-9]*' "$base" 2>/dev/null
+  local tag
+  tag=$(git describe --tags --abbrev=0 --match 'v[0-9]*' "$base" 2>/dev/null) || return 1
+  # Two tags on one commit (a re-tag, or a patch cut on an unchanged
+  # tree): describe picks either, so take the highest version there.
+  git tag --points-at "$tag^{commit}" --list 'v[0-9]*' | sort -V | tail -1
 }
 
 rule_C5() {
