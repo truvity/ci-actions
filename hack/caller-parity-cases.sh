@@ -24,6 +24,17 @@
 # The action's `api-url` input exists for exactly this: the stub answers
 # on localhost and caller-parity.sh cannot tell the difference.
 #
+# A live dry run against the public estate (2026-09-29) found two more
+# false findings, both in the golangci-depguard.yaml section further
+# down: a repository with no Go in it at all (`gateway`, Helm charts
+# only) read `absent` for a lint kit it has no business carrying, and a
+# fork with a deliberately minimal `.golangci.yml` (the short extension,
+# which the fixed `path:` did not even look for) read `absent` too, when
+# what it actually needed was to be left alone. `applies_if`, `exempt`
+# and a `path:` list are the fix, and `lint-not-go`, `lint-yml-ext` and
+# the seeded `amazon-eks-pod-identity-webhook` exemption are those three
+# shapes, pinned the same way as everything else here.
+#
 #   hack/caller-parity-cases.sh
 set -euo pipefail
 
@@ -130,13 +141,17 @@ sed -e 's/^  govulncheck:$/  vuln:/' \
 # — absent, which is a state of its own and not a difference.
 mk absent security.yaml <"$kits/security.yaml"
 
-# Every readable case above also carries the import-ban block, verbatim.
-# This section is about security.yaml and auto-release.yaml; giving each
-# of them the same, unremarkable golangci-depguard.yaml keeps that focus
+# Every readable case above also carries the import-ban block, verbatim,
+# and a go.mod: the kit's `applies_if` now means a repository with no Go
+# in it is never even asked, and without one every case here would read
+# `n/a` instead of the state its own section is testing. This section is
+# about security.yaml and auto-release.yaml; giving each of them the
+# same, unremarkable golangci-depguard.yaml (and go.mod) keeps that focus
 # — its column reads "same" straight down below, and the cases that are
 # actually ABOUT that kit are their own section, further down.
 for case in identical comments-differ cron-differs pin-differs trigger-missing extra-inputs extra-block absent; do
   their_config <"$kits/golangci-depguard.yaml" >"$work/repos/$case/.golangci.yaml"
+  echo "module example.com/stub/$case" >"$work/repos/$case/go.mod"
 done
 
 # `forbidden` and `repo-gone` carry nothing: the stub answers 403 for the
@@ -334,8 +349,16 @@ lintkits="$work/kits-lint"
 mkdir -p "$lintkits"
 cp "$kits/golangci-depguard.yaml" "$kits/kits.yaml" "$lintkits/"
 
-for case in lint-identical lint-reindented lint-reordered lint-entry-missing lint-extra-rule lint-block-absent lint-file-absent; do
+for case in lint-identical lint-reindented lint-reordered lint-entry-missing lint-extra-rule lint-block-absent lint-file-absent lint-not-go lint-yml-ext amazon-eks-pod-identity-webhook; do
   mkdir -p "$work/repos/$case"
+done
+
+# Every case below except `lint-not-go` IS a Go repository: `applies_if:
+# go.mod` (kits.yaml, real copy) is what makes `lint-not-go` read `n/a`
+# instead of joining this list, so everything that is actually testing
+# the block comparison needs the root go.mod that makes it apply.
+for case in lint-identical lint-reindented lint-reordered lint-entry-missing lint-extra-rule lint-block-absent lint-file-absent lint-yml-ext amazon-eks-pod-identity-webhook; do
+  echo "module example.com/stub/$case" >"$work/repos/$case/go.mod"
 done
 
 their_config <"$kits/golangci-depguard.yaml" >"$work/repos/lint-identical/.golangci.yaml"
@@ -375,13 +398,38 @@ linters:
     - errcheck
 EOF
 
-# `lint-file-absent` carries nothing: no .golangci.yaml, which is correct
-# for a repository with no Go in it.
+# `lint-file-absent` HAS a go.mod (from the loop above) but no
+# .golangci.yaml or .golangci.yml -- a Go repository that has not added
+# the lint file yet, which is `absent`. `lint-not-go` has neither file:
+# no go.mod, so `applies_if` says this kit is not this repository's
+# business at all, and the dry run that found `gateway` reading
+# `absent` for exactly this shape is why that reads `n/a` instead.
+#
+# `lint-yml-ext` is a Go repository whose lint configuration uses
+# golangci-lint v2's OTHER accepted extension, `.golangci.yml`, carrying
+# the block verbatim -- `path:`'s new list tries it after `.golangci.yaml`
+# and finds it, so this is `same` rather than the `absent` a fixed
+# `path:` used to report.
+their_config <"$kits/golangci-depguard.yaml" >"$work/repos/lint-yml-ext/.golangci.yml"
+
+# `amazon-eks-pod-identity-webhook` is kits.yaml's SEEDED exemption,
+# named exactly. It carries go.mod (it is a Go repository, a fork) and a
+# `.golangci.yaml` that is NOT the canonical block at all -- a minimal
+# linter set, standing in for the real file's documented, deliberate
+# divergence to ease upstream merges. Exempt means this is never even
+# compared, so the divergence must not matter to the result.
+cat >"$work/repos/amazon-eks-pod-identity-webhook/.golangci.yaml" <<'EOF'
+version: "2"
+
+linters:
+  enable:
+    - errcheck
+EOF
 
 : >"$GITHUB_OUTPUT"
 : >"$GITHUB_STEP_SUMMARY"
 if ! KITS="$lintkits" FAIL_ON_DIFF=false \
-  REPOSITORIES='["stub/lint-identical","stub/lint-reindented","stub/lint-reordered","stub/lint-entry-missing","stub/lint-extra-rule","stub/lint-block-absent","stub/lint-file-absent"]' \
+  REPOSITORIES='["stub/lint-identical","stub/lint-reindented","stub/lint-reordered","stub/lint-entry-missing","stub/lint-extra-rule","stub/lint-block-absent","stub/lint-file-absent","stub/lint-not-go","stub/lint-yml-ext","stub/amazon-eks-pod-identity-webhook"]' \
   bash "$root/caller-parity/caller-parity.sh" >"$work/log-lint" 2>&1; then
   cat "$work/log-lint"
   echo "::error::caller-parity.sh failed on the block kit"
@@ -394,7 +442,12 @@ check "its own order is not a difference" "| stub/lint-reordered | same |" "$(ro
 check "a missing ban IS a difference" "| stub/lint-entry-missing | differs |" "$(row lint-entry-missing)"
 check "an ADDED ban IS a difference too" "| stub/lint-extra-rule | differs |" "$(row lint-extra-rule)"
 check "a file with no block at all differs, it is not absent" "| stub/lint-block-absent | differs |" "$(row lint-block-absent)"
-check "a repository with no lint configuration is absent" "| stub/lint-file-absent | absent |" "$(row lint-file-absent)"
+check "a Go repository with no lint configuration is absent" "| stub/lint-file-absent | absent |" "$(row lint-file-absent)"
+check "a repository with no go.mod is n/a, not absent" "| stub/lint-not-go | n/a |" "$(row lint-not-go)"
+check "a .golangci.yml is found and compared, not absent" "| stub/lint-yml-ext | same |" "$(row lint-yml-ext)"
+check "the seeded exemption reads exempt with its reason" \
+  "| stub/amazon-eks-pod-identity-webhook | exempt (fork, minimal lint to ease upstream merges) |" \
+  "$(row amazon-eks-pod-identity-webhook)"
 
 check "three block differences" "differences=3" "$(grep '^differences=' "$GITHUB_OUTPUT")"
 check "one absent configuration" "absent=1" "$(grep '^absent=' "$GITHUB_OUTPUT")"

@@ -6,6 +6,25 @@
 # exists for the ones that are not: a block inside a file the repository
 # also fills with its own settings, which is what a lint configuration is.
 #
+# Two more keys narrow WHICH repositories a kit is even asked of:
+#
+#   applies_if  a file the repository must carry at its ROOT for this
+#               kit to apply at all. A repository without it reads
+#               `n/a`, not `absent` — different claims: `absent` is a Go
+#               repository that fell behind the kit, `n/a` is a
+#               repository the kit has no opinion about (gateway is
+#               Helm charts, no go.mod anywhere). Checked at the root
+#               only, deliberately: a multi-module repository with no
+#               root go.mod would need a tree search to tell "no Go
+#               here" from "Go, just not at the root", and this reports
+#               `n/a` for that shape too rather than guess. It can still
+#               carry the block; this check will just never notice.
+#   exempt      repository name (not `owner/name`) → why it is not
+#               compared, even though the kit otherwise applies. Renders
+#               as `exempt (<reason>)`. For a documented, deliberate
+#               local divergence — not a place to silence a repository
+#               that is merely behind.
+#
 # This file is NOT itself a kit. It is skipped by name.
 
 golangci-depguard.yaml:
@@ -13,7 +32,13 @@ golangci-depguard.yaml:
   # beside settings that are legitimately its own. Comparing the whole
   # file would report every repository as differing over things that are
   # nobody else's business.
-  path: .golangci.yaml
+  #
+  # golangci-lint v2 accepts either extension for its config file; a
+  # repository that wrote `.golangci.yml` is not "absent" for having
+  # picked the short one. Tried in order, first 200 wins.
+  path:
+    - .golangci.yaml
+    - .golangci.yml
   # The subtree to compare, on each side. The kit is a fragment rooted at
   # `depguard:`, because that is the shape somebody pastes; a repository
   # carries it under `linters.settings`.
@@ -32,3 +57,16 @@ golangci-depguard.yaml:
   # no drift detection has a half-life, which is the failure the block
   # itself exists to prevent.
   enabled: true
+  # This is a Go lint configuration; a repository with no Go in it has
+  # nothing to carry the block in. A dry run against the live estate
+  # (2026-09-29) found `gateway` — Helm charts only, no go.mod — reading
+  # `absent`, which is the wrong claim for a repository this kit does
+  # not apply to.
+  applies_if: go.mod
+  exempt:
+    # A fork of an upstream project. Its `.golangci.yml` deliberately
+    # keeps a minimal linter set, documented in the file itself, to keep
+    # merges from upstream easy. The same dry run found it reading
+    # `absent` (it looked only for `.golangci.yaml`); fixing that made it
+    # findable again, and findable is not the same as in scope.
+    amazon-eks-pod-identity-webhook: "fork, minimal lint to ease upstream merges"

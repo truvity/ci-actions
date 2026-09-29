@@ -137,6 +137,44 @@ setting() {
   printf '%s' "$3"
 }
 
+# kit_paths <kit file name> <default path> — the candidate paths to try,
+# one per line, in order.
+#
+# `path:` used to be one scalar. golangci-lint v2 reads either
+# `.golangci.yaml` or `.golangci.yml`, and a repository that happened to
+# write the short extension read as `absent` for no reason the kit
+# should care about — so `path:` may now be a list, tried in order until
+# one answers 200. `[] + x` is yq's own flattening: it turns a bare
+# scalar into a one-element list and leaves a list alone, so the same
+# expression serves both shapes and the kits with no manifest entry at
+# all (nothing to flatten, falls straight to the default below).
+kit_paths() {
+  local raw=""
+  if [ -n "$manifest" ]; then
+    raw=$(KIT="$1" yq -r '([] + .[strenv(KIT)].path)[]' "$manifest" 2>/dev/null || true)
+  fi
+  if [ -z "$raw" ]; then
+    printf '%s\n' "$2"
+  else
+    printf '%s\n' "$raw"
+  fi
+}
+
+# exempt_reason <kit file name> <repo owner/name> — the documented reason
+# a repository is not compared against this kit, or empty when it is not
+# exempt.
+#
+# Keyed on the repository's own name, not `owner/name`: kits.yaml is
+# read once for every estate this action runs against, and a repository
+# does not change name when it changes owner. A false is never the
+# intended reason here (unlike `enabled`), so the plain `//` default is
+# fine.
+exempt_reason() {
+  [ -z "$manifest" ] && return 0
+  local short="${2##*/}"
+  KIT="$1" NAME="$short" yq -r '.[strenv(KIT)].exempt[strenv(NAME)] // ""' "$manifest" 2>/dev/null || true
+}
+
 kits=()
 skipped=()
 while read -r kit; do
@@ -163,14 +201,44 @@ if [ "$(jq 'length' <<<"$repositories")" -eq 0 ]; then
   exit 0
 fi
 
-# Four states, and the difference between them is the point of the
-# check: `same`, `differs`, `absent` (correct for a repository that
-# releases nothing) and `unreadable` (a read that failed, which is never
-# reported as either of the other three).
+# Six states, and the difference between them is the point of the
+# check: `same`, `differs`, `absent` (a repository that carries none of
+# the file — wrong for a Go repository, correct for one that releases
+# nothing), `unreadable` (a read that failed, which is never reported as
+# any of the others), `n/a` (a repository this kit's `applies_if` says
+# to skip — an "absent" go.mod would otherwise read as an absent kit
+# file, which is a different claim) and `exempt (<reason>)` (a
+# repository named in the kit's `exempt:` map, documented and not
+# compared at all).
 rows='[]'
 differences=0
 absent=0
 unreadable=0
+napplicable=0
+nexempt=0
+
+# applies_cache["<repo>|<applies_if path>"] — yes/no/unreadable, so a
+# kit's `applies_if` file is read at most once per repository even when
+# more than one kit asks about the same file.
+declare -A applies_cache=()
+
+# applies_state <repo> <applies_if path> — whether that repository
+# carries the file `applies_if` names, cached per repository. Reuses
+# `http`/`$branch` exactly as the per-kit reads below do; the cache key
+# does not include the branch because a repository has exactly one
+# default branch for the lifetime of this loop.
+applies_state() {
+  local key="$1|$2"
+  if [ -z "${applies_cache[$key]+x}" ]; then
+    http "$API/repos/$1/contents/$2?ref=$branch"
+    case "$HTTP_STATUS" in
+      200) applies_cache[$key]=yes ;;
+      404) applies_cache[$key]=no ;;
+      *) applies_cache[$key]=unreadable ;;
+    esac
+  fi
+  printf '%s' "${applies_cache[$key]}"
+}
 
 for repo in $(jq -r '.[]' <<<"$repositories"); do
   http "$API/repos/$repo"
@@ -187,16 +255,82 @@ for repo in $(jq -r '.[]' <<<"$repositories"); do
 
   for kit in "${kits[@]}"; do
     name=$(basename "$kit")
-    path=$(setting "$name" path ".github/workflows/$name")
-    compare=$(setting "$name" compare "")
-    within=$(setting "$name" within ".")
     state=unreadable
-    # Kit file names are plain (`[a-z-]+.yaml`) and so are the paths in
-    # the manifest; the ref is the default branch this repository
-    # reported.
-    http "$API/repos/$repo/contents/$path?ref=$branch"
-    case "$HTTP_STATUS" in
-      200)
+    skip=false
+
+    # DOCUMENTED EXEMPTIONS. `kits.yaml`'s `exempt:` map names a
+    # repository and says why, in prose that ends up in the table:
+    # `exempt (<reason>)`. Checked first, and it costs no read of its
+    # own — a repository this kit has no opinion about is not worth
+    # spending the file read on.
+    reason=$(exempt_reason "$name" "$repo")
+    if [ -n "$reason" ]; then
+      state="exempt ($reason)"
+      skip=true
+      nexempt=$((nexempt + 1))
+    fi
+
+    # ONLY CHECK REPOSITORIES THIS KIT APPLIES TO. `applies_if` names a
+    # file at the repository's ROOT — for golangci-depguard.yaml, the
+    # root `go.mod` that makes a repository a Go repository at all. Kept
+    # to the root deliberately: a multi-module repository with no root
+    # go.mod would need a tree search to tell "no Go here" from "Go, just
+    # not at the root", and this check has no reason to guess which — it
+    # reports `n/a` for that shape too, same as a repository with no Go
+    # in it. A repository whose module lives one level down can carry
+    # the lint block anyway; nothing here stops it, this check simply
+    # will not notice.
+    if ! $skip; then
+      applies_if=$(setting "$name" applies_if "")
+      if [ -n "$applies_if" ]; then
+        case "$(applies_state "$repo" "$applies_if")" in
+          no)
+            state="n/a"
+            skip=true
+            napplicable=$((napplicable + 1))
+            ;;
+          unreadable)
+            echo "::warning::$repo: could not read $applies_if — not compared"
+            state=unreadable
+            unreadable=$((unreadable + 1))
+            skip=true
+            ;;
+        esac
+      fi
+    fi
+
+    if ! $skip; then
+      compare=$(setting "$name" compare "")
+      within=$(setting "$name" within ".")
+      # `path:` may be one scalar or a list (golangci-depguard.yaml's is
+      # both `.golangci.yaml` and `.golangci.yml` — golangci-lint v2
+      # accepts either extension, and a repository that chose the short
+      # one is not "absent"). Tried in order; the first 200 wins. A 404
+      # on every candidate is absent; a non-404 failure on any of them,
+      # with no 200 among them, is unreadable — reported for whichever
+      # candidate hit it first.
+      mapfile -t candidate_paths < <(kit_paths "$name" ".github/workflows/$name")
+      found=false
+      found_path=""
+      err_status=""
+      err_path=""
+      for candidate in "${candidate_paths[@]}"; do
+        # Kit file names are plain (`[a-z-]+.yaml`) and so are the paths
+        # in the manifest; the ref is the default branch this repository
+        # reported.
+        http "$API/repos/$repo/contents/$candidate?ref=$branch"
+        if [ "$HTTP_STATUS" = 200 ]; then
+          found=true
+          found_path="$candidate"
+          break
+        elif [ "$HTTP_STATUS" != 404 ] && [ -z "$err_status" ]; then
+          err_status="$HTTP_STATUS"
+          err_path="$candidate"
+        fi
+      done
+
+      if $found; then
+        path="$found_path"
         # The repository is in the installation and the token carries
         # contents: read, so a 404 here means the file is not there.
         jq -r '.content // empty' <<<"$HTTP_BODY" | tr -d '\n' | base64 -d >"$work/theirs" 2>/dev/null || : >"$work/theirs"
@@ -226,16 +360,16 @@ for repo in $(jq -r '.[]' <<<"$repositories"); do
             "$work/ours.substance" "$work/theirs.substance" >"$work/${repo//\//__}.$name.diff" || true
           echo "::warning::$repo: $path differs from the canonical kit"
         fi
-        ;;
-      404)
+      elif [ -n "$err_status" ]; then
+        echo "::warning::$repo: could not read $err_path (HTTP $err_status) — not compared"
+        state=unreadable
+        unreadable=$((unreadable + 1))
+      else
         state=absent
         absent=$((absent + 1))
-        ;;
-      *)
-        echo "::warning::$repo: could not read $path (HTTP $HTTP_STATUS) — not compared"
-        unreadable=$((unreadable + 1))
-        ;;
-    esac
+      fi
+    fi
+
     rows=$(jq -c --arg r "$repo" --arg f "$name" --arg s "$state" \
       '. + [{repo: $r, file: $f, state: $s}]' <<<"$rows")
   done
@@ -255,8 +389,9 @@ fi
   echo "this library's pinned ref are not compared. The \`cron:\` minute is"
   echo "staggered per repository on purpose."
   echo
-  echo "**$differences** differ, **$absent** absent, **$unreadable** could not be read,"
-  echo "across $(jq 'length' <<<"$repositories") repositories and ${#kits[@]} files."
+  echo "**$differences** differ, **$absent** absent, **$napplicable** n/a, **$nexempt** exempt,"
+  echo "**$unreadable** could not be read, across $(jq 'length' <<<"$repositories") repositories"
+  echo "and ${#kits[@]} files."
   echo
   if [ "${#skipped[@]}" -gt 0 ]; then
     echo "Kits turned off in \`kits/kits.yaml\` and NOT compared: ${skipped[*]}."

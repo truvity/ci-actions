@@ -49,7 +49,7 @@ no drift check. It is safe because of rule 2.
 | [`setup-devbox`](setup-devbox/) | Bootstraps devbox, proto and the toolchain, logs into CodeArtifact, and wires the fleet caches by delegating to [`truvity/ci-cache/setup`](https://github.com/truvity/ci-cache) |
 | [`recipe`](recipe/) | Runs one task-runner recipe and checks the working tree afterwards |
 | [`fleet-discover`](fleet-discover/) | Decides which repositories a fleet job touches, and whether each one's default branch is gated |
-| [`caller-parity`](caller-parity/) | Compares a repository's shared caller workflow against the canonical copy in [`caller-parity/kits/`](caller-parity/kits/) |
+| [`caller-parity`](caller-parity/) | Compares a repository's shared caller workflow against the canonical copy in [`caller-parity/kits/`](caller-parity/kits/), scoped per kit by `applies_if` (`n/a`) and `exempt` (`exempt (<reason>)`) |
 | [`devbox-parity`](devbox-parity/) | Refreshes devbox packages and keeps a Go repository's toolchain triple aligned |
 | [`openbao-secrets`](openbao-secrets/) | Reads a job's third-party secrets from OpenBao at run time instead of copying them into every repository |
 | [`setup-remote-builders`](setup-remote-builders/) | Attaches the remote builders a cross-architecture image build needs |
