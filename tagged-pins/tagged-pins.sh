@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Every `uses: <library>/...@<sha>` under .github must name the COMMIT OF A
-# TAG, for each shared CI library named in $LIBRARIES.
+# Every `uses: <library>/...@<sha>` anywhere in the checkout must name the
+# COMMIT OF A TAG, for each shared CI library named in $LIBRARIES.
 #
 # A pin to an untagged commit is a pin to whatever was on master that
 # afternoon: it names no release, so it cannot be diffed against one, the
@@ -10,6 +10,13 @@
 #
 # Runs from the root of the repository being judged: the CALLER's checkout
 # in the shared `check`, this library's own in self-check.
+#
+# Searches the WHOLE checkout, not just .github: ci-cache's addition to
+# the default list (2026-09-29) is a pin this repository carries itself,
+# in setup-devbox/action.yaml, which is not under .github at all. A guard
+# that only read .github would default ci-cache into the list and then
+# find "nothing to check" every time -- the exact quiet-pass failure mode
+# this file exists to avoid.
 set -euo pipefail
 
 # One library or several. The split of the actions out of ci-workflows
@@ -22,7 +29,12 @@ set -euo pipefail
 # Defaulted here as well as in action.yaml so the script is runnable on
 # its own -- by the case harness, and by anyone debugging a red gate in a
 # checkout rather than in a job.
-LIBRARIES="${LIBRARIES:-truvity/ci-workflows truvity/ci-actions}"
+#
+# ci-cache joined the list on 2026-09-29: a repository's Go build reaches
+# it through setup-devbox's own nested `truvity/ci-cache/setup` pin, and an
+# untagged commit there is exactly the defect this guard exists to catch --
+# it names no release, so nothing can diff against it or bump it.
+LIBRARIES="${LIBRARIES:-truvity/ci-workflows truvity/ci-actions truvity/ci-cache}"
 
 read -r -a libraries <<<"${LIBRARIES//,/ }"
 
@@ -30,10 +42,10 @@ fail=0
 seen=0
 
 for library in "${libraries[@]}"; do
-  mapfile -t refs < <(grep -rhoE "${library}/[^@[:space:]\"']+@[0-9a-f]{40}" .github 2>/dev/null | sort -u)
+  mapfile -t refs < <(grep -rhoE --exclude-dir=.git "${library}/[^@[:space:]\"']+@[0-9a-f]{40}" . 2>/dev/null | sort -u)
 
   if [ ${#refs[@]} -eq 0 ]; then
-    echo "no ${library} pins under .github — nothing to check"
+    echo "no ${library} pins in this checkout — nothing to check"
     continue
   fi
 
@@ -72,4 +84,4 @@ fi
 # Said out loud, because "nothing to check" printed once per library and
 # then silence is indistinguishable from a guard that matched nothing
 # because the name it was given is wrong.
-echo "tagged-pins: ${seen} of ${#libraries[@]} libraries had pins under .github, all naming releases"
+echo "tagged-pins: ${seen} of ${#libraries[@]} libraries had pins in this checkout, all naming releases"

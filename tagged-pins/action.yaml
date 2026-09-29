@@ -9,11 +9,13 @@ inputs:
   libraries:
     description: >-
       Whitespace- or comma-separated owner/repo list to judge pins into.
-      The default is both halves of the shared CI library: the workflows
-      and the actions they are built from. A repository that pins neither
-      gets "nothing to check" and costs a second.
+      The default is the shared CI library — the workflows and the actions
+      they are built from — plus ci-cache, which every repository with a Go
+      build reaches through `setup-devbox`'s own nested pin and which must
+      be released, never floated, for the same reason. A repository that
+      pins none of the three gets "nothing to check" and costs a second.
     required: false
-    default: truvity/ci-workflows truvity/ci-actions
+    default: truvity/ci-workflows truvity/ci-actions truvity/ci-cache
 
 runs:
   using: composite
