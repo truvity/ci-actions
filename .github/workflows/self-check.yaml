@@ -96,9 +96,11 @@ jobs:
 
       # The guard, asked of this repository. `git ls-remote` needs the
       # tags of the libraries it judges, not of this checkout, so there is
-      # nothing to fetch first -- but the pins it finds are this
-      # repository's own, which today are none, and "nothing to check" is
-      # a verdict the step prints rather than a step that did not run.
+      # nothing to fetch first. Since ci-cache joined the default list
+      # (2026-09-29) this DOES find a pin of its own -- setup-devbox's
+      # nested `truvity/ci-cache/setup` -- which is exactly why the search
+      # covers the whole checkout and not just .github: that pin lives in
+      # setup-devbox/action.yaml, not under it.
       - uses: ./tagged-pins
 
       # The rule this library asks of every public caller, asked of

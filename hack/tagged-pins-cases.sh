@@ -75,10 +75,23 @@ make_library() {
 run_case() {
   local libraries=$1
   shift
+  run_case_at ".github/workflows/w.yaml" "$libraries" "$@"
+}
+
+# Same shape, but the fixture lands OUTSIDE .github -- at a path like
+# setup-devbox/action.yaml, a composite action nested in THIS repository
+# rather than a caller's workflow. The guard now searches the whole
+# checkout for exactly this reason: ci-cache's own pin lives there, not
+# under .github, and a search still scoped to .github would default
+# ci-cache into the library list and then report "nothing to check" on
+# every run, forever.
+run_case_at() {
+  local rel=$1 libraries=$2
+  shift 2
 
   local ws="$work/ws"
   rm -rf "$ws"
-  mkdir -p "$ws/.github/workflows"
+  mkdir -p "$ws/$(dirname "$rel")"
 
   {
     echo "jobs:"
@@ -88,7 +101,7 @@ run_case() {
     for line in "$@"; do
       echo "      - uses: $line"
     done
-  } >"$ws/.github/workflows/w.yaml"
+  } >"$ws/$rel"
 
   (cd "$ws" && LIBRARIES="$libraries" bash "$script") 2>&1
 }
@@ -144,6 +157,42 @@ if [ $? = 0 ]; then
   ok "commas separate libraries as well as spaces"
 else
   bad "commas separate libraries as well as spaces: $log"
+fi
+
+# ── ci-cache, and a pin OUTSIDE .github ──────────────────────────────────
+#
+# ci-cache joined the default library list on 2026-09-29 because this
+# repository's OWN setup-devbox/action.yaml carries a nested
+# `truvity/ci-cache/setup` pin -- and that file is not under .github. A
+# guard whose search stayed scoped to .github would add ci-cache to the
+# list and then report "nothing to check" on every single run, which is
+# indistinguishable from a guard that works until somebody reads the
+# fine print. So the search covers the whole checkout, and this is the
+# case that would have caught the regression if it had not.
+
+read -r CC_TAGGED CC_LOOSE < <(make_library truvity/ci-cache)
+
+log=$(run_case_at "setup-devbox/action.yaml" "truvity/ci-workflows truvity/ci-actions truvity/ci-cache" \
+  "truvity/ci-workflows/.github/workflows/check.yaml@${WF_TAGGED}" \
+  "truvity/ci-cache/setup@${CC_LOOSE}")
+if [ $? = 0 ]; then
+  bad "an untagged ci-cache pin OUTSIDE .github is refused: $log"
+else
+  ok "an untagged ci-cache pin outside .github is refused"
+fi
+
+case "$log" in
+*"truvity/ci-cache/setup"*) ok "the refusal names the ci-cache pin" ;;
+*) bad "the refusal names the ci-cache pin: $log" ;;
+esac
+
+log=$(run_case_at "setup-devbox/action.yaml" "truvity/ci-workflows truvity/ci-actions truvity/ci-cache" \
+  "truvity/ci-workflows/.github/workflows/check.yaml@${WF_TAGGED}" \
+  "truvity/ci-cache/setup@${CC_TAGGED}")
+if [ $? = 0 ]; then
+  ok "a tagged ci-cache pin outside .github is accepted"
+else
+  bad "a tagged ci-cache pin outside .github is accepted: $log"
 fi
 
 # ── nothing to check ────────────────────────────────────────────────────

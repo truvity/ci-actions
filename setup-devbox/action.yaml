@@ -468,7 +468,7 @@ runs:
     # ci-cache owns the HOW. Callers keep one pin, to this workflow, and
     # never name the cache action themselves.
     - name: Wire the fleet caches
-      uses: truvity/ci-cache/setup@f6c6c999b1648cd76b7bc42dbfeadee156c3cf9d # ci-cache setup action
+      uses: truvity/ci-cache/setup@59d0647c5f9f635e26cf1bbb787f910197976310 # v0.2.0
       with:
         bucket: ${{ inputs.go-cache-bucket }}
         region: ${{ inputs.go-cache-region }}
