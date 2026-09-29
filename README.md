@@ -1,204 +1,183 @@
 # ci-actions
 
-The composite actions
-[truvity/ci-workflows](https://github.com/truvity/ci-workflows) is built
-from. They lived there until 2026-09-24; they are the same actions, with
-the same history, moved.
+The composite actions [truvity/ci-workflows](https://github.com/truvity/ci-workflows)
+is built from: bootstrapping a runner, running a recipe, guarding pins
+and runners, discovering and comparing the fleet, standing up an
+end-to-end cluster, and checking a repository against the component
+contract.
 
-## Why they are not in ci-workflows any more
+## What ships
 
-A workflow cannot pin the commit that introduces an action in its **own**
-repository. That commit does not exist until the merge, and rebase-merge
-rewrites it anyway. ci-workflows carried two gates for exactly that
-self-reference — one asking whether a pin was older than the action, one
-asking whether it named a release — and together they made every action
-change a three-step dance: land the action, tag a release, land a second
-pull request moving the pin. In between, `master` was red.
+| action | what it does | key inputs | used by (ci-workflows) |
+| -- | -- | -- | -- |
+| [`setup-devbox`](setup-devbox/action.yaml) | Installs devbox, proto and the toolchain, logs into CodeArtifact, mints a GitHub App token for private-module reads, and wires the caches by delegating to [`truvity/ci-cache/setup`](https://github.com/truvity/ci-cache) | `go-cache-bucket`, `go-cache-region`, `goproxy`, `go-private`, `module-app-client-id`, `aws-config-file`, `codeartifact-domain` | `check`, `integration`, `release-public`, `release-private`, `parity-fleet` |
+| [`recipe`](recipe/action.yaml) | Runs one task-runner recipe inside devbox, then fails if the working tree changed | `recipe` (required), `command` (`just`) | `check` |
+| [`public-runners`](public-runners/action.yaml) | Refuses a public repository that asks for self-hosted runners | `runners` (required), `visibility` | `check`, `integration`, `release-public` |
+| [`tagged-pins`](tagged-pins/action.yaml) | Refuses a pin into the shared CI libraries that is not the commit of a tag | `libraries` (ci-workflows, ci-actions, ci-cache) | `check` |
+| [`policy-conformance`](policy-conformance/README.md) | Checks a repository against the component contract, rules C1 to C12, one line per rule | `strict` (`false`), `skip`, `reason` | `check`, opt-in (from the next release) |
+| [`cluster`](cluster/README.md) | Stands up the end-to-end cluster (a disposable kind box, or a shared cluster) behind one set of outputs | `mode` (required), `policy-version`, `namespace`, `background` | `integration` (kind tier) |
+| [`setup-remote-builders`](setup-remote-builders/action.yaml) | Attaches the remote BuildKit builders a cross-architecture image build needs | `remote-builders` (required) | `integration` |
+| [`openbao-secrets`](openbao-secrets/action.yaml) | Reads a job's third-party secrets from OpenBao at run time | `issuer`, `address`, `path` (required), `keys` | `release-private` |
+| [`fleet-discover`](fleet-discover/action.yaml) | Decides which repositories a fleet job touches, and whether each default branch is gated | `token` (required), `estate`, `require-check`, `repositories` | `renovate-fleet`, `parity-fleet` |
+| [`caller-parity`](caller-parity/action.yaml) | Compares each repository's shared caller workflows (and the depguard block) against the kits in [`caller-parity/kits/`](caller-parity/kits/), and reports | `token`, `repositories` (required), `fail-on-diff` (`false`) | `parity-fleet` |
+| [`devbox-parity`](devbox-parity/action.yaml) | Refreshes devbox packages and aligns a Go repository's toolchain triple, opening a pull request | `token` (required), `mode`, `module-dirs` | `parity-fleet` |
 
-Across repositories none of that exists. ci-workflows pins
-`truvity/ci-actions@<sha>` the way it pins any third party, in one
-commit, and the release gate goes back to meaning what it was written
-for.
+Every input is described in full in its `action.yaml`.
 
-## Two rules, the same two ci-workflows has
+## Who it is for
 
-**1. Pin by commit SHA, never by tag or branch.** Every repository in
-both organizations executes this code, so a compromise here reaches the
-whole estate. Tags move; commit SHAs do not. Pin the commit **of a tag** —
-`tagged-pins` below refuses anything else.
+Mostly for truvity/ci-workflows, which is the only thing a repository in
+either organisation pins: its reusable workflows call these actions, so
+a repository gets them without naming this repository at all. Pin an
+action here directly when you are writing a workflow that
+ci-workflows does not provide, or when you maintain ci-workflows itself.
+
+## The model
+
+The actions lived in ci-workflows until 2026-09-24. A workflow cannot
+pin the commit that introduces an action in its **own** repository: that
+commit does not exist until the merge, and rebase-merge rewrites it. So
+every action change was a three-step dance (land the action, tag,
+land a second pull request moving the pin) with `master` red in between.
+Across repositories that problem does not exist: ci-workflows pins
+`truvity/ci-actions/<action>@<sha>` the way it pins any third party.
+
+**Pin the commit of a tag, never a tag or a branch.** Every repository in
+both organisations executes this code, so a compromise here reaches the
+whole estate. Tags move; commit SHAs do not. Take the commit, not the
+annotated tag object (`git rev-parse vX.Y.Z^{commit}`); a `uses:` at a
+tag object resolves to nothing. `tagged-pins` refuses anything that is
+not the commit of a tag.
+
+## Install and a worked example
+
+Nothing to install: GitHub fetches an action from its `uses:` line. The
+smallest useful job, on a public repository:
 
 ```yaml
-uses: truvity/ci-actions/setup-devbox@<40-char-sha> # vX.Y.Z
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: truvity/ci-actions/public-runners@f0c56df8cb20d13c6ebd350f3e5f62d6dfbd4e08 # v1.1.0
+        with:
+          runners: ubuntu-latest
+          visibility: ${{ github.event.repository.visibility }}
+      - uses: truvity/ci-actions/tagged-pins@f0c56df8cb20d13c6ebd350f3e5f62d6dfbd4e08 # v1.1.0
 ```
 
-**2. Mechanism only.** Account ids, role ARNs, registry hostnames, bucket
-names, cluster names and internal DNS are **caller inputs or org
-variables** — never content here. This repository is public, and public
-history cannot be unpublished. `hack/leak-canary.sh` enforces it in CI.
+The first action prints `ok ubuntu-latest` and `public repository,
+hosted runners only — checked`; the second prints one `ok` or `UNTAGGED`
+line per pin into the shared CI libraries and fails on an `UNTAGGED`
+one. A repository that calls ci-workflows' `check.yaml` already runs
+both.
 
-Public for the same reason ci-workflows is: a private repository's
-actions cannot be used across an organization boundary, and *internal*
-visibility needs an Enterprise plan neither organization has. Public is
-what lets `trust-form` consume these directly — no mirror, no sync job,
-no drift check. It is safe because of rule 2.
+## Consumers
 
-## The actions
-
-| action | what it does |
+| consumer | what it uses |
 | -- | -- |
-| [`setup-devbox`](setup-devbox/) | Bootstraps devbox, proto and the toolchain, logs into CodeArtifact, and wires the fleet caches by delegating to [`truvity/ci-cache/setup`](https://github.com/truvity/ci-cache) |
-| [`recipe`](recipe/) | Runs one task-runner recipe and checks the working tree afterwards |
-| [`fleet-discover`](fleet-discover/) | Decides which repositories a fleet job touches, and whether each one's default branch is gated |
-| [`caller-parity`](caller-parity/) | Compares a repository's shared caller workflow against the canonical copy in [`caller-parity/kits/`](caller-parity/kits/), scoped per kit by `applies_if` (`n/a`) and `exempt` (`exempt (<reason>)`) |
-| [`devbox-parity`](devbox-parity/) | Refreshes devbox packages and keeps a Go repository's toolchain triple aligned |
-| [`openbao-secrets`](openbao-secrets/) | Reads a job's third-party secrets from OpenBao at run time instead of copying them into every repository |
-| [`setup-remote-builders`](setup-remote-builders/) | Attaches the remote builders a cross-architecture image build needs |
-| [`public-runners`](public-runners/) | Refuses a public repository that has been pointed at self-hosted runners |
-| [`tagged-pins`](tagged-pins/) | Refuses a pin into the shared CI library that names no release |
-| [`cluster`](cluster/) | Stands up the end-to-end test cluster — a disposable kind box or the estate's shared cluster — behind one identical set of outputs |
+| [truvity/ci-workflows](https://github.com/truvity/ci-workflows) | every action, from the workflows in the table above; and through them, every repository that calls ci-workflows |
+| [truvity/policy](https://github.com/truvity/policy) | `cluster` (`mode: kind`), through ci-workflows' `integration.yaml` on its kind tier |
 
-## `cluster`: one end-to-end cluster, two tiers
+## Neighbours
 
-Both a public repository and a private one run the same integration suite
-against a real cluster; only *which* cluster differs. A public
-repository's pull requests come from forks, so it gets a disposable kind
-box, stood up from nothing, on the runner itself. A private repository's
-own CI identity can be trusted with the estate's shared development
-cluster, so it uses that instead. `cluster/` is the seam: whichever tier
-runs, the rest of the job reads the same five things and does not know
-which one it is on.
+- **ci-workflows → ci-actions → ci-cache; ci-plane hosts the runners.**
+  [ci-workflows](https://github.com/truvity/ci-workflows) is the only
+  thing a caller pins; this repository holds the composite steps;
+  [ci-cache](https://github.com/truvity/ci-cache) owns cache wiring (its
+  `setup` action, which `setup-devbox` calls) and the cache server;
+  [ci-plane](https://github.com/truvity/ci-plane) is where work executes
+  (runner images, `arc-runners`, `ci-builders`).
+- **[policy](https://github.com/truvity/policy)**: the component contract
+  `policy-conformance` checks, and the `hack/kind/` box `cluster` runs at
+  a pinned release.
+- **[access-roster](https://github.com/truvity/access-roster)**: its
+  action mints this repository's tagging token in `auto-release.yaml`,
+  and its `accessctl` is the exec plugin `cluster`'s `mode: shared`
+  expects.
 
-```yaml
-- uses: truvity/ci-actions/cluster@<sha> # vX.Y.Z
-  with:
-    mode: kind                 # or: shared
-    policy-version: v0.8.0     # kind only
-    namespace: e2e
-# ... build, install, migrate, test — reading $KUBECONFIG, $SNAPSHOT_REGISTRY,
-# $GEMAAL_TIER, $GEMAAL_NAMESPACE, $GEMAAL_RELEASE either way
-```
+## Documentation
 
-**`mode: kind`.** Fetches [truvity/policy](https://github.com/truvity/policy)'s
-`hack/kind/` box — its kind cluster, CloudNativePG, NATS with JetStream,
-Gateway API CRDs, an S3 stand-in and a local image registry — at the
-exact release tag `policy-version` names, so the box stays owned by
-truvity/policy and a change to it ships through policy's own release
-rather than through this repository. It needs kind, kubectl and helm,
-which this action installs itself at pinned versions — never the
-caller's devbox: mode: kind exists precisely so a repository with no
-devbox at all can run the suite, and policy's own devbox pins these
-three to "latest" anyway, so there is no version contract to inherit
-from it. The kubeconfig it exports is an explicit file under
-`$RUNNER_TEMP`, never the default `~/.kube/config` — a job's other
-kubectl or helm calls (mode: shared, elsewhere in the same workflow)
-must never be repointed by this one running.
+- [`cluster/README.md`](cluster/README.md): both tiers, which one is
+  neutral, and the five variables.
+- [`policy-conformance/README.md`](policy-conformance/README.md): each
+  rule, what it reads, and how to skip one.
+- Each action's `action.yaml`: every input, with its reason.
+- [CHANGELOG.md](CHANGELOG.md): every release.
+- When to reach for these, in ci-workflows: the
+  [estate lifecycle](https://github.com/truvity/ci-workflows/blob/master/docs/estate-lifecycle.md),
+  the [fleet model](https://github.com/truvity/ci-workflows/blob/master/docs/fleet.md),
+  the [devbox contract](https://github.com/truvity/ci-workflows/blob/master/docs/devbox.md)
+  and [its update job](https://github.com/truvity/ci-workflows/blob/master/docs/devbox-update.md),
+  and the [secret plane](https://github.com/truvity/ci-workflows/blob/master/docs/secrets.md).
 
-**`SNAPSHOT_REGISTRY` is the box's own registry, not something this
-action stands up.** hack/kind/up.sh already runs kind's [documented local
-registry recipe](https://kind.sigs.k8s.io/docs/user/local-registry/) on
-`localhost:5001` (`hack/kind/versions.env`'s `REGISTRY_PORT`), wires it
-into every node's containerd, and hack/kind/verify.sh already proves a
-push and a pull through it. The box is the one owner of what a kind lane
-provides, so this action does not create a second registry or any other
-infrastructure the box did not ask for — it only checks the box's own
-claim after `up.sh` returns, and **fails loudly, naming the pinned
-version,** if that particular release does not publish one on 5001. A
-version this action's `SNAPSHOT_REGISTRY` contract does not hold for is a
-version to not pin, not a version to work around.
+## The rule that makes this repository public
 
-**`background: true` / `mode: wait`.** Standing the box up costs a few
-minutes even on a hosted runner with nothing cached. Passing
-`background: true` starts it and returns immediately — the outputs are
-already set, because they are paths and fixed strings known before the
-cluster exists, not anything the box computes — so the same job can build
-its images while the box comes up. A later step calls this action again
-with `mode: wait` (no other inputs — it finds the earlier launch by
-`state-dir`, which defaults to a fixed path under `$RUNNER_TEMP` for the
-whole job) to block until the box is ready and re-emit the same outputs.
-Skipping `wait` and using the cluster immediately after a `background: true`
-launch races the box.
+**Mechanism only.** Account ids, role ARNs, registry hostnames, bucket
+names, cluster names and internal DNS are caller inputs or organisation
+variables, never content here. Public history cannot be unpublished, so
+`hack/leak-canary.sh` enforces the rule in CI.
 
-**`mode: shared`.** **Refuses a fork pull request outright**, before
-resolving a kubeconfig, reading an `aws.ini` or attempting an ECR login —
-checked against `$GITHUB_EVENT_PATH` directly, not a caller-supplied
-input, so it cannot be defeated by passing the wrong value. Then resolves
-`kubeconfig` and `aws-config-file` (repo-relative, the same files a laptop
-uses — their exec plugin/credential process exchanges this job's GitHub
-token for a cluster/AWS credential), proves `kubectl auth whoami` reports
-`expected-identity` (three tries, stderr kept — a wrong identity fails
-before anything is built, not as a mysterious RBAC error later), and logs
-into `ecr-registries` if given. `SNAPSHOT_REGISTRY` is the first registry
-[`amazon-ecr-login`](https://github.com/aws-actions/amazon-ecr-login)
-actually logged into. Never call this action twice in parallel within a
-job in this mode: each identity exchange spends a one-use token.
+Public because a private repository's actions cannot be used across an
+organisation boundary, and *internal* visibility needs an Enterprise
+plan neither organisation has. Public is what lets the second
+organisation consume these directly: no mirror, no sync job, no drift
+check.
 
-**This mode assumes a toolchain, deliberately.** Unlike mode: kind, this
-action installs nothing for mode: shared — `kubectl` (and the exec plugin
-a repo-relative kubeconfig names, e.g. `accessctl`) must already be on
-`PATH`, the same way truvity/ci-workflows' `integration.yaml` runs it
-today, normally from the caller's own devbox via `setup-devbox`. A
-private repository's own CI identity is who mode: shared trusts, and that
-identity's devbox is part of what it trusts.
+## Status
 
-`GEMAAL_TIER` is `kind` or `shared` (a fixed string, not left unset):
-[gemaal's `harness.DetectTier`](https://github.com/truvity/gemaal)
-(`pkg/harness/tier.go`, v0.24.0) reads `$GEMAAL_TIER` "when set (any
-value — `TierKind` is the only one the harness treats specially today)",
-so any non-`kind` value — `shared` included — falls back to exactly the
-shared-cluster behaviour every existing caller already gets from leaving
-it unset. `GEMAAL_RELEASE` defaults to `<job>-r<run id>-a<run attempt>`
-in both modes, matching truvity/ci-workflows' `integration.yaml`, so
-parallel jobs and re-runs never collide over a release name.
+Two tags: v1.0.0 (2026-09-24) and v1.1.0 (2026-09-26); neither has a
+GitHub release. ci-workflows pins v1.0.0 for most actions and v1.1.0
+for `cluster`. `master` carries unreleased work, listed under
+`Unreleased` in the [CHANGELOG](CHANGELOG.md), including
+`policy-conformance` and `setup-devbox`'s move to a tagged ci-cache pin.
 
-No organisation particulars live in this action, in either mode: account
-ids, hostnames, cluster names and namespaces all arrive as inputs.
-
-## Docs
-
-The prose that explains *when* to reach for these — the estate lifecycle,
-the fleet model, the devbox contract, the secret plane — stays with the
-workflows that orchestrate them:
-
-- [estate-lifecycle.md](https://github.com/truvity/ci-workflows/blob/master/docs/estate-lifecycle.md) — a repository from birth to autopilot
-- [fleet.md](https://github.com/truvity/ci-workflows/blob/master/docs/fleet.md) — one job per estate, and `caller-parity`'s comparison
-- [devbox.md](https://github.com/truvity/ci-workflows/blob/master/docs/devbox.md) — preparing `devbox.json` for both faces
-- [devbox-update.md](https://github.com/truvity/ci-workflows/blob/master/docs/devbox-update.md) — the toolchain triple's one owner
-- [secrets.md](https://github.com/truvity/ci-workflows/blob/master/docs/secrets.md) — a job's third-party secrets, read at run time
-
-## Testing
+## Development
 
 There is no unit test for a composite action that is not "run its step
 bodies and read what they do". That is what `hack/` is:
 
 ```
-hack/discover-cases.sh       fleet-discover's required-check rule, against a stub API
-hack/caller-parity-cases.sh  what counts as a DIFFERENCE from the canonical caller
-hack/policy-kit-current.sh   the golangci-depguard kit against truvity/policy, over HTTPS
-hack/cache-env-cases.sh      what setup-devbox writes into GITHUB_ENV per cache shape
-hack/tagged-pins-cases.sh    the pin guard, against local git remotes
-hack/fork-guard-cases.sh     cluster's fork refusal, against fake event payloads
-hack/leak-canary.sh          rule 2, mechanically
+hack/discover-cases.sh            fleet-discover's required-check rule, against a stub API
+hack/caller-parity-cases.sh       what counts as a DIFFERENCE from the canonical caller
+hack/policy-kit-current.sh        the golangci-depguard kit against truvity/policy, over HTTPS
+hack/cache-env-cases.sh           what setup-devbox writes into GITHUB_ENV, per cache shape
+hack/tagged-pins-cases.sh         the pin guard, against local git remotes
+hack/fork-guard-cases.sh          cluster's fork refusal, against fake event payloads
+hack/policy-conformance-cases.sh  each contract rule failing on its own defect, on fixture repositories
+hack/leak-canary.sh               the public rule, mechanically
 ```
 
-Every one but `hack/policy-kit-current.sh` needs no network, no token and
-no cluster; each builds its own stub and throws it away. That one is a
-live read of a public repository's tagged file, for the same reason
-`tagged-pins` itself reads real tags over git rather than a stub: the
-point is catching a copy falling behind its SOURCE, which a stub cannot
-have drifted from. `self-check.yaml` runs all of them under the `check`
-context, which is **the whole merge gate** on this repository — a case
-that is not run there is a case nobody runs.
+Each runs on its own from the repository root with bash, git, jq,
+curl, yq and python3; there is no Justfile. All but `hack/policy-kit-current.sh` need no
+network and no token. `self-check.yaml` runs every one of them, plus
+actionlint, `tagged-pins`, `public-runners` and `policy-conformance`
+against this repository, under the `check` context. `check` is the
+whole merge gate: no approving review, and no bypass. Renovate opens a
+pull request like anyone else and GitHub's auto-merge finishes it when
+`check` goes green.
 
-`cluster`'s `mode: kind` is the one exception: proving it needs a real
-kind cluster and a container runtime, which `check` deliberately does not
-carry. `self-check.yaml`'s separate `cluster-kind` job runs it end to end
-— a real release tarball, a real cluster, the background/wait pattern —
-but is not part of `check` and is not required.
+`cluster`'s `mode: kind` needs a real kind cluster and a container
+runtime, so `self-check.yaml`'s separate `cluster-kind` job proves it
+end to end, outside `check` and not required.
 
-## Merging
+## Releasing
 
-`check` green is the gate. No approving review, and no bypass actor for
-anyone: there is no approval left to bypass, and the one thing a bypass
-could still skip is `check` itself. Renovate opens a pull request like
-anyone else and GitHub's auto-merge finishes it when the context goes
-green.
+A release is an annotated `vX.Y.Z` tag on `master`; add its heading to
+[CHANGELOG.md](CHANGELOG.md) in the same change that is tagged.
+[`auto-release.yaml`](.github/workflows/auto-release.yaml) cuts the
+next patch tag each Monday when `master` has moved, and at once for a
+merged pull request labelled `security`, but only while
+`vars.AUTO_RELEASE` is `true` and `vars.ACCESS_ROSTER_ISSUER` is set.
+Every run so far has been skipped on that guard, so both tags were cut
+by hand. Nothing creates a GitHub release; consumers pin the tag's
+commit.
+
+`auto-release.yaml` is standalone rather than a call into ci-workflows'
+shared workflow, because ci-workflows pins these actions and the two
+libraries would otherwise pin each other.
+
+## Licence
+
+MIT, as [LICENSE](LICENSE); the same text as ci-cache and ci-plane.
