@@ -120,10 +120,32 @@ runners:
     
     echo "public repository, hosted runners only — checked"
 
+# Test policy-conformance rule against fixture repositories
+conformance-cases:
+    @./hack/policy-conformance-cases.sh
+
+# Run policy-conformance against this repository
+conformance:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    # Fetch tags for C5 check
+    git fetch --tags origin 2>/dev/null || true
+
+    # Run the conformance action against this repo
+    STRICT=false bash -c '
+      env GITHUB_ACTION_PATH=. \
+          STRICT=false \
+          SKIP="" \
+          REASON="" \
+          RENOVATE_PRESET="github>truvity/ci-workflows" \
+          DEFAULT_BRANCH="master" \
+          ./policy-conformance/policy-conformance.sh
+    '
+
 # Scan for secrets and sensitive data
 leak-canary:
     @./hack/leak-canary.sh
 
 # Run all checks (the merge gate)
-check: lint discover parity kit cache-env pins-cases fork-guard pins runners leak-canary
+check: lint discover parity kit cache-env pins-cases conformance-cases fork-guard pins runners conformance leak-canary
     @echo "✓ All checks passed"
