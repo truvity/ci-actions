@@ -1,0 +1,59 @@
+# Hold the calling repository's checkout against the component contract.
+#
+# The contract lives in truvity/policy (docs/contracts/component.md) and
+# numbers its checkable rules C1 to C13. This action evaluates C1 to C12
+# and prints one line per rule; C13 (estate facts are inputs, never
+# defaults) needs a reader rather than a grep and is left to review.
+#
+# Report first, gate later: `strict: false` (the default) turns every
+# failure into a warning annotation and a job-summary row and exits 0, so
+# the estate can read where it stands before anything goes red.
+#
+# Checkout must precede this action. It fetches the caller's tags itself
+# (C5 needs the latest one), unshallowing a depth-1 checkout to do it.
+name: policy-conformance
+description: >-
+  Check a repository against the component contract's rules C1-C12 and
+  print one line per rule. Report-only by default; `strict: true` fails
+  the job on any failed rule.
+
+inputs:
+  strict:
+    description: >-
+      "true" fails the job when any evaluated rule fails. Anything else
+      reports failures as warnings plus a job summary and succeeds.
+    required: false
+    default: "false"
+  skip:
+    description: >-
+      Comma-separated rule ids not to evaluate, e.g. "C3,C11". Each is
+      printed as SKIP with `reason`. An id outside C1-C12 fails the step.
+    required: false
+    default: ""
+  reason:
+    description: >-
+      Why the rules in `skip` are skipped. Required whenever `skip` is not
+      empty, and printed beside every skipped rule.
+    required: false
+    default: ""
+  renovate-preset:
+    description: The preset C7 expects renovate.json's `extends` to name, alone.
+    required: false
+    default: github>truvity/ci-workflows
+  working-directory:
+    description: The repository root to judge, relative to the workspace.
+    required: false
+    default: "."
+
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        STRICT: ${{ inputs.strict }}
+        SKIP: ${{ inputs.skip }}
+        REASON: ${{ inputs.reason }}
+        RENOVATE_PRESET: ${{ inputs.renovate-preset }}
+        DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+      run: ${{ github.action_path }}/policy-conformance.sh
