@@ -85,40 +85,158 @@ top_key() {
   sed -n -E "s/^$2:[[:space:]]*[\"']?([^\"'#[:space:]]*)[\"']?.*$/\1/p" "$1" | head -1
 }
 
+# ── exemptions · .github/policy-conformance.yaml ─────────────────────────
+#
+# A named, reviewed exception to one rule, for a repository kind the
+# contract's plain text does not fit (a library chart has no values to
+# schema; a CRD chart republished from upstream carries the upstream's own
+# version; a fork of a non-MIT upstream cannot relicense; a CHANGELOG whose
+# own preamble documents that a dependency-only patch carries no heading).
+# This is not the caller-side `skip:` input: that silences a whole rule for
+# one run and demands a reason every time. An exemption here is committed,
+# reviewed, and — where the rule is chart-scoped — can name just the charts
+# it covers rather than the whole repository.
+#
+# Shape (a restricted, line-oriented subset of YAML; no flow collections
+# other than `charts: [a, b, c]`):
+#
+#   exempt:
+#     C2:
+#       reason: library chart takes no values
+#       charts: [gateway-routes]
+#     C9:
+#       reason: fork of an Apache-2.0 upstream; cannot relicense
+#
+# `reason` is required. `charts`, where present, scopes the exemption to
+# those chart directories under charts/*; a rule with no `charts:` line is
+# exempted for the whole repository.
+EXEMPT_FILE=.github/policy-conformance.yaml
+
+# The reason string for a rule, or empty if it carries no exemption.
+exempt_reason() {
+  local id=$1
+  [ -f "$EXEMPT_FILE" ] || return 0
+  awk -v id="$id" '
+    /^exempt:/ { in_exempt=1; next }
+    in_exempt && /^[^[:space:]]/ { in_exempt=0 }
+    in_exempt && $0 ~ "^  " id ":[[:space:]]*$" { in_rule=1; next }
+    in_exempt && in_rule && /^  [A-Za-z]/ { in_rule=0 }
+    in_exempt && in_rule && /^    reason:[[:space:]]*/ {
+      sub(/^    reason:[[:space:]]*/, "")
+      print
+      exit
+    }
+  ' "$EXEMPT_FILE"
+}
+
+# Comma-separated chart names a rule's exemption is scoped to, or empty
+# (meaning: the whole repository) when the rule has no `charts:` line.
+exempt_charts() {
+  local id=$1
+  [ -f "$EXEMPT_FILE" ] || return 0
+  awk -v id="$id" '
+    /^exempt:/ { in_exempt=1; next }
+    in_exempt && /^[^[:space:]]/ { in_exempt=0 }
+    in_exempt && $0 ~ "^  " id ":[[:space:]]*$" { in_rule=1; next }
+    in_exempt && in_rule && /^  [A-Za-z]/ { in_rule=0 }
+    in_exempt && in_rule && /^    charts:[[:space:]]*\[/ {
+      sub(/^    charts:[[:space:]]*\[/, "")
+      sub(/\].*$/, "")
+      print
+      exit
+    }
+  ' "$EXEMPT_FILE" | tr -d ' '
+}
+
+# True (rc 0) when $2 is named in the comma-separated chart list $1, or
+# when $1 is empty (an unscoped, whole-repository exemption).
+chart_in() {
+  local list=$1 chart=$2
+  [ -n "$list" ] || return 0
+  case ",$list," in *",$chart,"*) return 0 ;; esac
+  return 1
+}
+
 # ── C1 · charts commit 0.0.0 ─────────────────────────────────────────────
+
+# Best-effort: does this repository build and publish an image at all? C1
+# only asks appVersion to be the tag placeholder "when the repo ships an
+# image" — a chart-only repository (goreleaser's builds all `skip: true`,
+# no ko section, no Dockerfile) has no image, so an appVersion it carries
+# names something else (an upstream compatibility pin) and is out of scope.
+repo_ships_image() {
+  local gf=""
+  for c in .goreleaser.yaml .goreleaser.yml; do
+    [ -f "$c" ] && { gf=$c; break; }
+  done
+  [ -n "$gf" ] || { [ -f Dockerfile ] || [ -f .ko.yaml ]; return; }
+  grep -qE '^kos:' "$gf" && return 0
+  [ -f Dockerfile ] && return 0
+  local block
+  block=$(awk '/^builds:/{f=1; next} /^[A-Za-z_]+:/{f=0} f' "$gf")
+  [ -n "$block" ] || return 0
+  # Every build entry in this file is an explicit no-op.
+  if grep -qE '^\s*-\s*id:' <<<"$block"; then
+    return 0
+  fi
+  if grep -qE '^\s*-?\s*skip:\s*true\s*$' <<<"$block" \
+      && ! grep -vE '^\s*-?\s*skip:\s*true\s*$|^\s*$' <<<"$block" >/dev/null; then
+    return 1
+  fi
+  return 0
+}
+
 rule_C1() {
-  local charts=(charts/*/Chart.yaml) f name v av probs=()
+  local charts=(charts/*/Chart.yaml) f name v av probs=() exempt="" exempt_list=""
   if [ ${#charts[@]} -eq 0 ]; then
     emit C1 SKIP "no charts/*/Chart.yaml"
     return
   fi
+  exempt=$(exempt_reason C1)
+  [ -n "$exempt" ] && exempt_list=$(exempt_charts C1)
+  local ships_image=1
+  repo_ships_image && ships_image=0
   for f in "${charts[@]}"; do
     name=${f#charts/}
     name=${name%/Chart.yaml}
+    if [ -n "$exempt" ] && chart_in "$exempt_list" "$name"; then
+      continue
+    fi
     v=$(top_key "$f" version)
     [ "$v" = 0.0.0 ] || probs+=("charts/$name version is ${v:-absent}, not 0.0.0")
     # appVersion is optional (a chart that ships no image has none), but
-    # when it is committed it is the same placeholder the tag replaces.
-    if grep -qE '^appVersion:' "$f"; then
+    # when it is committed AND the repo ships an image it is the same
+    # placeholder the tag replaces.
+    if [ "$ships_image" -eq 0 ] && grep -qE '^appVersion:' "$f"; then
       av=$(top_key "$f" appVersion)
       [ "$av" = 0.0.0 ] || probs+=("charts/$name appVersion is ${av:-empty}, not 0.0.0")
     fi
   done
-  verdict C1 "${#charts[@]} chart(s) commit version 0.0.0" "${probs[@]}"
+  local ok="${#charts[@]} chart(s) commit version 0.0.0"
+  [ -n "$exempt" ] && ok="$ok (exempt: $exempt_list: $exempt)"
+  verdict C1 "$ok" "${probs[@]}"
 }
 
 # ── C2 · every chart has a values schema ─────────────────────────────────
 rule_C2() {
-  local dirs=(charts/*/Chart.yaml) f d probs=()
+  local dirs=(charts/*/Chart.yaml) f d name probs=() exempt="" exempt_list=""
   if [ ${#dirs[@]} -eq 0 ]; then
     emit C2 SKIP "no charts/*/Chart.yaml"
     return
   fi
+  exempt=$(exempt_reason C2)
+  [ -n "$exempt" ] && exempt_list=$(exempt_charts C2)
   for f in "${dirs[@]}"; do
     d=${f%/Chart.yaml}
+    name=${d#charts/}
+    if [ -n "$exempt" ] && chart_in "$exempt_list" "$name"; then
+      continue
+    fi
     [ -f "$d/values.schema.json" ] || probs+=("$d has no values.schema.json")
   done
-  verdict C2 "${#dirs[@]} chart(s) carry values.schema.json" "${probs[@]}"
+  local ok="${#dirs[@]} chart(s) carry values.schema.json"
+  [ -n "$exempt" ] && ok="$ok (exempt: $exempt_list: $exempt)"
+  verdict C2 "$ok" "${probs[@]}"
 }
 
 # ── C3 · golden renders and a rejected-values fixture ────────────────────
@@ -222,10 +340,13 @@ rule_C5() {
     [ -z "$dupes" ] || probs+=("duplicate headings: $dupes")
   fi
 
-  local note="" tag
+  local note="" tag exempt
+  exempt=$(exempt_reason C5)
   if tag=$(latest_tag) && [ -n "$tag" ]; then
     if printf '%s\n' "${versions[@]}" | grep -qxF "$tag"; then
       note="heading for the latest tag $tag present"
+    elif [ -n "$exempt" ]; then
+      note="no heading for the latest tag $tag, exempt: $exempt"
     else
       probs+=("CHANGELOG.md has no heading for $tag")
     fi
@@ -352,14 +473,21 @@ rule_C8() {
 
 # ── C9 · MIT licence ─────────────────────────────────────────────────────
 rule_C9() {
-  local f=""
+  local f="" exempt
+  exempt=$(exempt_reason C9)
   for c in LICENSE LICENSE.md LICENSE.txt LICENCE; do
     [ -f "$c" ] && { f=$c; break; }
   done
   if [ -z "$f" ]; then
-    emit C9 FAIL "LICENSE is missing"
+    if [ -n "$exempt" ]; then
+      emit C9 EXEMPT "LICENSE is missing; exempt: $exempt"
+    else
+      emit C9 FAIL "LICENSE is missing"
+    fi
   elif grep -qE 'MIT License|Permission is hereby granted, free of charge' "$f"; then
     emit C9 PASS "$f is MIT"
+  elif [ -n "$exempt" ]; then
+    emit C9 EXEMPT "$f is not the MIT licence; exempt: $exempt"
   else
     emit C9 FAIL "$f is not the MIT licence"
   fi
@@ -426,34 +554,79 @@ rule_C11() {
     grep -hE '^[[:space:]]*-?[[:space:]]*main:' "${files[@]}" \
       | sed -E "s/^[^:]*:[[:space:]]*//; s/#.*$//; s/[\"'[:space:]]//g; s|/+$||" \
       | awk -F/ 'NF { print $NF }' | grep -vE '^\.?$' | sort -u)
-  local p c
+  # A ko `repositories:` entry with `base_import_paths: false` set in the
+  # same kos block publishes the repository AS the image name: ko's namer
+  # consults base_import_paths before `bare`, and false wins either way, so
+  # nothing from `main:` is appended for that prefix. Scoped by walking the
+  # kos: block of each goreleaser file and remembering the repository last
+  # seen when base_import_paths: false is hit.
+  local bare_prefixes=() gf
+  for gf in "${files[@]}"; do
+    case "$gf" in *.goreleaser.yaml | *.goreleaser.yml) ;; *) continue ;; esac
+    local cur=""
+    while IFS= read -r line; do
+      if [[ $line =~ repositories:[[:space:]]*\[([^]]+)\] ]]; then
+        cur=${BASH_REMATCH[1]%%,*}
+        cur=$(sed -E "s/[\"'[:space:]]//g" <<<"$cur")
+      fi
+      if [ -n "$cur" ] && [[ $line =~ base_import_paths:[[:space:]]*false ]]; then
+        bare_prefixes+=("$cur")
+      fi
+    done < <(awk '/^kos:/{f=1; next} /^[A-Za-z_]+:/{f=0} f' "$gf")
+  done
+  local p c is_bare
   for p in "${prefixes[@]}"; do
-    if [ ${#comps[@]} -eq 0 ]; then
+    is_bare=1
+    for c in "${bare_prefixes[@]:-}"; do [ "$c" = "$p" ] && is_bare=0; done
+    if [ "$is_bare" -eq 0 ] || [ ${#comps[@]} -eq 0 ]; then
       images+=("$p")
     else
       for c in "${comps[@]}"; do images+=("$p/$c"); done
     fi
   done
   # Image references written out in full, including a chart's default.
+  # Comment-only lines are dropped first: a line explaining what an image
+  # USED to be named (e.g. "# was ghcr.io/x/x up to v0.2.0") is not a
+  # reference to check, and grep alone cannot tell the two apart.
   local vals=(charts/*/values.yaml)
   mapfile -t -O "${#images[@]}" images < <(
-    grep -ohE 'ghcr\.io/[A-Za-z0-9._/-]+' "${files[@]}" ${vals[@]+"${vals[@]}"} 2>/dev/null \
+    grep -vE '^[[:space:]]*#' "${files[@]}" ${vals[@]+"${vals[@]}"} 2>/dev/null \
+      | grep -ohE 'ghcr\.io/[A-Za-z0-9._/-]+' \
       | grep -vE '^ghcr\.io/[^/]+/charts(/|$)' | sort -u)
   if [ ${#images[@]} -eq 0 ]; then
     emit C11 SKIP "no image names found in ${files[*]}"
     return
   fi
-  local img rest seen=" "
+  # Distinct images first — the same image named twice (once by goreleaser,
+  # once again in a chart's values.yaml default) is one image, not a
+  # sibling of itself.
+  local img seen=" " distinct=()
   for img in "${images[@]}"; do
     case "$seen" in *" $img "*) continue ;; esac
     seen="$seen$img "
+    distinct+=("$img")
+  done
+  # A component sharing a registry prefix with sibling images (a repo that
+  # ships several binaries, e.g. ghcr.io/truvity/audit/{audit,audit-writer,
+  # audit-query}) may legitimately have one component named after the repo
+  # itself; only a SOLE image under a prefix that repeats the repository is
+  # the degenerate case the rule means (ghcr.io/truvity/ci-cache/ci-cache
+  # with nothing else published alongside it).
+  declare -A prefix_count=()
+  for img in "${distinct[@]}"; do
+    [[ $img == */*/* ]] || continue
+    prefix_count["${img%/*}"]=$(( ${prefix_count["${img%/*}"]:-0} + 1 ))
+  done
+  local rest
+  for img in "${distinct[@]}"; do
     rest=${img#*/} # drop the registry
     rest=${rest#*/} # drop the owner
-    if [[ $rest == */* ]] && [ "${rest##*/}" = "$repo" ]; then
+    if [[ $rest == */* ]] && [ "${rest##*/}" = "$repo" ] \
+        && [ "${prefix_count["${img%/*}"]:-1}" -le 1 ]; then
       probs+=("$img repeats the repository name")
     fi
   done
-  verdict C11 "image names under $repo do not repeat it (${#images[@]} checked)" "${probs[@]}"
+  verdict C11 "image names under $repo do not repeat it (${#distinct[@]} checked)" "${probs[@]}"
 }
 
 # ── C12 · install pins a version ─────────────────────────────────────────
@@ -462,8 +635,15 @@ rule_C12() {
     emit C12 FAIL "README.md is missing"
     return
   fi
+  # An install command is what this rule means: `@latest` inside a fenced
+  # code block. Prose that warns against it (e.g. "an OCI chart reference
+  # has no `@latest` tag to fall back to anyway") is not a command and is
+  # not what a reader copies, so it does not count.
   local lines
-  lines=$(grep -n '@latest' README.md | cut -d: -f1 | paste -sd, -)
+  lines=$(awk '
+      /^```/ { fence = !fence; next }
+      fence && /@latest/ { print NR }
+    ' README.md | paste -sd, -)
   if [ -n "$lines" ]; then
     emit C12 FAIL "README.md installs @latest (line $lines)"
   else

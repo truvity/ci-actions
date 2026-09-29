@@ -52,7 +52,7 @@ conformant() {
                "Status" "Development" "Releasing" "Licence"; do
         printf '\n## %s\n\ntext\n' "$h"
       done
-      printf '\ngo install example.invalid/widget@v1.1.0\n'
+      printf '\n```sh\ngo install example.invalid/widget@v1.1.0\n```\n'
     } >README.md
     printf 'MIT License\n\nPermission is hereby granted, free of charge, ...\n' >LICENSE
     echo 'module example.invalid/widget' >go.mod
@@ -168,7 +168,93 @@ breaks C10 "vuln in the merge gate" \
 breaks C11 "an image named after the repository twice" \
   "sed -i 's|cmd/server|cmd/widget|' .goreleaser.yaml && sed -i 's|widget/server|widget/widget|' charts/widget/values.yaml" "ghcr.io/example/widget/widget"
 breaks C12 "an @latest install" \
-  "echo 'go install example.invalid/widget@latest' >>README.md" "@latest"
+  "printf '\n\`\`\`sh\ngo install example.invalid/widget@latest\n\`\`\`\n' >>README.md" "@latest"
+
+# holds <id> <what> <edit> [<want>] — apply <edit> to a conformant repo and
+# expect <id> to still say <want> (PASS unless given).
+holds() {
+  local id=$1 what=$2 edit=$3 want=${4:-PASS}
+  conformant "$repo" || { bad "fixture builds"; return; }
+  (cd "$repo" && eval "$edit")
+  local log
+  log=$(run "$repo")
+  expect "$log" "$id" "$want" "$what"
+}
+
+# ── C12 · prose mentioning @latest is not an install command ────────────
+
+holds C12 "@latest named only in prose, outside a fenced block, is not an install" \
+  "printf '\nPin a real version -- an OCI reference has no \`@latest\` tag to fall back to.\n' >>README.md"
+
+# ── C1 · a chart-only repository judges no appVersion ────────────────────
+
+holds C1 "appVersion is not judged when every goreleaser build is skipped" \
+  "printf 'builds:\n  - skip: true\n' >.goreleaser.yaml
+   sed -i 's/^appVersion: .*/appVersion: \"9.9.9\"/' charts/widget/Chart.yaml"
+
+# ── exemptions: .github/policy-conformance.yaml ──────────────────────────
+
+holds C1 "an exempted chart's version is not judged" \
+  "mkdir -p .github
+   sed -i 's/^version: 0.0.0/version: 1.2.3-upstream/' charts/widget/Chart.yaml
+   printf 'exempt:\n  C1:\n    reason: CRD chart, stamped from upstream'\''s pin\n    charts: [widget]\n' >.github/policy-conformance.yaml"
+
+breaks C1 "an exemption named for one chart does not cover a second" \
+  "mkdir -p charts/other tests/golden/other tests/invalid/other .github
+   cp charts/widget/Chart.yaml charts/other/Chart.yaml
+   cp charts/widget/values.schema.json charts/other/values.schema.json
+   echo 'kind: Deployment' >tests/golden/other/default.yaml
+   echo 'replicas: -1' >tests/invalid/other/negative.yaml
+   sed -i 's/^version: 0.0.0/version: 1.2.3/' charts/other/Chart.yaml
+   printf 'exempt:\n  C1:\n    reason: only widget is exempt\n    charts: [widget]\n' >.github/policy-conformance.yaml" \
+  "charts/other version is 1.2.3"
+
+holds C2 "an exempted chart's missing schema is not judged" \
+  "mkdir -p .github
+   rm charts/widget/values.schema.json
+   printf 'exempt:\n  C2:\n    reason: library chart takes no values\n    charts: [widget]\n' >.github/policy-conformance.yaml"
+
+holds C5 "an exemption suppresses only the missing-latest-heading failure" \
+  "mkdir -p .github
+   printf 'exempt:\n  C5:\n    reason: dependency-only patches carry no heading\n' >.github/policy-conformance.yaml
+   git commit -q --allow-empty -m next && git push -q origin master && git tag -a v1.2.0 -m v1.2.0 && git push -q origin v1.2.0 && git fetch -q origin"
+
+breaks C5 "an exemption does not excuse a genuinely unordered CHANGELOG" \
+  "mkdir -p .github
+   printf 'exempt:\n  C5:\n    reason: dependency-only patches carry no heading\n' >.github/policy-conformance.yaml
+   printf '## v1.0.0\n\n## v1.1.0\n' >CHANGELOG.md" "newest first"
+
+holds C9 "an exempted fork's non-MIT licence is EXEMPT, not FAIL" \
+  "mkdir -p .github
+   echo 'Apache License' >LICENSE
+   printf 'exempt:\n  C9:\n    reason: fork of an Apache-2.0 upstream\n' >.github/policy-conformance.yaml" \
+  EXEMPT
+
+# ── C11 · ko's base_import_paths: false, and sibling components ─────────
+
+holds C11 "base_import_paths: false publishes the bare repository, no comp appended" \
+  "cat >>.goreleaser.yaml <<'EOF'
+kos:
+  - id: server
+    build: server
+    repositories: [ghcr.io/example/widget/server]
+    base_import_paths: false
+EOF"
+
+holds C11 "a component named after the repo is not flagged when a sibling exists" \
+  "mkdir -p charts/other
+   printf 'apiVersion: v2\nname: other\nversion: 0.0.0\n' >charts/other/Chart.yaml
+   echo '{}' >charts/other/values.schema.json
+   mkdir -p tests/golden/other tests/invalid/other
+   echo 'kind: Deployment' >tests/golden/other/default.yaml
+   echo 'replicas: -1' >tests/invalid/other/negative.yaml
+   sed -i 's|cmd/server|cmd/widget|' .goreleaser.yaml
+   sed -i 's|widget/server|widget/widget|' charts/widget/values.yaml
+   echo '  repository: ghcr.io/example/widget/second' >>charts/other/values.yaml
+   echo 'image:' | cat - charts/other/values.yaml >/tmp/ov && mv /tmp/ov charts/other/values.yaml"
+
+holds C11 "a ghcr.io reference inside a comment is not a reference to check" \
+  "sed -i '1i # was ghcr.io/example/widget/widget up to an earlier version.' charts/widget/values.yaml"
 
 # ── inputs ───────────────────────────────────────────────────────────────
 
