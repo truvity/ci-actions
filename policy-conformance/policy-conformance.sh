@@ -761,9 +761,18 @@ rule_C12() {
 # An exemption (.github/policy-conformance.yaml) may narrow this rule:
 #
 #   C13:
-#     reason: why
-#     checks: [region]        # the shapes above it suppresses; omitted = all
-#     paths: [charts/x/*]     # shell globs of the files it covers; omitted = all
+#     - checks: [region]        # the shapes it suppresses; omitted = all
+#       paths: [charts/x/*]     # shell globs of the files it covers; omitted = all
+#       reason: why             # required
+#     - checks: [domain]
+#       paths: [pkg/id.go]
+#       reason: why
+#
+# Each entry is its own pair: `region` for charts/x/* and `domain` for
+# pkg/id.go do not cross over. The older single block (`reason:`, `checks:`,
+# `paths:` directly under `C13:`) still works, but its checks and paths
+# combine as a cross product, so prefer the list. Quotes around an item
+# (`paths: ["a/b"]`) are stripped.
 C13_AWK='
 BEGIN {
   Q = "[\"\047`]"
@@ -819,6 +828,63 @@ mode == "code" {
 }
 '
 
+# The C13 exemption entries, one per line: form|checks|paths|reason (a non-blank separator, so empty fields survive `read`).
+# form is `list` for a `- checks: ...` entry and `block` for the older single
+# block of keys directly under `C13:`. checks and paths are comma-joined, one
+# pair of matching quotes stripped from each item (`paths: ["a/b"]` and
+# `paths: ['a/b']` mean a/b). A list entry may carry no reason; the caller
+# refuses it.
+c13_entries() {
+  [ -f "$EXEMPT_FILE" ] || return 0
+  awk '
+    function unq(v) {
+      gsub(/^[ \t]+|[ \t]+$/, "", v)
+      if (length(v) >= 2) {
+        f = substr(v, 1, 1)
+        if ((f == "\"" || f == "\047") && substr(v, length(v), 1) == f) v = substr(v, 2, length(v) - 2)
+      }
+      return v
+    }
+    function flow(v,   n, a, i, out) {
+      sub(/^[ \t]*\[/, "", v); sub(/\].*$/, "", v)
+      n = split(v, a, ",")
+      out = ""
+      for (i = 1; i <= n; i++) { a[i] = unq(a[i]); if (a[i] != "") out = out (out == "" ? "" : ",") a[i] }
+      return out
+    }
+    function kv(s,   k, v) {
+      k = s; sub(/:.*$/, "", k)
+      v = s; sub(/^[^:]*:[ \t]*/, "", v)
+      if (k == "reason") reason = unq(v)
+      else if (k == "checks") checks = flow(v)
+      else if (k == "paths") paths = flow(v)
+    }
+    function flush() {
+      if (have) printf "%s|%s|%s|%s\n", form, checks, paths, reason
+      have = 0; form = ""; checks = ""; paths = ""; reason = ""
+    }
+    /^[ \t]*#/ { next }
+    /^exempt:/ { in_exempt = 1; next }
+    in_exempt && /^[^[:space:]]/ { in_exempt = 0 }
+    in_exempt && /^  C13:[ \t]*$/ { in_rule = 1; next }
+    in_exempt && in_rule && /^  [A-Za-z]/ { flush(); in_rule = 0 }
+    in_exempt && in_rule && /^    -[ \t]*/ {
+      flush(); have = 1; form = "list"
+      s = $0; sub(/^    -[ \t]*/, "", s)
+      if (s != "") kv(s)
+      next
+    }
+    in_exempt && in_rule && /^    [A-Za-z]/ {
+      if (!have) { have = 1; form = "block" }
+      s = $0; sub(/^ +/, "", s); kv(s); next
+    }
+    in_exempt && in_rule && /^      [A-Za-z]/ {
+      s = $0; sub(/^ +/, "", s); kv(s); next
+    }
+    END { flush() }
+  ' "$EXEMPT_FILE"
+}
+
 # Is $1 (a path) covered by the shell globs in the comma-separated list $2?
 # An empty list covers every path.
 path_in() {
@@ -871,16 +937,29 @@ rule_C13() {
     git grep -nIE "(^|[^A-Za-z0-9])$key" -- . 2>/dev/null \
       | awk -F: '{ f = $1; l = $2; t = $0; sub(/^[^:]*:[^:]*:/, "", t); printf "%s\t%s\tticket\t%s\n", f, l, t }')
 
-  local exempt exempt_checks exempt_paths kind file line text n=0 dropped=0
-  exempt=$(exempt_reason C13)
-  exempt_checks=$(exempt_list C13 checks)
-  exempt_paths=$(exempt_list C13 paths)
-  local why
+  local kind file line text n=0 dropped=0 badent=() e_form e_checks e_paths e_reason hit
+  local -a e_c=() e_p=() e_r=()
+  while IFS='|' read -r e_form e_checks e_paths e_reason; do
+    [ -n "$e_form" ] || continue
+    if [ -z "${e_reason//[[:space:]]/}" ]; then
+      # A block without a reason is ignored, as it always was; a list entry
+      # is the documented form, so a missing reason is an error.
+      [ "$e_form" != list ] || badent+=("an exempt: C13 entry (checks: ${e_checks:-all}; paths: ${e_paths:-all}) has no reason")
+      continue
+    fi
+    e_c+=("$e_checks"); e_p+=("$e_paths"); e_r+=("$e_reason")
+  done < <(c13_entries)
+  local why i
   for row in "${rows[@]}"; do
     [ -n "$row" ] || continue
     IFS=$'\t' read -r file line kind text <<<"$row"
-    if [ -n "$exempt" ] && path_in "$file" "$exempt_paths" \
-        && { [ -z "$exempt_checks" ] || case ",$exempt_checks," in *",$kind,"*) true ;; *) false ;; esac; }; then
+    hit=""
+    for i in "${!e_c[@]}"; do
+      path_in "$file" "${e_p[$i]}" || continue
+      [ -z "${e_c[$i]}" ] || case ",${e_c[$i]}," in *",$kind,"*) ;; *) continue ;; esac
+      hit=1; break
+    done
+    if [ -n "$hit" ]; then
       dropped=$((dropped + 1))
       continue
     fi
@@ -902,8 +981,8 @@ rule_C13() {
     probs=("$n estate facts: ${probs[*]:0:3} and $((n - 3)) more, listed above")
   fi
   local ok="no estate fact as a default in ${#yamls[@]} values file(s), ${#jsons[@]} schema(s), ${#codes[@]} Go/TS file(s); no ticket key"
-  [ "$dropped" -eq 0 ] || ok="$ok ($dropped finding(s) exempt: $exempt)"
-  verdict C13 "$ok" "${probs[@]}"
+  [ "$dropped" -eq 0 ] || ok="$ok ($dropped finding(s) exempt: ${e_r[*]})"
+  verdict C13 "$ok" "${badent[@]}" "${probs[@]}"
 }
 
 # ── main ─────────────────────────────────────────────────────────────────

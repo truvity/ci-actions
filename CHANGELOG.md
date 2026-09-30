@@ -4,6 +4,19 @@ Every release of truvity/ci-actions, newest first. Pin the commit of a
 tag (`git rev-parse vX.Y.Z^{commit}`), never the tag object and never
 an untagged commit; `tagged-pins` refuses anything else.
 
+## Unreleased
+
+`policy-conformance` exemption file:
+
+- **C13 exemptions are a list of paired entries.** Each
+  `- checks: [...]`, `paths: [...]`, `reason: ...` entry covers only its
+  own checks on its own paths, so exempting `region` for one path and
+  `domain` for another no longer exempts the other two combinations. A list
+  entry with no `reason` fails C13. The single-block form still works
+  unchanged, cross product included; the list form is preferred.
+- Quotes around an item in `checks:` or `paths:` are stripped, so
+  `paths: ["a/b"]` matches `a/b` instead of silently matching nothing.
+
 ## v1.4.0
 
 `policy-conformance` tightened before the check becomes required:
