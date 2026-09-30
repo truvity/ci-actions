@@ -24,9 +24,15 @@ bad() { printf 'FAIL  %s\n' "$1"; fail=1; }
 export GIT_AUTHOR_NAME=case GIT_AUTHOR_EMAIL=case@example.invalid
 export GIT_COMMITTER_NAME=case GIT_COMMITTER_EMAIL=case@example.invalid
 export GITHUB_REPOSITORY=example/widget
+
+# Estate facts the C13 cases plant. This file is itself tracked by a public
+# repository whose canary and ticket rule would match them written out, so
+# each is assembled from pieces at run time.
+org=truv; org="${org}ity"          # the organisation's own name
+key=IN; key="${key}F-4242"         # an internal ticket key
 unset GITHUB_STEP_SUMMARY
 
-# A repository that meets C1-C12.
+# A repository that meets C1-C13.
 conformant() {
   local d=$1
   rm -rf "$d" "$d.git"
@@ -71,7 +77,9 @@ conformant() {
   ) || return 1
 }
 
-run() { (cd "$1" && bash "$script" 2>&1); }
+# The rules read tracked files, so what an edit created is staged first,
+# as it would be by the commit a real change ends in.
+run() { (cd "$1" && git add -A 2>/dev/null; bash "$script" 2>&1); }
 
 # The one line for a rule, or nothing.
 line() { grep -E "^$2 " <<<"$1"; }
@@ -92,7 +100,7 @@ repo="$work/widget"
 
 conformant "$repo" || { bad "fixture builds"; exit 1; }
 log=$(run "$repo")
-for id in C1 C2 C3 C4 C5 C6 C7 C8 C9 C10 C11 C12; do
+for id in C1 C2 C3 C4 C5 C6 C7 C8 C9 C10 C11 C12 C13; do
   expect "$log" "$id" PASS "$id passes on a conformant repository"
 done
 case "$log" in
@@ -140,13 +148,16 @@ breaks C4 "a Justfile that never runs the canary" \
 breaks C5 "no heading for the latest tag" \
   "git commit -q --allow-empty -m next && git push -q origin master && git tag -a v1.2.0 -m v1.2.0 && git push -q origin v1.2.0 && git fetch -q origin" "no heading for v1.2.0"
 breaks C5 "no heading for the higher of two tags on one commit" \
-  "git tag -a v1.1.1 -m v1.1.1 && git push -q origin v1.1.1" "no heading for v1.1.1"
+  "git tag -a v1.2.0 -m v1.2.0 && git push -q origin v1.2.0" "no heading for v1.2.0"
 breaks C5 "headings oldest first" \
   "printf '## v1.0.0\n\n## v1.1.0\n' >CHANGELOG.md" "newest first"
 breaks C5 "a Keep-a-Changelog style heading" \
   "printf '## [1.1.0] - 2026-09-29\n' >CHANGELOG.md" "not in the form"
 breaks C5 "two Unreleased headings" \
   "printf '## Unreleased\n\n## Unreleased\n\n## v1.1.0\n' >CHANGELOG.md" "at most one"
+breaks C5 "a patch of a line no heading carries is hand-cut and needs its heading" \
+  "git commit -q --allow-empty -m next && git push -q origin master && git tag -a v1.2.1 -m v1.2.1 && git push -q origin v1.2.1 && git fetch -q origin" \
+  "not an automatic patch"
 breaks C6 "a package on latest" \
   "echo '{\"packages\": {\"go\": \"latest\", \"just\": \"1.40.0\"}}' >devbox.json" "pinned to latest: go"
 breaks C6 "a package with no version" \
@@ -163,6 +174,12 @@ breaks C9 "a licence that is not MIT" \
   "echo 'Apache License' >LICENSE" "not the MIT"
 breaks C10 "a Go repository with no security.yaml" \
   "rm .github/workflows/security.yaml" "security.yaml is missing"
+breaks C10 "the check recipe depending on vuln" \
+  "printf 'vuln:\n    true\ncheck: vuln\n    ./hack/leak-canary.sh\n' >Justfile" "the check recipe depends on vuln"
+breaks C10 "check reaching vuln through another recipe" \
+  "printf 'vuln:\n    true\nci: vuln\n    true\ncheck: ci\n    ./hack/leak-canary.sh\n' >Justfile" "recipe ci depends on vuln"
+breaks C10 "check calling just vuln from its body" \
+  "printf 'vuln:\n    true\ncheck:\n    ./hack/leak-canary.sh\n    just vuln\n' >Justfile" "runs \`just vuln\`"
 breaks C10 "vuln in the merge gate" \
   "sed -i 's/\"test\"/\"test\", \"vuln\"/' .github/workflows/ci.yaml" "ci.yaml runs vuln"
 breaks C11 "an image named after the repository twice" \
@@ -229,6 +246,97 @@ holds C9 "an exempted fork's non-MIT licence is EXEMPT, not FAIL" \
    echo 'Apache License' >LICENSE
    printf 'exempt:\n  C9:\n    reason: fork of an Apache-2.0 upstream\n' >.github/policy-conformance.yaml" \
   EXEMPT
+
+# ── C5 · an automatic patch needs no heading of its own ─────────────────
+
+# A patch tag on a new commit, cut after v1.1.0's heading.
+patch_tag='git commit -q --allow-empty -m next && git push -q origin master && git tag -a %s -m %s && git push -q origin %s && git fetch -q origin'
+# shellcheck disable=SC2059
+holds C5 "vX.Y.Z with Z > 0 and the newest heading's X.Y is an automatic patch" \
+  "$(printf "$patch_tag" v1.1.1 v1.1.1 v1.1.1)"
+# shellcheck disable=SC2059
+holds C5 "a patch whose own heading exists passes as a hand-cut tag" \
+  "printf '## Unreleased\n\n## v1.1.1\n\n## v1.1.0\n\n## v1.0.0\n' >CHANGELOG.md
+   $(printf "$patch_tag" v1.1.1 v1.1.1 v1.1.1)"
+# shellcheck disable=SC2059
+breaks C5 "vX.Y.0 is always hand-cut, even one minor past the newest heading" \
+  "$(printf "$patch_tag" v1.2.0 v1.2.0 v1.2.0)" "no heading for v1.2.0"
+# shellcheck disable=SC2059
+breaks C5 "a major bump patch (v2.0.1, newest heading v1.1.0) is not automatic" \
+  "$(printf "$patch_tag" v2.0.1 v2.0.1 v2.0.1)" "not an automatic patch"
+
+# ── C10 · look-alikes that are not check reaching vuln ──────────────────
+
+holds C10 "a vuln recipe that check does not reach, and a comment naming it" \
+  "printf '# check: vuln would be wrong\nvuln:\n    govulncheck ./...\ncheck: build\n    ./hack/leak-canary.sh\nbuild:\n    just build-all\n' >Justfile"
+holds C10 "just vuln-report in a body is another recipe, not vuln" \
+  "printf 'check:\n    ./hack/leak-canary.sh\n    just vuln-report\n' >Justfile"
+
+# ── C13 · estate facts are inputs, never defaults ───────────────────────
+
+breaks C13 "an organisation domain as a chart default" \
+  "printf 'host: internal.%s.com\n' \"$org\" >>charts/widget/values.yaml" "values.yaml:3 (domain)"
+breaks C13 "the tenancy API group as a chart default" \
+  "printf 'group: tenancy.%s.io\n' \"$org\" >>charts/widget/values.yaml" "values.yaml:3 (tenancy)"
+breaks C13 "a real environment name as the default of an env key" \
+  "printf 'env: prod\n' >>charts/widget/values.yaml" "values.yaml:3 (env)"
+breaks C13 "a real cluster name, quoted, as the default of a cluster key" \
+  "printf 'cluster: \"kernel\"\n' >>charts/widget/values.yaml" "values.yaml:3 (env)"
+breaks C13 "a real region as a chart default" \
+  "printf 'bucketRegion: eu-west-1\n' >>charts/widget/values.yaml" "values.yaml:3 (region)"
+breaks C13 "a real region inside a longer chart default" \
+  "printf 'endpoint: s3.us-east-2.amazonaws.example\n' >>charts/widget/values.yaml" "values.yaml:3 (region)"
+breaks C13 "an environment name as a schema default" \
+  "printf '{\n  \"properties\": {\n    \"env\": {\n      \"type\": \"string\",\n      \"default\": \"devel\"\n    }\n  }\n}\n' >charts/widget/values.schema.json" \
+  "values.schema.json:5 (env)"
+breaks C13 "a Go constant naming a real cluster" \
+  "mkdir -p cmd/server && printf 'package main\n\nconst defaultCluster = \"kernel\"\n' >cmd/server/main.go" "main.go:3 (env)"
+breaks C13 "a Go flag defaulting to a real region" \
+  "mkdir -p cmd/server && printf 'package main\n\nvar region = fs.String(\"region\", \"us-east-1\", \"\")\n' >cmd/server/main.go" "main.go:3 (region)"
+breaks C13 "a TypeScript constant holding an organisation domain" \
+  "mkdir -p src && printf 'export const HOST = \"api.%s.xyz\";\n' \"$org\" >src/config.ts" "config.ts:1 (domain)"
+breaks C13 "a ticket key in the README" \
+  "printf '\nSee %s.\n' \"$key\" >>README.md" "README.md:"
+breaks C13 "a ticket key in the CHANGELOG is no exception" \
+  "printf -- '- fixes %s\n' \"$key\" >>CHANGELOG.md" "CHANGELOG.md:"
+breaks C13 "a ticket key in code" \
+  "mkdir -p cmd/server && printf 'package main\n\n// see %s\n' \"$key\" >cmd/server/main.go" "main.go:3 (ticket)"
+
+# What is not an estate fact must stay quiet.
+holds C13 "neutral placeholders in chart defaults" \
+  "printf 'host: app.example.com\nregion: eu-example-1\nenv: \"\"\ncluster: \"\"\n' >>charts/widget/values.yaml"
+holds C13 "a real region or environment named only in a comment" \
+  "printf '# e.g. eu-west-1, or prod for %s.com\nregion: \"\" # eu-west-1 in our case\n' \"$org\" >>charts/widget/values.yaml"
+holds C13 "a Go comparison, case label and list of names are tests of a name, not defaults" \
+  "mkdir -p cmd/server && printf 'package main\n\nfunc f(env string) bool {\n\tswitch env {\n\tcase \"prod\":\n\t\treturn true\n\t}\n\tenvs := []string{\"devel\", \"prod\"}\n\t_ = envs\n\treturn env == \"kernel\"\n}\n' >cmd/server/main.go"
+holds C13 "Go test files may name anything" \
+  "mkdir -p cmd/server && printf 'package main\n\nconst defaultCluster = \"kernel\"\n' >cmd/server/main_test.go"
+holds C13 "a values.yaml that is not a chart's is not read" \
+  "mkdir -p docs && printf 'env: prod\n' >docs/values.yaml"
+holds C13 "a URL that merely contains the organisation's name as a path is not a domain" \
+  "mkdir -p cmd/server && printf 'package main\n\nconst repo = \"https://github.com/%s/widget\"\n' \"$org\" >cmd/server/main.go"
+
+# ── C13 · exemptions ─────────────────────────────────────────────────────
+
+holds C13 "an exemption for one check suppresses that check" \
+  "mkdir -p .github
+   printf 'bucketRegion: eu-west-1\n' >>charts/widget/values.yaml
+   printf 'exempt:\n  C13:\n    reason: this chart documents one region as a worked example\n    checks: [region]\n' >.github/policy-conformance.yaml"
+breaks C13 "an exemption for one check does not cover another" \
+  "mkdir -p .github
+   printf 'bucketRegion: eu-west-1\nhost: internal.%s.com\n' \"$org\" >>charts/widget/values.yaml
+   printf 'exempt:\n  C13:\n    reason: this chart documents one region as a worked example\n    checks: [region]\n' >.github/policy-conformance.yaml" \
+  "values.yaml:4 (domain)"
+holds C13 "an exemption scoped to a path covers that path" \
+  "mkdir -p .github
+   printf 'See %s.\n' \"$key\" >HISTORY.md
+   printf 'exempt:\n  C13:\n    reason: a history file that quotes tickets\n    checks: [ticket]\n    paths: [HISTORY.md]\n' >.github/policy-conformance.yaml"
+breaks C13 "an exemption scoped to a path does not cover another" \
+  "mkdir -p .github
+   printf 'See %s.\n' \"$key\" >HISTORY.md
+   printf '\nSee %s.\n' \"$key\" >>README.md
+   printf 'exempt:\n  C13:\n    reason: a history file that quotes tickets\n    checks: [ticket]\n    paths: [HISTORY.md]\n' >.github/policy-conformance.yaml" \
+  "README.md:"
 
 # ── C11 · ko's base_import_paths: false, and sibling components ─────────
 
@@ -301,7 +409,7 @@ fi
 empty="$work/empty"
 mkdir -p "$empty"
 log=$(run "$empty")
-for id in C1 C2 C3 C6 C10 C11; do
+for id in C1 C2 C3 C6 C10 C11 C13; do
   expect "$log" "$id" SKIP "$id skips when there is nothing to judge"
 done
 for id in C5 C7 C8 C9 C12; do
