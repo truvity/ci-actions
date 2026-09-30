@@ -126,13 +126,14 @@ jobs:
           runners: ubuntu-latest
           visibility: ${{ github.event.repository.visibility }}
 
-      # The contract, asked of this repository. Report-only: ci-actions has
-      # no charts, no Go module and no Justfile, so several rules skip and
-      # C4 reports; what matters here is that the action runs end to end
-      # from a real checkout, fetches its tags and writes its summary.
+      # The contract, asked of this repository, and required: a failing rule
+      # fails the job. ci-actions has no charts, no Go module and no
+      # Justfile, so several rules skip; the rest are judged, and the action
+      # runs end to end from a real checkout, fetches its tags and writes
+      # its summary.
       - uses: ./policy-conformance
         with:
-          strict: "false"
+          strict: "true"
 
       # This repository is PUBLIC and its history cannot be unpublished.
       # Everything particular -- account ids, role ARNs, registry hosts,
