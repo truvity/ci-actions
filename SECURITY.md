@@ -13,16 +13,18 @@ Only the latest release is supported with security updates.
 
 ## What is in scope
 
-This repository publishes contracts, schemas, small configuration loaders and
-a worked example. Reports that matter most:
+This repository publishes:
 
-- A loader that accepts a configuration it should refuse, or that reports a
-  secret's value in an error or a log line.
-- A contract or a schema whose defaults are unsafe for anyone who follows
-  them.
-- Anything in the example that would be a vulnerability in a real service,
-  since the example is what people copy.
+- The composite actions: `setup-devbox`, `recipe`, `public-runners`, `tagged-pins`, `policy-conformance`, `cluster`, `setup-remote-builders`, `openbao-secrets`, `fleet-discover`, `caller-parity` and `devbox-parity`.
+- The kits under `caller-parity/kits/` that repositories are compared against.
+- Shell and script steps inside the actions, which run with the caller's job credentials.
 
-This repository holds no credentials and its CI runs on hosted runners with
-no access to any private infrastructure. A finding that depends on a
-particular deployment belongs with that deployment's owner.
+Reports that matter most:
+
+- An action that leaks a token or secret it is handed into a log, an output, a cache or an artifact.
+- Injection: an input or event field interpolated into a shell step or `github-script` so that a fork or a crafted branch name runs code.
+- A guard that passes what it should refuse: `public-runners`, `tagged-pins`, the fork guard, or a fleet job touching a repository it should not.
+- An action that asks the caller to grant wider permissions than it needs.
+
+A finding that depends on how a particular deployment uses this repository
+belongs with that deployment's owner.
