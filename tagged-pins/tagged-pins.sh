@@ -20,7 +20,7 @@
 set -euo pipefail
 
 # One library or several. The split of the actions out of ci-workflows
-# (INF-971) made this a list rather than a constant: a repository can now
+# made this a list rather than a constant: a repository can now
 # pin the workflows, the actions, or both, and a guard that knows only one
 # of the two names is a guard that passes silently over the other half.
 #

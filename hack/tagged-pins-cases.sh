@@ -9,7 +9,7 @@
 # switched off.
 #
 # It went from one hard-coded library to a LIST when the actions moved to
-# truvity/ci-actions (INF-971), and a list is where it can newly be wrong
+# truvity/ci-actions, and a list is where it can newly be wrong
 # in ways the old shape could not: a second library whose pins are never
 # looked at passes silently, and so does a name nobody spelled right.
 #

@@ -1,5 +1,5 @@
 # Register the CI plane's warm BuildKit builders as one buildx builder
-# (INF-414 on devel, INF-640 on the stable tier). Rootless buildkitd
+# (on the development and the stable tiers alike). Rootless buildkitd
 # StatefulSets live in the ci-cache namespace of the cluster the runner
 # runs in; registered client-side as nodes of a single builder, a
 # `docker buildx build --platform linux/amd64,linux/arm64` builds each
