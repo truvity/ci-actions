@@ -79,15 +79,28 @@ under `tests/`, `test/`, `testdata/`, `fixtures/`, `golden/`,
 `node_modules/` and `vendor/`, generated code, `*_test.go`,
 `*.test.ts` and `*.spec.ts` (all but `ticket`).
 
-An exemption for C13 may narrow it:
+An exemption for C13 may narrow it. Write one entry per pair of check and
+path; an entry covers only its own `checks` on its own `paths`, so two
+entries never cross over:
 
 ```yaml
 exempt:
   C13:
-    reason: the chart documents one region as a worked example
-    checks: [region]            # omit to cover every check
-    paths: [charts/example/*]   # shell globs; omit to cover every path
+    - checks: [region]                  # omit to cover every check
+      paths: [internal/s3test/**]       # shell globs; omit to cover every path
+      reason: the fixture names one region as a worked example   # required
+    - checks: [domain]
+      paths: [catalogue/schemaid.go]
+      reason: a schema identifier is a published name
 ```
+
+An entry with no `reason` fails the rule and exempts nothing. Quotes around
+a `checks` or `paths` item (`paths: ["a/b"]`) are stripped.
+
+The older single block, with `reason:`, `checks:` and `paths:` directly
+under `C13:`, still works. Its checks and paths combine as a cross product
+(`checks: [region, domain]` with two paths exempts both checks on both
+paths), which is why the list form is preferred.
 
 Findings the exemption covers are dropped and the line says how many.
 

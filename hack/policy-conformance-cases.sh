@@ -338,6 +338,38 @@ breaks C13 "an exemption scoped to a path does not cover another" \
    printf 'exempt:\n  C13:\n    reason: a history file that quotes tickets\n    checks: [ticket]\n    paths: [HISTORY.md]\n' >.github/policy-conformance.yaml" \
   "README.md:"
 
+# Paired entries: a finding is exempt only for the pair it sits in.
+pair_fix="mkdir -p .github internal/s3test catalogue
+   printf 'package s3test\n\nconst region = \"eu-west-1\"\n' >internal/s3test/r.go
+   printf 'package catalogue\n\nconst host = \"a.%s.com\"\n' \"$org\" >catalogue/schemaid.go"
+pair_yaml='exempt:\n  C13:\n    - checks: [region]\n      paths: [internal/s3test/**]\n      reason: a worked example\n    - checks: [domain]\n      paths: [catalogue/schemaid.go]\n      reason: a schema identifier\n'
+holds C13 "paired entries each cover their own check and path" \
+  "$pair_fix
+   printf '$pair_yaml' >.github/policy-conformance.yaml"
+breaks C13 "paired entries do not widen: a check outside its pair still fails" \
+  "$pair_fix
+   printf 'const regionB = \"eu-west-1\"\n' >>catalogue/schemaid.go
+   printf '$pair_yaml' >.github/policy-conformance.yaml" \
+  "catalogue/schemaid.go:4 (region)"
+breaks C13 "paired entries do not widen: the other path still fails" \
+  "$pair_fix
+   printf 'const host2 = \"b.%s.com\"\n' \"$org\" >>internal/s3test/r.go
+   printf '$pair_yaml' >.github/policy-conformance.yaml" \
+  "internal/s3test/r.go:4 (domain)"
+holds C13 "the older single block still works" \
+  "$pair_fix
+   printf 'exempt:\n  C13:\n    reason: both are deliberate\n    checks: [region, domain]\n    paths: [internal/s3test/**, catalogue/schemaid.go]\n' >.github/policy-conformance.yaml"
+holds C13 "double-quoted paths and checks are matched" \
+  "$pair_fix
+   printf 'exempt:\n  C13:\n    - checks: [\"region\"]\n      paths: [\"internal/s3test/**\"]\n      reason: a worked example\n    - checks: [\"domain\"]\n      paths: [\"catalogue/schemaid.go\"]\n      reason: a schema identifier\n' >.github/policy-conformance.yaml"
+holds C13 "single-quoted paths are matched" \
+  "$pair_fix
+   printf \"exempt:\\\\n  C13:\\\\n    - checks: ['region']\\\\n      paths: ['internal/s3test/**']\\\\n      reason: a worked example\\\\n    - checks: ['domain']\\\\n      paths: ['catalogue/schemaid.go']\\\\n      reason: a schema identifier\\\\n\" >.github/policy-conformance.yaml"
+breaks C13 "a list entry with no reason is refused, and exempts nothing" \
+  "$pair_fix
+   printf 'exempt:\n  C13:\n    - checks: [region]\n      paths: [internal/s3test/**]\n    - checks: [domain]\n      paths: [catalogue/schemaid.go]\n      reason: a schema identifier\n' >.github/policy-conformance.yaml" \
+  "has no reason"
+
 # ── C11 · ko's base_import_paths: false, and sibling components ─────────
 
 holds C11 "base_import_paths: false publishes the bare repository, no comp appended" \
