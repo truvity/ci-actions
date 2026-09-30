@@ -1,9 +1,10 @@
 # Hold the calling repository's checkout against the component contract.
 #
 # The contract lives in truvity/policy (docs/contracts/component.md) and
-# numbers its checkable rules C1 to C13. This action evaluates C1 to C12
+# numbers its checkable rules C1 to C14. This action evaluates C1 to C13
 # and prints one line per rule; C13 (estate facts are inputs, never
-# defaults) needs a reader rather than a grep and is left to review.
+# defaults) is checked only for the shapes a script can tell with
+# confidence, and the rest is review. C14 is the chart's own render test.
 #
 # Report first, gate later: `strict: false` (the default) turns every
 # failure into a warning annotation and a job-summary row and exits 0, so
@@ -13,7 +14,7 @@
 # (C5 needs the latest one), unshallowing a depth-1 checkout to do it.
 name: policy-conformance
 description: >-
-  Check a repository against the component contract's rules C1-C12 and
+  Check a repository against the component contract's rules C1-C13 and
   print one line per rule. Report-only by default; `strict: true` fails
   the job on any failed rule.
 
@@ -27,7 +28,7 @@ inputs:
   skip:
     description: >-
       Comma-separated rule ids not to evaluate, e.g. "C3,C11". Each is
-      printed as SKIP with `reason`. An id outside C1-C12 fails the step.
+      printed as SKIP with `reason`. An id outside C1-C13 fails the step.
     required: false
     default: ""
   reason:

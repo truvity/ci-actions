@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Hold a repository's checkout against the component contract's checkable
-# rules, C1 to C12, and print one line per rule:
+# rules, C1 to C13, and print one line per rule:
 #
 #   C5 FAIL: CHANGELOG.md has no heading for v1.2.3
 #
@@ -28,7 +28,7 @@ REASON=${REASON:-}
 RENOVATE_PRESET=${RENOVATE_PRESET:-github>truvity/ci-workflows}
 DEFAULT_BRANCH=${DEFAULT_BRANCH:-}
 
-RULES=(C1 C2 C3 C4 C5 C6 C7 C8 C9 C10 C11 C12)
+RULES=(C1 C2 C3 C4 C5 C6 C7 C8 C9 C10 C11 C12 C13)
 
 # The README headings C8 asks for, in this order. Other headings may sit
 # between them; these must all be present and must not be reordered.
@@ -129,24 +129,28 @@ exempt_reason() {
   ' "$EXEMPT_FILE"
 }
 
-# Comma-separated chart names a rule's exemption is scoped to, or empty
-# (meaning: the whole repository) when the rule has no `charts:` line.
-exempt_charts() {
-  local id=$1
+# Comma-separated members of a flow list (`key: [a, b]`) under a rule's
+# exemption, or empty when the rule has no such line.
+exempt_list() {
+  local id=$1 key=$2
   [ -f "$EXEMPT_FILE" ] || return 0
-  awk -v id="$id" '
+  awk -v id="$id" -v key="$key" '
     /^exempt:/ { in_exempt=1; next }
     in_exempt && /^[^[:space:]]/ { in_exempt=0 }
     in_exempt && $0 ~ "^  " id ":[[:space:]]*$" { in_rule=1; next }
     in_exempt && in_rule && /^  [A-Za-z]/ { in_rule=0 }
-    in_exempt && in_rule && /^    charts:[[:space:]]*\[/ {
-      sub(/^    charts:[[:space:]]*\[/, "")
+    in_exempt && in_rule && $0 ~ "^    " key ":[[:space:]]*\\[" {
+      sub("^    " key ":[[:space:]]*\\[", "")
       sub(/\].*$/, "")
       print
       exit
     }
   ' "$EXEMPT_FILE" | tr -d ' '
 }
+
+# Comma-separated chart names a rule's exemption is scoped to, or empty
+# (meaning: the whole repository) when the rule has no `charts:` line.
+exempt_charts() { exempt_list "$1" charts; }
 
 # True (rc 0) when $2 is named in the comma-separated chart list $1, or
 # when $1 is empty (an unscoped, whole-repository exemption).
@@ -340,13 +344,26 @@ rule_C5() {
     [ -z "$dupes" ] || probs+=("duplicate headings: $dupes")
   fi
 
-  local note="" tag exempt
+  local note="" tag exempt newest="" xy=""
   exempt=$(exempt_reason C5)
+  [ ${#versions[@]} -eq 0 ] || newest=$(printf '%s\n' "${versions[@]}" | sort -rV | head -1)
   if tag=$(latest_tag) && [ -n "$tag" ]; then
+    # An automatic patch (vX.Y.Z, Z > 0) needs no heading of its own when
+    # its X.Y is the X.Y of the newest heading: the hand-cut vX.Y.0 (or a
+    # later hand-cut patch) already announced the line it belongs to. A
+    # patch whose X.Y no heading carries is a hand-cut tag in disguise, and
+    # so is every vX.Y.0, every vX.0.0 and every pre-release.
+    local tre='^v([0-9]+)\.([0-9]+)\.([0-9]+)$' nre='^v([0-9]+)\.([0-9]+)\.[0-9]+'
+    if [[ $newest =~ $nre ]]; then xy="${BASH_REMATCH[1]}.${BASH_REMATCH[2]}"; fi
     if printf '%s\n' "${versions[@]}" | grep -qxF "$tag"; then
       note="heading for the latest tag $tag present"
+    elif [[ $tag =~ $tre ]] && [ "${BASH_REMATCH[3]}" -gt 0 ] && [ -n "$xy" ] \
+        && [ "${BASH_REMATCH[1]}.${BASH_REMATCH[2]}" = "$xy" ]; then
+      note="latest tag $tag is an automatic patch of $newest, the newest heading; it needs none"
     elif [ -n "$exempt" ]; then
       note="no heading for the latest tag $tag, exempt: $exempt"
+    elif [[ $tag =~ $tre ]] && [ "${BASH_REMATCH[3]}" -gt 0 ] && [ -n "$newest" ]; then
+      probs+=("CHANGELOG.md has no heading for $tag, and it is not an automatic patch: the newest heading is $newest, not a v$xy.x")
     else
       probs+=("CHANGELOG.md has no heading for $tag")
     fi
@@ -494,6 +511,58 @@ rule_C9() {
 }
 
 # ── C10 · security.yaml, and vuln outside the gate ───────────────────────
+
+# Prints "<line>: <why>" for each way the `check` recipe reaches `vuln`:
+# `vuln` among its dependencies, or among those of any recipe it depends on
+# (transitively, as far as this Justfile defines them), or a body line that
+# runs `just vuln`. A recipe header is a column-0 line `name [params]: deps`;
+# `name := value` and `set ...` are not recipes.
+justfile_reaches_vuln() {
+  awk '
+    /^@?[A-Za-z_][A-Za-z0-9_-]*([ \t][^:]*)?:([ \t]|$)/ {
+      line = $0
+      sub(/#.*/, "", line)
+      name = line
+      sub(/^@/, "", name)
+      sub(/[ \t:].*$/, "", name)
+      deps = line
+      sub(/^[^:]*:/, "", deps)
+      gsub(/&&|[()]/, " ", deps)
+      dl[name] = deps
+      ln[name] = NR
+      cur = name
+      next
+    }
+    /^[ \t]+[^ \t]/ {
+      if (cur != "" && $0 ~ /(^|[^A-Za-z0-9_-])just[ \t]+([^#]*[ \t])?vuln([ \t]|$)/)
+        body[cur] = body[cur] " " NR
+      next
+    }
+    /^[ \t]*$/ { next }
+    { cur = "" }
+    END {
+      if (!("check" in dl)) exit
+      queue[1] = "check"; seen["check"] = 1; head = 1; tail = 1
+      while (head <= tail) {
+        r = queue[head++]
+        n = split(body[r], bl, " ")
+        for (i = 1; i <= n; i++)
+          printf "%d: recipe %s runs `just vuln`\n", bl[i], r
+        n = split(dl[r], ds, /[ \t]+/)
+        for (i = 1; i <= n; i++) {
+          d = ds[i]
+          if (d == "") continue
+          if (d == "vuln") {
+            if (r == "check") printf "%d: the check recipe depends on vuln\n", ln[r]
+            else printf "%d: recipe %s depends on vuln, and check depends on %s\n", ln[r], r, r
+          } else if ((d in dl) && !(d in seen)) {
+            seen[d] = 1; queue[++tail] = d
+          }
+        }
+      }
+    }
+  ' "$1"
+}
 rule_C10() {
   if [ ! -f go.mod ]; then
     emit C10 SKIP "no go.mod at the root"
@@ -516,7 +585,20 @@ rule_C10() {
       probs+=("$f runs vuln as a gate recipe")
     fi
   done
-  verdict C10 "${sec:-security.yaml} present; vuln is not a gate recipe" "${probs[@]}"
+  # ...and `check` is the recipe every gate runs, so it must not reach
+  # `vuln` either: not as a dependency, not through another recipe it
+  # depends on, not by calling `just vuln` from a body.
+  local jf="" hit
+  for c in Justfile justfile .justfile; do
+    [ -f "$c" ] && { jf=$c; break; }
+  done
+  if [ -n "$jf" ]; then
+    while IFS= read -r hit; do
+      [ -n "$hit" ] || continue
+      probs+=("$jf:$hit")
+    done < <(justfile_reaches_vuln "$jf")
+  fi
+  verdict C10 "${sec:-security.yaml} present; vuln is neither a gate recipe nor reachable from check" "${probs[@]}"
 }
 
 # ── C11 · image names do not repeat the repository name ──────────────────
@@ -651,6 +733,179 @@ rule_C12() {
   fi
 }
 
+# ── C13 · estate facts are inputs, never defaults ────────────────────────
+#
+# A value only one estate would choose, written as a default: in a chart's
+# values.yaml or values.schema.json, or in a Go or TypeScript constant. The
+# check is deliberately narrow -- it names five shapes it can tell from
+# neutral text with confidence, and a reader still judges the rest:
+#
+#   domain   an organisation domain (truvity + .com/.xyz/.co/.private), in
+#            a chart default or a code string
+#   tenancy  the organisation's tenancy API group
+#   env      a real cluster or environment name (kernel, devel, stage, prod)
+#            as the default of a key or identifier that is named for one
+#            (env, environment, cluster, stage, tier): `env: prod`,
+#            `flag.String("cluster", "kernel", ...)`. A comparison or a case
+#            label is a test of the name, not a default, and is not flagged
+#   region   a real cloud region (eu-west-1 ...) as a chart default, or as
+#            the default of an identifier named for one
+#   ticket   an internal ticket key anywhere in a tracked file: a key is an
+#            internal name, and the public history keeps it for ever
+#
+# Neutral placeholders (example.com, eu-example-1) match none of these.
+# Comments are not defaults and are not read, except by `ticket`, which
+# reads everything. Test, fixture and golden directories, generated code
+# and `*_test.go`/`*.test.ts` are not read: they may name anything.
+#
+# An exemption (.github/policy-conformance.yaml) may narrow this rule:
+#
+#   C13:
+#     reason: why
+#     checks: [region]        # the shapes above it suppresses; omitted = all
+#     paths: [charts/x/*]     # shell globs of the files it covers; omitted = all
+C13_AWK='
+BEGIN {
+  Q = "[\"\047`]"
+  DOM = "(^|[^A-Za-z0-9])truvity[.](com|xyz|co|private)([^A-Za-z0-9]|$)"
+  TEN = "tenancy[.]truvity[.]io"
+  RPL = "(af|ap|ca|eu|il|me|mx|sa|us)-(central|north|northeast|northwest|south|southeast|southwest|east|west)-[0-9]"
+  REG = "(^|[^A-Za-z0-9])" RPL "([^0-9A-Za-z]|$)"
+  ENVV = "(kernel|devel|stage|prod)"
+  ENVK = "^(env|environment|cluster|clustername|cluster_name|clusterid|stage|tier)$"
+  NOTQ = "[^\"\047`{]*"
+}
+function hit(kind, text) {
+  gsub(/^[ \t]+|[ \t]+$/, "", text)
+  if (length(text) > 90) text = substr(text, 1, 87) "..."
+  printf "%s\t%d\t%s\t%s\n", FILENAME, FNR, kind, text
+}
+function generic(l, orig) {
+  if (l ~ DOM) hit("domain", orig)
+  if (l ~ TEN) hit("tenancy", orig)
+  if (l ~ REG) hit("region", orig)
+}
+mode == "yaml" {
+  l = $0
+  sub(/(^|[ \t])#.*$/, "", l)
+  if (l ~ /^[ \t]*$/) next
+  generic(l, $0)
+  if (l ~ /^[ \t-]*[A-Za-z_][A-Za-z0-9_]*:[ \t]*[\"\047]?[A-Za-z]+[\"\047]?[ \t]*$/) {
+    k = l; sub(/^[ \t-]*/, "", k); v = k
+    sub(/:.*$/, "", k); sub(/^[^:]*:[ \t]*/, "", v); gsub(/[\"\047 \t]/, "", v)
+    if (tolower(k) ~ ENVK && tolower(v) ~ ("^" ENVV "$")) hit("env", $0)
+  }
+}
+mode == "json" {
+  if ($0 ~ /^[ \t]*"[^"]+"[ \t]*:[ \t]*\{/) {
+    k = $0; sub(/^[ \t]*"/, "", k); sub(/".*$/, "", k); lastkey = tolower(k)
+  }
+  if ($0 ~ /"default"[ \t]*:/) {
+    generic($0, $0)
+    d = $0; sub(/^.*"default"[ \t]*:[ \t]*/, "", d); gsub(/[\",\047 \t]/, "", d)
+    if (lastkey ~ ENVK && tolower(d) ~ ("^" ENVV "$")) hit("env", $0)
+  }
+}
+mode == "code" {
+  l = $0
+  if (l ~ /^[ \t]*(\/\/|\/\*|\*|#)/) next
+  sub(/[ \t]\/\/.*$/, "", l)
+  if (l ~ DOM) hit("domain", $0)
+  if (l ~ TEN) hit("tenancy", $0)
+  lc = tolower(l)
+  if (lc ~ /==|!=|(^|[ \t])case[ \t]/) next
+  if (lc ~ ("(env|environment|cluster|stage|tier)[a-z0-9_]*" Q "?" NOTQ Q ENVV Q)) hit("env", $0)
+  if (lc ~ ("region[a-z0-9_]*" Q "?" NOTQ Q RPL Q)) hit("region", $0)
+}
+'
+
+# Is $1 (a path) covered by the shell globs in the comma-separated list $2?
+# An empty list covers every path.
+path_in() {
+  local path=$1 list=$2 g
+  [ -n "$list" ] || return 0
+  local IFS=,
+  for g in $list; do
+    # shellcheck disable=SC2254 # the glob is the point
+    case "$path" in $g) return 0 ;; esac
+  done
+  return 1
+}
+
+rule_C13() {
+  if ! git rev-parse --git-dir >/dev/null 2>&1; then
+    emit C13 SKIP "not a git checkout, so there is no tracked-file list to read"
+    return
+  fi
+  local tracked=() f d yamls=() jsons=() codes=() probs=() rows=() row
+  mapfile -d '' tracked < <(git ls-files -z)
+  for f in "${tracked[@]}"; do
+    case "/$f" in
+      */tests/* | */test/* | */testdata/* | */fixtures/* | */golden/* | */node_modules/* | */vendor/*) continue ;;
+    esac
+    d=$(dirname "$f")
+    case "$f" in
+      *.go)
+        case "$f" in *_test.go | *.pb.go | *.pb.gw.go | *zz_generated*) continue ;; esac
+        codes+=("$f")
+        ;;
+      *.ts | *.tsx)
+        case "$f" in *.d.ts | *.test.ts | *.test.tsx | *.spec.ts | *.spec.tsx | *.gen.ts | *_pb.ts) continue ;; esac
+        codes+=("$f")
+        ;;
+      */values.yaml | values.yaml | */values.yml | values.yml)
+        [ -f "$d/Chart.yaml" ] && yamls+=("$f")
+        ;;
+      */values.schema.json | values.schema.json)
+        [ -f "$d/Chart.yaml" ] && jsons+=("$f")
+        ;;
+    esac
+  done
+  [ ${#yamls[@]} -eq 0 ] || mapfile -t -O "${#rows[@]}" rows < <(awk -v mode=yaml "$C13_AWK" "${yamls[@]}")
+  [ ${#jsons[@]} -eq 0 ] || mapfile -t -O "${#rows[@]}" rows < <(awk -v mode=json "$C13_AWK" "${jsons[@]}")
+  [ ${#codes[@]} -eq 0 ] || mapfile -t -O "${#rows[@]}" rows < <(awk -v mode=code "$C13_AWK" "${codes[@]}")
+  # A ticket key is an internal name wherever it sits; git grep skips
+  # binary files. The pattern is assembled so this file does not match it.
+  local key='IN''F-[0-9]+'
+  mapfile -t -O "${#rows[@]}" rows < <(
+    git grep -nIE "(^|[^A-Za-z0-9])$key" -- . 2>/dev/null \
+      | awk -F: '{ f = $1; l = $2; t = $0; sub(/^[^:]*:[^:]*:/, "", t); printf "%s\t%s\tticket\t%s\n", f, l, t }')
+
+  local exempt exempt_checks exempt_paths kind file line text n=0 dropped=0
+  exempt=$(exempt_reason C13)
+  exempt_checks=$(exempt_list C13 checks)
+  exempt_paths=$(exempt_list C13 paths)
+  local why
+  for row in "${rows[@]}"; do
+    [ -n "$row" ] || continue
+    IFS=$'\t' read -r file line kind text <<<"$row"
+    if [ -n "$exempt" ] && path_in "$file" "$exempt_paths" \
+        && { [ -z "$exempt_checks" ] || case ",$exempt_checks," in *",$kind,"*) true ;; *) false ;; esac; }; then
+      dropped=$((dropped + 1))
+      continue
+    fi
+    case "$kind" in
+      domain) why="an organisation domain is an estate fact, not a default" ;;
+      tenancy) why="the organisation's tenancy API group is an estate fact, not a default" ;;
+      env) why="a real cluster or environment name as a default" ;;
+      region) why="a real cloud region as a default" ;;
+      ticket) why="an internal ticket key" ;;
+      *) why=$kind ;;
+    esac
+    # Every finding gets its own line, so the log carries file:line for
+    # each; the verdict line summarises.
+    echo "  C13 $file:$line: $why: $text"
+    n=$((n + 1))
+    [ "$n" -gt 3 ] || probs+=("$file:$line ($kind)")
+  done
+  if [ "$n" -gt 3 ]; then
+    probs=("$n estate facts: ${probs[*]:0:3} and $((n - 3)) more, listed above")
+  fi
+  local ok="no estate fact as a default in ${#yamls[@]} values file(s), ${#jsons[@]} schema(s), ${#codes[@]} Go/TS file(s); no ticket key"
+  [ "$dropped" -eq 0 ] || ok="$ok ($dropped finding(s) exempt: $exempt)"
+  verdict C13 "$ok" "${probs[@]}"
+}
+
 # ── main ─────────────────────────────────────────────────────────────────
 declare -A skipped=()
 for id in ${SKIP//,/ }; do
@@ -675,8 +930,6 @@ for id in "${RULES[@]}"; do
     "rule_$id"
   fi
 done
-
-echo "C13 is not checked here: estate facts in values.yaml need a reader, not a grep"
 
 if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
   {

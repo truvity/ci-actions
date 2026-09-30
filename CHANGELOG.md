@@ -4,6 +4,26 @@ Every release of truvity/ci-actions, newest first. Pin the commit of a
 tag (`git rev-parse vX.Y.Z^{commit}`), never the tag object and never
 an untagged commit; `tagged-pins` refuses anything else.
 
+## Unreleased
+
+`policy-conformance` tightened before the check becomes required:
+
+- **C10** now enforces the second half of its own rule: the Justfile's
+  `check` recipe must not reach `vuln`, as a dependency, through another
+  recipe it depends on, or by running `just vuln` in a body. Each hit is
+  reported as `Justfile:<line>`.
+- **C13** is checked, for the five shapes a script can tell from neutral
+  text: an organisation domain, the tenancy API group, a real
+  cluster or environment name and a real cloud region as a default, and
+  an internal ticket key anywhere in a tracked file. Every finding prints
+  as `C13 <file>:<line>`. An exemption in `.github/policy-conformance.yaml`
+  may name `checks:` and `paths:`. A caller that lists `skip: C13` no
+  longer needs to; one that sets `strict: true` will now fail on a hit.
+- **C5** follows the contract's text: an automatic patch (`vX.Y.Z`, Z > 0,
+  whose `X.Y` is the `X.Y` of the newest heading) needs no heading of its
+  own; every other tag, a hand-cut patch of an unheaded line included,
+  does.
+
 ## v1.3.0
 
 `policy-conformance` checker fixes, found triaging the first estate-wide
