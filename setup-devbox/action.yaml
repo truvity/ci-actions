@@ -194,7 +194,15 @@ runs:
       # devbox/moon scripts assume bash semantics; self-hosted runner
       # images and GitHub-hosted ubuntu both ship dash as /bin/sh.
       shell: bash
-      run: sudo ln -sf /bin/bash /bin/sh
+      run: |
+        # A runner image that already maps sh to bash needs no change, and
+        # a runner with no_new_privs (a Pod Security `restricted` pod) has
+        # no working sudo: ask for it only when the link has to change.
+        if [ "$(readlink -f /bin/sh)" = "$(readlink -f /bin/bash)" ]; then
+          echo "/bin/sh is already bash"
+          exit 0
+        fi
+        sudo ln -sf /bin/bash /bin/sh
 
     - name: Strip local-only proto tools
       # The npm-backed cubic CLI is LOCAL review tooling — CI never

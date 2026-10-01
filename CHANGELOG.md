@@ -4,6 +4,18 @@ Every release of truvity/ci-actions, newest first. Pin the commit of a
 tag (`git rev-parse vX.Y.Z^{commit}`), never the tag object and never
 an untagged commit; `tagged-pins` refuses anything else.
 
+## v1.6.1
+
+Not yet released.
+
+`setup-devbox`:
+
+- **"Use bash as sh" no longer needs `sudo` when `/bin/sh` is already bash.**
+  Runner images that ship the link (the ARC runner image does) skip the step's
+  work, so it also passes on a runner that cannot escalate privilege, such as a
+  Pod Security `restricted` pod. Hosted runners, where `sh` is dash, still run
+  `sudo ln -sf`.
+
 ## v1.6.0
 
 `setup-devbox`:
