@@ -181,6 +181,37 @@ if [ "$(step_field "Guard GOPROXY against devbox.json" ".name")" != "Guard GOPRO
     fail=$((fail + 1))
 fi
 
+# --- the AWS config guard executes ---------------------------------------
+#
+# The step body is run, not just named: a devbox.json whose env block sets
+# AWS_CONFIG_FILE or AWS_PROFILE must produce a warning, a clean one must not.
+checked=$((checked + 1))
+if [ "$(step_field "Guard AWS config against devbox.json" ".name")" != "Guard AWS config against devbox.json" ]; then
+    echo "FAIL [aws-guard]: the devbox.json AWS config guard is gone"
+    fail=$((fail + 1))
+elif command -v jq >/dev/null; then
+    body="$(step_field "Guard AWS config against devbox.json" ".run")"
+    tmp="$(mktemp -d)"
+    run_guard() { (cd "$tmp" && printf '%s' "$1" > devbox.json && bash -c "$body" 2>&1); }
+    for case_ in 'AWS_CONFIG_FILE:{"env":{"AWS_CONFIG_FILE":"x/aws.ini"}}' \
+                 'AWS_PROFILE:{"env":{"AWS_PROFILE":"dev"}}'; do
+        checked=$((checked + 1))
+        out="$(run_guard "${case_#*:}")"
+        case "$out" in
+            *"::warning file=devbox.json::"*"env.${case_%%:*} "*) ;;
+            *) echo "FAIL [aws-guard]: no warning for ${case_%%:*}: $out"; fail=$((fail + 1)) ;;
+        esac
+    done
+    for clean in '{"env":{"GOFLAGS":"-x"},"shell":{"init_hook":["export AWS_CONFIG_FILE=\"${AWS_CONFIG_FILE:-a}\""]}}' '{"packages":[]}'; do
+        checked=$((checked + 1))
+        out="$(run_guard "$clean")"
+        case "$out" in
+            *"::warning"*) echo "FAIL [aws-guard]: warned on a clean devbox.json: $out"; fail=$((fail + 1)) ;;
+        esac
+    done
+    rm -rf "$tmp"
+fi
+
 if [ "$checked" -eq 0 ]; then
     echo "NOTHING CHECKED — the harness found no cases, which is a failure of the harness"
     exit 1

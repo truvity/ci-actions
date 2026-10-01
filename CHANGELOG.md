@@ -4,6 +4,16 @@ Every release of truvity/ci-actions, newest first. Pin the commit of a
 tag (`git rev-parse vX.Y.Z^{commit}`), never the tag object and never
 an untagged commit; `tagged-pins` refuses anything else.
 
+## Unreleased
+
+`setup-devbox`:
+
+- **Warns when `devbox.json` `env` sets `AWS_CONFIG_FILE` or `AWS_PROFILE`.**
+  `devbox run` re-applies the env block over the CI AWS config, so the CI
+  identity (OIDC) is lost and build tooling such as the Go cache plugin
+  cannot authenticate. Set the variable in `shell.init_hook` with a
+  `${VAR:-default}` fallback instead. A warning, not a failure.
+
 ## v1.5.0
 
 `policy-conformance` exemption file:
