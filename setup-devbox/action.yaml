@@ -515,3 +515,30 @@ runs:
         if [ -n "$pinned" ]; then
           echo "::warning file=${file}::${file} sets env.GOPROXY (${pinned}). devbox run re-applies that env block, so it overrides the CI module proxy passed as the goproxy input for every recipe. Remove GOPROXY from ${file}; laptops fall back to Go's default proxy."
         fi
+
+    # The same class of problem as GOPROXY, for the AWS identity: this action
+    # points AWS_CONFIG_FILE at the CI config (profiles that take their
+    # credentials from the job's OIDC token), and devbox run re-applies the
+    # env block over it. Build tooling such as the Go cache plugin then
+    # authenticates with the wrong profile and the build runs cold.
+    - name: Guard AWS config against devbox.json
+      shell: bash
+      run: |
+        set -euo pipefail
+        file="devbox.json"
+        if [ ! -f "$file" ]; then
+          exit 0
+        fi
+        if ! command -v jq >/dev/null 2>&1; then
+          echo "jq not on PATH; skipping the devbox.json AWS config check"
+          exit 0
+        fi
+        for key in AWS_CONFIG_FILE AWS_PROFILE; do
+          if ! pinned=$(jq -r --arg k "$key" '.env[$k] // empty' "$file" 2>/dev/null); then
+            echo "$file is not plain JSON; skipping the AWS config check"
+            exit 0
+          fi
+          if [ -n "$pinned" ]; then
+            echo "::warning file=${file}::${file} sets env.${key} (${pinned}). devbox run re-applies that env block, so it overrides the CI AWS config and identity (OIDC) and build tooling such as the Go cache plugin loses its credentials. Set it in shell.init_hook with a fallback instead, e.g. export ${key}=\"\${${key}:-<default>}\"."
+          fi
+        done
