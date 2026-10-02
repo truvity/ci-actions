@@ -59,6 +59,8 @@ export SIM_INPUT_devbox_version="${SIM_INPUT_devbox_version:-0.18.4}"
 export SIM_INPUT_cluster__mode="${SIM_INPUT_cluster__mode:-shared}"
 export SIM_INPUT_cluster__kubeconfig="${SIM_INPUT_cluster__kubeconfig:-.kube/config}"
 export SIM_INPUT_cluster__aws_config_file="${SIM_INPUT_cluster__aws_config_file:-aws.ini}"
+# setup-remote-builders: one node, offered by the docker stand-in.
+export SIM_INPUT_remote_builders="${SIM_INPUT_remote_builders:-linux/amd64=tcp://127.0.0.1:1234}"
 export SIM_INPUT_devbox_parity__mode="${SIM_INPUT_devbox_parity__mode:-align}"
 
 # Steps with an `if:` that is true for default inputs on a baked runner.
@@ -253,7 +255,7 @@ case "${1:-}" in
   fi
   ;;
 *)
-  if [ $# -eq 0 ]; then set -- "$here/setup-devbox" "$here/recipe" "$here/tagged-pins" "$here/public-runners" "$here/fleet-discover" "$here/devbox-parity" "$here/caller-parity" "$here/openbao-secrets" "$here/cluster" "$here/policy-conformance"; fi
+  if [ $# -eq 0 ]; then set -- "$here/setup-devbox" "$here/recipe" "$here/tagged-pins" "$here/public-runners" "$here/fleet-discover" "$here/devbox-parity" "$here/caller-parity" "$here/openbao-secrets" "$here/cluster" "$here/policy-conformance" "$here/setup-remote-builders"; fi
   simulate "$@"
   ;;
 esac

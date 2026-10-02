@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# Stand-in for docker, for setup-remote-builders: `buildx inspect` answers with
+# the platform the simulation's builder offers; every other buildx command
+# succeeds silently.
+if [ "${1:-}" = buildx ] && [ "${2:-}" = inspect ]; then
+  echo "Name: ci"
+  echo "Platforms: linux/amd64"
+fi
+exit 0
