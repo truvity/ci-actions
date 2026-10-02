@@ -6,6 +6,8 @@ an untagged commit; `tagged-pins` refuses anything else.
 
 ## Unreleased
 
+## v1.8.0
+
 This repository's own gate:
 
 - **`hack/no-escalation-cases.sh` and `hack/policy-kit-current.sh` are now
