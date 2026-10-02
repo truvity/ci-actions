@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"reflect"
+	"sort"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -27,6 +29,7 @@ type fakeSource struct {
 	tags  map[string][]Tag    // lib -> tags
 	errs  map[string]error    // repo|path|ref -> error
 	reads map[string]int      // repo|path|ref -> count
+	mu    sync.Mutex
 }
 
 func (f *fakeSource) ListRepos(_ context.Context, o string) ([]Repo, error) { return f.repos[o], nil }
@@ -35,6 +38,8 @@ func (f *fakeSource) ListDir(_ context.Context, repo, dir, ref string) ([]string
 }
 func (f *fakeSource) File(_ context.Context, repo, p, ref string) ([]byte, error) {
 	k := repo + "|" + p + "|" + ref
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	if f.reads == nil {
 		f.reads = map[string]int{}
 	}
@@ -47,6 +52,17 @@ func (f *fakeSource) File(_ context.Context, repo, p, ref string) ([]byte, error
 		return nil, ErrNotFound
 	}
 	return []byte(c), nil
+}
+func (f *fakeSource) Tree(_ context.Context, repo, ref string) ([]string, error) {
+	var out []string
+	for k := range f.files {
+		parts := strings.SplitN(k, "|", 3)
+		if parts[0] == repo && parts[2] == ref {
+			out = append(out, parts[1])
+		}
+	}
+	sort.Strings(out)
+	return out, nil
 }
 func (f *fakeSource) Tags(_ context.Context, repo string) ([]Tag, error) { return f.tags[repo], nil }
 
@@ -302,5 +318,127 @@ func TestTableAndJSON(t *testing.T) {
 		if !strings.Contains(b.String(), want) {
 			t.Errorf("json lacks %s:\n%s", want, b.String())
 		}
+	}
+}
+
+func pin(sha string) string { return "      - uses: truvity/ci-actions/setup-devbox@" + sha + "\n" }
+
+func TestRepoLocalCompositeActionsAreFollowed(t *testing.T) {
+	f := newFake()
+	f.addRepo("acme", "local", false, map[string]string{
+		"ci.yaml": "jobs:\n  a:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: ./.github/actions/setup\n",
+	})
+	// setup calls a second local action, which holds the setup-devbox pin
+	f.files["acme/local|.github/actions/setup/action.yaml|main"] = "runs:\n  using: composite\n  steps:\n    - uses: ./.github/actions/inner\n"
+	f.files["acme/local|.github/actions/inner/action.yml|main"] = "runs:\n  using: composite\n  steps:\n" + pin(shaAction140)
+
+	// an action nothing references is still read
+	f.addRepo("acme", "orphan", false, map[string]string{"ci.yaml": "name: x\n"})
+	f.files["acme/orphan|.github/actions/deep/er/action.yaml|main"] = "runs:\n  steps:\n" + pin(shaAction150)
+
+	// a cycle between two local actions terminates
+	f.addRepo("acme", "cycle", false, map[string]string{"ci.yaml": "jobs:\n  a:\n    steps:\n      - uses: ./.github/actions/a\n"})
+	f.files["acme/cycle|.github/actions/a/action.yaml|main"] = "runs:\n  steps:\n    - uses: ./.github/actions/b\n" + pin(shaAction161)
+	f.files["acme/cycle|.github/actions/b/action.yaml|main"] = "runs:\n  steps:\n    - uses: ./.github/actions/a\n"
+
+	// a pinned reusable workflow whose local action holds the pin
+	f.files["truvity/ci-workflows|.github/workflows/viaaction.yaml|"+shaWf3181] = "jobs:\n  a:\n    steps:\n      - uses: ./.github/actions/helper\n"
+	f.files["truvity/ci-workflows|.github/actions/helper/action.yaml|"+shaWf3181] = "runs:\n  steps:\n" + pin(shaAction150)
+	f.addRepo("acme", "viapinned", false, map[string]string{"ci.yaml": "jobs:\n  c:\n    uses: truvity/ci-workflows/.github/workflows/viaaction.yaml@" + shaWf3181 + "\n"})
+
+	got := byName(scan(t, f, ""))
+	for repo, want := range map[string]string{"acme/local": "v1.4.0", "acme/orphan": "v1.5.0", "acme/cycle": "v1.6.1", "acme/viapinned": "v1.5.0"} {
+		r := got[repo]
+		if r.Error != "" || r.SetupDevbox == nil || r.SetupDevbox.Lowest != want {
+			t.Errorf("%s: want setup-devbox %s, got %+v (%s)", repo, want, r.SetupDevbox, r.Error)
+		}
+	}
+	p := got["acme/local"].SetupDevbox.Pins[0]
+	if p.File != ".github/actions/inner/action.yml" || p.Via != "" {
+		t.Errorf("a pin in a local action is the repository's own, and names its file: %+v", p)
+	}
+	if v := viaCell(got["acme/local"]); v != "local action .github/actions/inner/action.yml" {
+		t.Errorf("via = %q", v)
+	}
+	if got["acme/local"].CIActions[0] != "v1.4.0" {
+		t.Errorf("a direct pin in a local action counts as the repository's: %v", got["acme/local"].CIActions)
+	}
+	if v := got["acme/viapinned"].SetupDevbox.Pins[0].Via; !strings.HasPrefix(v, "truvity/ci-workflows/.github/workflows/viaaction.yaml@") {
+		t.Errorf("via = %q", v)
+	}
+	// a local action that is not there, and a path that escapes, are ignored
+	f.addRepo("acme", "dangling", false, map[string]string{"ci.yaml": "jobs:\n  a:\n    steps:\n      - uses: ./missing\n      - uses: ./../x\n      - uses: ./.github/workflows/other.yaml\n"})
+	if r := byName(scan(t, f, ""))["acme/dangling"]; r.Error != "" || len(r.Pins) != 0 {
+		t.Errorf("%+v", r)
+	}
+}
+
+func TestRunnerColumn(t *testing.T) {
+	f := newFake()
+	job := func(runs string) string { return "jobs:\n  a:\n    " + runs + "\n    steps: []\n" }
+	f.addRepo("acme", "hosted", false, map[string]string{"ci.yaml": job("runs-on: ubuntu-latest") + caller(shaWf3181)[5:]})
+	f.addRepo("acme", "self", false, map[string]string{"ci.yaml": job("runs-on: [self-hosted, linux]") + "\n" + caller(shaWf3181)})
+	f.addRepo("acme", "mixed", false, map[string]string{"a.yaml": job("runs-on: ubuntu-24.04"), "b.yaml": job("runs-on: tier-small")})
+	f.addRepo("acme", "dyn", false, map[string]string{"ci.yaml": job("runs-on: ${{ inputs.runner }}")})
+	f.addRepo("acme", "caller", false, map[string]string{"ci.yaml": caller(shaWf3181)})
+	rep := scan(t, f, "")
+	got := byName(rep)
+	for repo, want := range map[string]string{"acme/hosted": "hosted", "acme/self": "self-hosted", "acme/mixed": "mixed", "acme/dyn": "dynamic", "acme/caller": ""} {
+		if got[repo].Runner != want {
+			t.Errorf("%s: runner = %q, want %q", repo, got[repo].Runner, want)
+		}
+	}
+
+	var b strings.Builder
+	WriteTable(&b, rep, true)
+	for _, want := range []string{"RUNNERS", "acme/self", "self-hosted"} {
+		if !strings.Contains(b.String(), want) {
+			t.Errorf("table lacks %q:\n%s", want, b.String())
+		}
+	}
+	// the filter only narrows the printed rows; the report and gate keep everything
+	rep.RunnerFilter = "self-hosted"
+	b.Reset()
+	WriteTable(&b, rep, true)
+	if !strings.Contains(b.String(), "acme/self") || !strings.Contains(b.String(), "acme/mixed") || strings.Contains(b.String(), "acme/hosted") || strings.Contains(b.String(), "acme/dyn") {
+		t.Errorf("--runner-filter self-hosted:\n%s", b.String())
+	}
+	rep.RunnerFilter = "hosted"
+	b.Reset()
+	WriteTable(&b, rep, true)
+	if !strings.Contains(b.String(), "acme/hosted") || strings.Contains(b.String(), "acme/self") || strings.Contains(b.String(), "acme/mixed") {
+		t.Errorf("--runner-filter hosted:\n%s", b.String())
+	}
+	if len(rep.Repos) != 5 {
+		t.Error("the filter must not drop repositories from the report")
+	}
+}
+
+func TestParseRunsOn(t *testing.T) {
+	for _, tc := range []struct {
+		name, in string
+		want     [][]string
+		kinds    []string
+	}{
+		{"scalar", "jobs:\n  a:\n    runs-on: ubuntu-latest # hosted\n", [][]string{{"ubuntu-latest"}}, []string{"hosted"}},
+		{"quoted", "    runs-on: \"macos-14\"\n", [][]string{{"macos-14"}}, []string{"hosted"}},
+		{"flow list", "    runs-on: [self-hosted, ubuntu-latest]\n", [][]string{{"self-hosted", "ubuntu-latest"}}, []string{"self-hosted"}},
+		{"block list", "    runs-on:\n      - ubuntu-latest\n      - x64\n    steps: []\n", [][]string{{"ubuntu-latest", "x64"}}, []string{"self-hosted"}},
+		{"group", "    runs-on:\n      group: big\n      labels: [ubuntu-latest]\n    steps: []\n", [][]string{{"group:big", "ubuntu-latest"}}, []string{"self-hosted"}},
+		{"expression", "    runs-on: ${{ matrix.os }}\n", [][]string{{"${{ matrix.os }}"}}, []string{"dynamic"}},
+		{"two jobs", "  a:\n    runs-on: ubuntu-latest\n  b:\n    runs-on: windows-2022\n", [][]string{{"ubuntu-latest"}, {"windows-2022"}}, []string{"hosted", "hosted"}},
+		{"commented out", "    # runs-on: self-hosted\n", nil, nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := ParseRunsOn(tc.in)
+			if !reflect.DeepEqual(got, tc.want) {
+				t.Fatalf("got %v, want %v", got, tc.want)
+			}
+			for i, labels := range got {
+				if k := JobRunnerKind(labels); k != tc.kinds[i] {
+					t.Errorf("kind of %v = %s, want %s", labels, k, tc.kinds[i])
+				}
+			}
+		})
 	}
 }

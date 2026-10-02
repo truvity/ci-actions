@@ -14,6 +14,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"path"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -28,6 +30,9 @@ type Source interface {
 	ListDir(ctx context.Context, repo, dir, ref string) ([]string, error)
 	File(ctx context.Context, repo, path, ref string) ([]byte, error)
 	Tags(ctx context.Context, repo string) ([]Tag, error)
+	// Tree lists every file path of a repository at a ref (empty when the
+	// repository or ref has none).
+	Tree(ctx context.Context, repo, ref string) ([]string, error)
 }
 
 // Config selects what to scan and which libraries to judge.
@@ -68,7 +73,13 @@ type RepoResult struct {
 	CIActions     []string     `json:"ci_actions"`
 	SetupDevbox   *SetupDevbox `json:"setup_devbox,omitempty"`
 	Pins          []Pin        `json:"pins"`
-	Error         string       `json:"error,omitempty"`
+	// Runner is what the repository's own workflows run on: hosted,
+	// self-hosted, dynamic (an expression), mixed, or empty when no job of
+	// its own names a runner. Reporting only; nothing gates on it.
+	Runner       string   `json:"runner,omitempty"`
+	RunnerKinds  []string `json:"runner_kinds,omitempty"`
+	RunnerLabels []string `json:"runner_labels,omitempty"`
+	Error        string   `json:"error,omitempty"`
 }
 
 // Report is the whole scan.
@@ -80,6 +91,9 @@ type Report struct {
 	Repos          []RepoResult `json:"repos"`
 	Below          []string     `json:"below,omitempty"`
 	Errors         []string     `json:"errors,omitempty"`
+	// RunnerFilter limits the printed table (any, hosted, self-hosted); the
+	// JSON always carries every repository, and no exit code depends on it.
+	RunnerFilter string `json:"runner_filter,omitempty"`
 }
 
 type scanner struct {
@@ -183,6 +197,8 @@ func (s *scanner) scanRepo(ctx context.Context, r Repo) RepoResult {
 		res.Error = err.Error()
 		return res
 	}
+	kinds, labels := map[string]bool{}, map[string]bool{}
+	local := map[string]bool{} // repo-local action files already read
 	for _, f := range files {
 		if !isWorkflowFile(f) {
 			continue
@@ -192,7 +208,20 @@ func (s *scanner) scanRepo(ctx context.Context, r Repo) RepoResult {
 			res.Error = fmt.Sprintf("reading %s: %v", f, err)
 			return res
 		}
+		for _, job := range ParseRunsOn(string(data)) {
+			kinds[JobRunnerKind(job)] = true
+			for _, l := range job {
+				labels[l] = true
+			}
+		}
 		for _, u := range ParseUses(string(data)) {
+			if u.Local != "" {
+				if err := s.followLocal(ctx, r, u.Local, local, 0, &res); err != nil {
+					res.Error = err.Error()
+					return res
+				}
+				continue
+			}
 			pins, err := s.pinsOf(ctx, u, f, "", 0, map[string]bool{})
 			if err != nil {
 				res.Error = fmt.Sprintf("resolving %s in %s: %v", u.FullRepo()+"/"+u.Path, f, err)
@@ -201,8 +230,100 @@ func (s *scanner) scanRepo(ctx context.Context, r Repo) RepoResult {
 			res.Pins = appendUnique(res.Pins, pins...)
 		}
 	}
+	// Every composite action the repository carries is read even when no
+	// workflow names it by a path this scan could follow (a `uses:` built
+	// from an expression, an action only another action calls).
+	tree, err := s.src.Tree(ctx, r.FullName, r.DefaultBranch)
+	if err != nil {
+		res.Error = fmt.Sprintf("listing %s: %v", r.FullName, err)
+		return res
+	}
+	for _, p := range tree {
+		if isLocalActionFile(p) {
+			if err := s.readLocalAction(ctx, r, p, local, 0, &res); err != nil {
+				res.Error = err.Error()
+				return res
+			}
+		}
+	}
+	res.RunnerKinds = sortedLabels(kinds)
+	res.RunnerLabels = sortedLabels(labels)
+	res.Runner = summariseRunners(kinds)
 	summarise(&res, s.cfg)
 	return res
+}
+
+var localActionRe = regexp.MustCompile(`^\.github/actions/(.+/)?action\.ya?ml$`)
+
+func isLocalActionFile(p string) bool { return localActionRe.MatchString(p) }
+
+// followLocal resolves a `uses: ./dir` to the action file in that
+// directory of the repository itself and reads it. A local reusable
+// workflow is not followed here: it is a workflow file of the repository
+// and is scanned as one. A directory that holds no action file is not an
+// error: the reference may be to something this scan has no business with.
+func (s *scanner) followLocal(ctx context.Context, r Repo, ref string, seen map[string]bool, depth int, res *RepoResult) error {
+	dir := path.Clean(strings.TrimPrefix(ref, "./"))
+	if strings.HasPrefix(dir, "..") || strings.HasPrefix(dir, "/") {
+		return nil
+	}
+	if strings.HasPrefix(dir, ".github/workflows/") || isWorkflowFile(dir) {
+		return nil
+	}
+	if dir == "." {
+		dir = ""
+	}
+	for _, name := range []string{"action.yaml", "action.yml"} {
+		p := name
+		if dir != "" {
+			p = dir + "/" + name
+		}
+		if seen[p] {
+			return nil
+		}
+		err := s.readLocalAction(ctx, r, p, seen, depth, res)
+		if err == nil {
+			return nil
+		}
+		if !errors.Is(err, ErrNotFound) {
+			return err
+		}
+	}
+	return nil
+}
+
+// readLocalAction reads one repo-local action file at the default branch
+// and collects its pins, following its own `uses: ./...`. Pins found
+// there are direct pins of the repository: File names the action file.
+func (s *scanner) readLocalAction(ctx context.Context, r Repo, p string, seen map[string]bool, depth int, res *RepoResult) error {
+	if seen[p] {
+		return nil
+	}
+	seen[p] = true
+	if depth > 5 {
+		return nil
+	}
+	data, err := s.cached(ctx, r.FullName, p, r.DefaultBranch)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			return err
+		}
+		return fmt.Errorf("reading %s: %v", p, err)
+	}
+	for _, u := range ParseUses(string(data)) {
+		if u.Local != "" {
+			if err := s.followLocal(ctx, r, u.Local, seen, depth+1, res); err != nil {
+				return err
+			}
+			continue
+		}
+		pins, err := s.pinsOf(ctx, u, p, "", 0, map[string]bool{})
+		if err != nil {
+			return fmt.Errorf("resolving %s in %s: %v", u.FullRepo()+"/"+u.Path, p, err)
+		}
+		res.Pins = appendUnique(res.Pins, pins...)
+	}
+	return nil
 }
 
 // pinsOf turns one `uses:` into the pins it carries: itself when it is
@@ -268,7 +389,15 @@ func (s *scanner) pinsOf(ctx context.Context, u Use, file, via string, depth int
 					}
 					// the nested file's own pin on the library is not a pin of the repository
 					out = append(out, more[1:]...)
+					continue
 				}
+				// Any other local action of the pinned library, read at the
+				// same pinned ref: setup-devbox can be one hop further in.
+				more, err := s.pinnedLocalAction(ctx, u, p, file, innerVia, depth+1, seen)
+				if err != nil {
+					return nil, err
+				}
+				out = append(out, more...)
 			default:
 				more, err := s.pinsOf(ctx, iu, file, innerVia, depth+1, seen)
 				if err != nil {
@@ -279,6 +408,55 @@ func (s *scanner) pinsOf(ctx context.Context, u Use, file, via string, depth int
 		}
 	}
 	return out, nil
+}
+
+// pinnedLocalAction reads a local composite action of a PINNED library
+// (dir at the library's pinned ref) and returns the pins it carries. A
+// directory with no action file there contributes nothing.
+func (s *scanner) pinnedLocalAction(ctx context.Context, u Use, dir, file, via string, depth int, seen map[string]bool) ([]Pin, error) {
+	dir = path.Clean(dir)
+	if depth > 5 || strings.HasPrefix(dir, "..") || strings.HasPrefix(dir, "/") {
+		return nil, nil
+	}
+	lib := u.FullRepo()
+	for _, name := range []string{"action.yaml", "action.yml"} {
+		p := path.Join(dir, name)
+		key := lib + "|" + p + "|" + u.Ref
+		if seen[key] {
+			return nil, nil
+		}
+		data, err := s.cached(ctx, lib, p, u.Ref)
+		if errors.Is(err, ErrNotFound) {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		seen[key] = true
+		var out []Pin
+		for _, iu := range ParseUses(string(data)) {
+			if iu.Local != "" {
+				sub := strings.TrimPrefix(iu.Local, "./")
+				if strings.HasPrefix(sub, ".github/actions/setup-devbox") {
+					out = append(out, Pin{Library: s.cfg.ActionsRepo, Path: "setup-devbox", Version: s.tagFor(lib, u.Ref), SHA: u.Ref, InTree: true, File: file, Via: via})
+					continue
+				}
+				more, err := s.pinnedLocalAction(ctx, u, sub, file, via, depth+1, seen)
+				if err != nil {
+					return nil, err
+				}
+				out = append(out, more...)
+				continue
+			}
+			more, err := s.pinsOf(ctx, iu, file, via, depth+1, seen)
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, more...)
+		}
+		return out, nil
+	}
+	return nil, nil
 }
 
 // appendUnique drops exact repeats: a workflow that uses the same action

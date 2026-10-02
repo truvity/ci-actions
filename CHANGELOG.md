@@ -50,6 +50,19 @@ with `--user 1001:1001 --security-opt no-new-privileges --cap-drop ALL
 
 New:
 
+- **`ci-actions fleet pins` follows repo-local composite actions.** It reads
+  every `.github/actions/**/action.y*ml` of a repository and every
+  `uses: ./path` (a local action calling another, cycles included), and the
+  local actions of a pinned reusable workflow at its pinned commit, so a
+  setup-devbox reached only through them is no longer a blind spot. The VIA
+  column shows `local action <file>` for such a pin. A repository whose tree
+  GitHub truncates is reported as an error, never passed.
+- **`fleet pins` has a RUNNERS column** (`hosted`, `self-hosted`, `mixed`,
+  `dynamic`, `-`) read from each job's `runs-on`, with `runner`,
+  `runner_kinds` and `runner_labels` in the JSON, and a `--runner-filter
+  any|hosted|self-hosted` that narrows the printed table. Reporting only: it
+  gates nothing and changes no exit code.
+
 - **`ci-actions fleet pins`**: per repository of the given organisations,
   which ci-workflows and ci-actions versions its workflows pin, including the
   transitive setup-devbox pin read from the pinned reusable workflow at its

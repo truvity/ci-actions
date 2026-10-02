@@ -13,7 +13,7 @@ import (
 // applied, the verdict.
 func WriteTable(w io.Writer, rep *Report, all bool) {
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "REPOSITORY\tCI-WORKFLOWS\tCI-ACTIONS\tSETUP-DEVBOX\tVIA")
+	fmt.Fprintln(tw, "REPOSITORY\tCI-WORKFLOWS\tCI-ACTIONS\tSETUP-DEVBOX\tVIA\tRUNNERS")
 	pinning := 0
 	for _, r := range rep.Repos {
 		has := len(r.Pins) > 0
@@ -23,7 +23,10 @@ func WriteTable(w io.Writer, rep *Report, all bool) {
 		if !has && !all && r.Error == "" {
 			continue
 		}
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", r.Repo, dash(strings.Join(r.CIWorkflows, ",")), dash(strings.Join(r.CIActions, ",")), setupCell(r), viaCell(r))
+		if !matchesRunnerFilter(r, rep.RunnerFilter) {
+			continue
+		}
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n", r.Repo, dash(strings.Join(r.CIWorkflows, ",")), dash(strings.Join(r.CIActions, ",")), setupCell(r), viaCell(r), dash(r.Runner))
 	}
 	tw.Flush()
 	fmt.Fprintf(w, "\n%d repositories scanned, %d pin the shared CI libraries\n", len(rep.Repos), pinning)
@@ -83,6 +86,9 @@ func viaCell(r RepoResult) string {
 	for _, p := range r.SetupDevbox.Pins {
 		if pinLabel(p) == r.SetupDevbox.Lowest {
 			if p.Via == "" {
+				if !strings.HasPrefix(p.File, ".github/workflows/") {
+					return "local action " + p.File
+				}
 				return "direct"
 			}
 			return p.Via

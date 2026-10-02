@@ -94,3 +94,28 @@ func TestClientTagsAndRateLimit(t *testing.T) {
 		t.Errorf("err = %v", err)
 	}
 }
+
+func TestClientTree(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/repos/acme/a/git/trees/main":
+			fmt.Fprint(w, `{"tree":[{"path":".github/actions/x/action.yaml","type":"blob"},{"path":".github/actions","type":"tree"}],"truncated":false}`)
+		case "/repos/acme/big/git/trees/main":
+			fmt.Fprint(w, `{"tree":[],"truncated":true}`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+	c := NewClient(srv.URL, secret)
+	got, err := c.Tree(context.Background(), "acme/a", "main")
+	if err != nil || len(got) != 1 || got[0] != ".github/actions/x/action.yaml" {
+		t.Errorf("tree = %v, %v", got, err)
+	}
+	if got, err := c.Tree(context.Background(), "acme/none", "main"); err != nil || got != nil {
+		t.Errorf("a missing repository is an empty tree: %v, %v", got, err)
+	}
+	if _, err := c.Tree(context.Background(), "acme/big", "main"); err == nil {
+		t.Error("a truncated tree is an error, not a silent pass")
+	}
+}
