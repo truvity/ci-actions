@@ -27,6 +27,16 @@ type Client struct {
 	HTTP    *http.Client
 }
 
+// StatusError is an HTTP error answer other than 404, with the (redacted)
+// start of its body, so a caller can tell one kind of refusal from another.
+type StatusError struct {
+	Code int
+	Body string
+	msg  string
+}
+
+func (e *StatusError) Error() string { return e.msg }
+
 // ErrNotFound is a 404: a repository without a workflows directory is
 // ordinary, not an error.
 var ErrNotFound = errors.New("not found")
@@ -99,7 +109,8 @@ func (c *Client) Get(ctx context.Context, rawURL, accept string) ([]byte, http.H
 		case resp.StatusCode == http.StatusForbidden && resp.Header.Get("X-RateLimit-Remaining") == "0":
 			return nil, nil, fmt.Errorf("GitHub API rate limit exhausted (resets at unix %s)", resp.Header.Get("X-RateLimit-Reset"))
 		case resp.StatusCode >= 400:
-			return nil, nil, fmt.Errorf("GET %s: %s: %s", c.Redact(rawURL), resp.Status, c.Redact(truncate(string(body), 200)))
+			return nil, nil, &StatusError{Code: resp.StatusCode, Body: c.Redact(truncate(string(body), 200)),
+				msg: fmt.Sprintf("GET %s: %s: %s", c.Redact(rawURL), resp.Status, c.Redact(truncate(string(body), 200)))}
 		}
 		return body, resp.Header, nil
 	}

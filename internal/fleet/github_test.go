@@ -100,6 +100,12 @@ func TestClientTree(t *testing.T) {
 		switch r.URL.Path {
 		case "/repos/acme/a/git/trees/main":
 			fmt.Fprint(w, `{"tree":[{"path":".github/actions/x/action.yaml","type":"blob"},{"path":".github/actions","type":"tree"}],"truncated":false}`)
+		case "/repos/acme/empty/git/trees/main":
+			w.WriteHeader(http.StatusConflict)
+			fmt.Fprint(w, `{"message":"Git Repository is empty.","documentation_url":"https://docs.github.com/rest/git/trees#get-a-tree","status":"409"}`)
+		case "/repos/acme/conflict/git/trees/main":
+			w.WriteHeader(http.StatusConflict)
+			fmt.Fprint(w, `{"message":"Merge conflict"}`)
 		case "/repos/acme/big/git/trees/main":
 			fmt.Fprint(w, `{"tree":[],"truncated":true}`)
 		default:
@@ -115,7 +121,41 @@ func TestClientTree(t *testing.T) {
 	if got, err := c.Tree(context.Background(), "acme/none", "main"); err != nil || got != nil {
 		t.Errorf("a missing repository is an empty tree: %v, %v", got, err)
 	}
+	// an empty repository has nothing to pin: not an error
+	if got, err := c.Tree(context.Background(), "acme/empty", "main"); err != nil || got != nil {
+		t.Errorf("an empty repository (409) is an empty tree: %v, %v", got, err)
+	}
+	// any other 409 is still an error
+	if _, err := c.Tree(context.Background(), "acme/conflict", "main"); err == nil {
+		t.Error("only the empty-repository 409 is excused")
+	}
 	if _, err := c.Tree(context.Background(), "acme/big", "main"); err == nil {
 		t.Error("a truncated tree is an error, not a silent pass")
+	}
+}
+
+// A whole scan over a repository with no commit: the empty repository pins
+// nothing and the scan's exit status is clean.
+func TestScanTreatsAnEmptyRepositoryAsNoPins(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/tags"):
+			fmt.Fprint(w, `[]`)
+		case r.URL.Path == "/orgs/acme/repos":
+			fmt.Fprint(w, `[{"name":"empty","full_name":"acme/empty","default_branch":"main"}]`)
+		case strings.HasSuffix(r.URL.Path, "/git/trees/main"):
+			w.WriteHeader(http.StatusConflict)
+			fmt.Fprint(w, `{"message":"Git Repository is empty.","status":"409"}`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+	rep, err := Scan(context.Background(), NewClient(srv.URL, secret), Config{Orgs: []string{"acme"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rep.Errors) != 0 || len(rep.Repos) != 1 || rep.Repos[0].Error != "" || len(rep.Repos[0].Pins) != 0 {
+		t.Errorf("%+v", rep)
 	}
 }

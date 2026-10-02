@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"net/url"
 	"strings"
 
@@ -138,6 +139,12 @@ func (c *Client) Tags(ctx context.Context, repo string) ([]Tag, error) {
 func (c *Client) Tree(ctx context.Context, repo, ref string) ([]string, error) {
 	body, _, err := c.Get(ctx, c.BaseURL+"/repos/"+repo+"/git/trees/"+url.PathEscape(ref)+"?recursive=1", "application/vnd.github+json")
 	if errors.Is(err, ErrNotFound) {
+		return nil, nil
+	}
+	// A repository with no commit answers 409 "Git Repository is empty.":
+	// there is nothing in it to pin, which is no error.
+	var se *ghapi.StatusError
+	if errors.As(err, &se) && se.Code == http.StatusConflict && strings.Contains(strings.ToLower(se.Body), "empty") {
 		return nil, nil
 	}
 	if err != nil {
