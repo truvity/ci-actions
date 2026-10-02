@@ -43,6 +43,10 @@ fork-guard:
 no-escalation:
     @./hack/no-escalation-cases.sh
 
+# Test setup-devbox's privilege-free devbox install against a local release
+install-devbox-cases:
+    @./hack/install-devbox-cases.sh
+
 # Test setup-devbox's preflight, one failure at a time
 preflight-cases:
     @./hack/preflight-cases.sh

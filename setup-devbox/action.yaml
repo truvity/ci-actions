@@ -3,6 +3,14 @@
 #
 # Runs with NO privilege, by contract: no root, no privilege escalation, no relinking of
 # /bin/sh. Every step that needs bash says `shell: bash`; see CHANGELOG.
+#
+# ONE root step remains, and only on a runner that has no nix: "Install nix"
+# below runs the nix installer, which needs root. It is skipped wherever nix
+# is baked into the runner image (the self-hosted pool, a restricted runner),
+# so it exists for GitHub-hosted runners alone, and preflight says so out loud
+# and refuses early when the runner can neither bake nix nor escalate.
+# devbox itself is the release binary in $RUNNER_TEMP/bin, checksum-verified,
+# with no privilege.
 # Checkout must precede this action — GitHub resolves repo-local
 # actions from the workspace.
 name: Setup runner environment
@@ -114,6 +122,14 @@ inputs:
   module-app-private-key:
     description: Private key for module-app-client-id.
     default: ""
+  devbox-version:
+    description: >-
+      The devbox release to install when the runner does not bake one: a tag
+      such as "0.18.4", or "latest" (the default) for the newest. The release
+      binary is checked against that release's own checksums.txt and lands in
+      $RUNNER_TEMP/bin; no privilege and no installer script are involved.
+      Pin a tag to make the choice of release a reviewed one.
+    default: latest
   strip-local-tools:
     description: >-
       Strip the npm-backed cubic CLI from .prototools (workspace copy).
@@ -184,6 +200,11 @@ runs:
         echo "prototools=$([ -f .prototools ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
 
     - name: Install nix
+      # THE ONE REMAINING ROOT STEP: the nix installer needs root. It runs
+      # only when nix is not baked (condition below), which is a
+      # GitHub-hosted runner; a runner that cannot escalate must bake nix, and
+      # preflight fails early, naming that, when it does not.
+      #
       # GitHub-hosted runners only (ARC runners bake nix, with the
       # in-cluster read-through substituter in the baked nix.conf —
       # unreachable from outside the VPC anyway, so hosted jobs just
@@ -226,9 +247,16 @@ runs:
         git update-index --assume-unchanged .prototools
 
     - name: Install devbox
+      # The release binary into $RUNNER_TEMP/bin, checksum-verified, no
+      # privilege (install-devbox.sh), when the runner does not bake devbox.
+      # It used to pipe get.jetify.com into bash, which unpacked into
+      # /usr/local/bin through root and ran whatever that script was that day.
       if: steps.baked.outputs.devbox != 'true'
       shell: bash
-      run: curl -fsSL https://get.jetify.com/devbox | bash -s -- -f
+      run: bash "$ACTION_PATH/install-devbox.sh"
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+        DEVBOX_VERSION: ${{ inputs.devbox-version }}
 
     - name: Materialize devbox environment
       # Split so timings tell the truth (Oleg, 2026-08-14): the FIRST

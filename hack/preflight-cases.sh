@@ -31,7 +31,8 @@ chmod +x "$work/bin/"*
 run() {
   env -i PATH="$PATH" HOME="$work/home" RUNNER_TEMP="$work/temp" GITHUB_WORKSPACE="$work/ws" \
     PREFLIGHT_PROC_STATUS="$work/status-nnp1" PREFLIGHT_SH_PATH="$work/sh-is-bash" \
-    PREFLIGHT_EXPECT_NIX=false "$@" bash "$script" 2>&1
+    PREFLIGHT_EXPECT_NIX=false PREFLIGHT_NIX_BIN="$work/bin/nix-ok" PREFLIGHT_DEVBOX_BIN="$work/bin/nix-ok" \
+    "$@" bash "$script" 2>&1
 }
 
 has() { case "$1" in *"$2"*) return 0 ;; *) return 1 ;; esac; }
@@ -83,6 +84,35 @@ else
 fi
 log=$(run PREFLIGHT_EXPECT_NIX=auto PATH="$work/bin-dead:$PATH")
 [ $? != 0 ] && ok "auto expects nix when it is on PATH" || bad "auto expects nix when it is on PATH: $log"
+
+# The one root step, said out loud. No nix: on a runner that CAN escalate
+# (hosted) it is named, not a failure; on one that cannot (no_new_privs) it is
+# a failure naming the fix; where nix is baked the installer never runs.
+log=$(run PREFLIGHT_NIX_BIN= PREFLIGHT_PROC_STATUS="$work/status-nnp0")
+rc=$?
+if [ $rc = 0 ] && has "$log" "nix is NOT baked: the install step will run the nix installer, which needs root" \
+  && has "$log" "the one root step in this action, used only when nix is not baked"; then
+  ok "no nix on a runner that can escalate: the root step is named, not a failure"
+else
+  bad "no nix on a runner that can escalate: the root step is named (rc=$rc): $log"
+fi
+log=$(run PREFLIGHT_NIX_BIN= PREFLIGHT_PROC_STATUS="$work/status-nnp1")
+rc=$?
+if [ $rc != 0 ] && [ "$(grep -c '^::error::' <<<"$log")" = 1 ] && has "$log" "nix is not on PATH and this runner cannot escalate privilege" \
+  && has "$log" "use a runner image that bakes nix" && has "$log" "GitHub-hosted runners only"; then
+  ok "no nix on a restricted runner fails with one error naming the fix"
+else
+  bad "no nix on a restricted runner fails with one error naming the fix (rc=$rc): $log"
+fi
+log=$(run)
+has "$log" "nix is baked ($work/bin/nix-ok); the nix installer will not run" && ok "baked nix: the installer will not run" || bad "baked nix: the installer will not run: $log"
+
+# devbox: baked, or installed from the release binary without privilege.
+log=$(run PREFLIGHT_DEVBOX_BIN=)
+has "$log" "devbox is not baked; the install step will fetch the release binary into \$RUNNER_TEMP/bin (checksum-verified, no privilege)" \
+  && [ "$(grep -c '^::error::' <<<"$log")" = 0 ] && ok "no devbox: it is installed without privilege, not a failure" || bad "no devbox is not a failure: $log"
+log=$(run)
+has "$log" "devbox is baked ($work/bin/nix-ok); nothing to install" && ok "baked devbox: nothing to install" || bad "baked devbox: nothing to install: $log"
 
 echo
 if [ "$fail" = 0 ]; then echo "all cases pass"; else echo "::error::preflight cases failed"; fi

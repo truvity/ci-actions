@@ -80,6 +80,13 @@ jobs:
       - name: preflight cases
         run: ./hack/preflight-cases.sh
 
+      # setup-devbox's devbox install: the release binary, checked against
+      # the release's checksums, into RUNNER_TEMP, no privilege and nothing
+      # piped into a shell. Against a local directory standing in for the
+      # release page.
+      - name: install-devbox cases
+        run: ./hack/install-devbox-cases.sh
+
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod

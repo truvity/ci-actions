@@ -6,6 +6,29 @@ an untagged commit; `tagged-pins` refuses anything else.
 
 ## Unreleased
 
+`setup-devbox`:
+
+- **devbox is installed without privilege.** When the runner does not bake
+  devbox, the step fetches the release binary into `$RUNNER_TEMP/bin`, checks
+  it against the release's own `checksums.txt` (a mismatch is an
+  `::error::` and nothing is installed), and adds that directory to `PATH`.
+  It used to run `curl https://get.jetify.com/devbox | bash`, which ran an
+  unverified script as the job and installed into `/usr/local/bin` through
+  root. New input `devbox-version` (a release tag, or `latest`, the default:
+  the same release the script chose, now resolved from the releases page's
+  redirect and verified); pin a tag to make the release a reviewed one.
+  **A job that ran `/usr/local/bin/devbox` by absolute path must use `devbox`
+  from `PATH`.** `hack/install-devbox-cases.sh` covers the install against a
+  local release, and `restricted-sim` runs it under the restricted profile.
+- **The nix installer is the one remaining root step**, and it is documented
+  and said out loud: it runs only when nix is not baked into the runner (a
+  GitHub-hosted runner; the self-hosted pool bakes nix and never runs it).
+  `preflight` now prints whether devbox and nix are baked or will be
+  installed, names the nix installer as the one step that needs root, and
+  fails early, in one `::error::`, on a runner that has no nix and cannot
+  escalate (`no_new_privs`), where the installer could only fail a minute
+  later. See "Running without privilege" in the README.
+
 `fleet pins`:
 
 - **A repository with no commit is no error.** GitHub answers its tree with

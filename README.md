@@ -80,7 +80,21 @@ Every action here runs with **no privilege, by contract**: no root, no
 directory. The reference environment is a runner under the Pod Security
 `restricted` profile: uid 1001, `runAsNonRoot`, `allowPrivilegeEscalation:
 false` (so `no_new_privs`, and `sudo` can never work), all capabilities
-dropped. GitHub-hosted runners have passwordless `sudo`; we do not use it.
+dropped. GitHub-hosted runners have passwordless `sudo`; we do not use it,
+with one exception named below.
+
+- **devbox is installed without privilege.** When the runner does not bake
+  devbox, `setup-devbox` fetches the release binary (`devbox-version`, a tag
+  or `latest`), checks it against that release's own `checksums.txt` and puts
+  it in `$RUNNER_TEMP/bin`, which it adds to `PATH`. It no longer pipes
+  `get.jetify.com` into `bash`. Pin a tag to make the release a reviewed one.
+- **The one remaining root step is the nix installer.** It runs only when nix
+  is not on the runner (`Install nix` in `setup-devbox`), which means a
+  GitHub-hosted runner, the one place root exists. A runner that cannot
+  escalate (`no_new_privs`) must bake nix into its image: the preflight says
+  so in one `::error::` instead of letting the installer fail a minute later.
+  Where nix is baked (the self-hosted pool, any restricted runner) no step
+  here needs root at all.
 
 - **`/bin/sh` is left alone.** `setup-devbox` used to relink it to bash;
   it no longer does. Every step in these actions says `shell: bash`
@@ -97,11 +111,14 @@ dropped. GitHub-hosted runners have passwordless `sudo`; we do not use it.
   "pipefail", "-c"]`.
 - `setup-devbox` starts with a `preflight` that prints the uid, gid,
   `no_new_privs`, what `/bin/sh` is, whether `HOME`, `RUNNER_TEMP` and the
-  work directory are writable and, when nix is present, whether its store
-  answers. It fails with one `::error::` naming what is missing.
+  work directory are writable, whether devbox and nix are baked or will be
+  installed (and that the nix installer is the one step needing root), and,
+  when nix is present, whether its store answers. It fails with one
+  `::error::` naming what is missing.
 
 `hack/no-escalation-cases.sh` fails the gate if any action file or script says
-`sudo`. `hack/restricted-sim.sh` runs the actions' step scripts in a
+`sudo`; `hack/install-devbox-cases.sh` checks the devbox install, including that
+a tampered archive is refused and nothing is piped into a shell. `hack/restricted-sim.sh` runs the actions' step scripts in a
 container with `--user 1001:1001 --security-opt no-new-privileges
 --cap-drop ALL --read-only` (see the `restricted-sim` job).
 
@@ -184,6 +201,7 @@ each:
 - `just pins-wrapper` — the thin `tagged-pins` wrapper that finds the binary, with the binary stubbed.
 - `just conformance-cases` — policy-conformance rule tests against fixture repositories.
 - `just no-escalation` — fail if any action file or script calls `sudo`.
+- `just install-devbox-cases` — setup-devbox's privilege-free devbox install, against a local release.
 - `just preflight-cases` — setup-devbox's preflight, one failure at a time.
 - `just restricted-sim` — the step scripts under uid 1001, no_new_privs, no capabilities, read-only root (needs docker and yq).
 - `just fork-guard` — cluster's fork refusal, against fake event payloads.

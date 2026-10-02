@@ -49,10 +49,14 @@ export SIM_INPUT_caller_parity__repositories="${SIM_INPUT_caller_parity__reposit
 export SIM_INPUT_openbao_secrets__issuer="${SIM_INPUT_openbao_secrets__issuer:-https://issuer.example}"
 export SIM_INPUT_openbao_secrets__address="${SIM_INPUT_openbao_secrets__address:-http://127.0.0.1:8765}"
 export SIM_INPUT_openbao_secrets__path="${SIM_INPUT_openbao_secrets__path:-ci/sim}"
+# setup-devbox's own devbox install, run for real under the restricted
+# profile (it downloads the pinned release into RUNNER_TEMP): the step the
+# baked-runner condition normally skips, and the one that used to need root.
+export SIM_INPUT_devbox_version="${SIM_INPUT_devbox_version:-0.18.4}"
 export SIM_INPUT_devbox_parity__mode="${SIM_INPUT_devbox_parity__mode:-align}"
 
 # Steps with an `if:` that is true for default inputs on a baked runner.
-CONDITIONAL=("Strip local-only proto tools" "Install proto toolchain")
+CONDITIONAL=("Strip local-only proto tools" "Install proto toolchain" "Install devbox")
 
 command -v docker >/dev/null || { echo "::error::docker is required"; exit 2; }
 command -v yq >/dev/null || { echo "::error::yq (mikefarah, v4) is required"; exit 2; }
