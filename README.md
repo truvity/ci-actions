@@ -117,8 +117,8 @@ with one exception named below.
   `::error::` naming what is missing.
 
 `hack/no-escalation-cases.sh` fails the gate if any action file or script says
-`sudo`; `hack/install-devbox-cases.sh` checks the devbox install, including that
-a tampered archive is refused and nothing is piped into a shell. `hack/restricted-sim.sh` runs the actions' step scripts in a
+`sudo`; the Go tests of `internal/setupdevbox` check the devbox install, including that
+a tampered archive is refused, and the preflight, one failure at a time. `hack/restricted-sim.sh` runs the actions' step scripts in a
 container with `--user 1001:1001 --security-opt no-new-privileges
 --cap-drop ALL --read-only` (see the `restricted-sim` job).
 
@@ -196,12 +196,10 @@ each:
 
 - `just lint` — actionlint over every workflow and composite.
 - `just kit` — the golangci-depguard kit against truvity/policy.
-- `just cache-env` — what setup-devbox writes into GITHUB_ENV, per cache shape.
+- `just cache-env` — setup-devbox's cache delegation holds, read live at the pinned ci-cache sha.
 - `just go-test` — `go vet` and the table tests of the Go CLI: the pin guard against local git remotes, `fleet pins` against a fake GitHub.
 - `just pins-wrapper` — the thin `tagged-pins` wrapper that finds the binary, with the binary stubbed.
 - `just no-escalation` — fail if any action file or script calls `sudo`.
-- `just install-devbox-cases` — setup-devbox's privilege-free devbox install, against a local release.
-- `just preflight-cases` — setup-devbox's preflight, one failure at a time.
 - `just restricted-sim` — the step scripts under uid 1001, no_new_privs, no capabilities, read-only root (needs docker and yq).
 - `just pins` — verify all pins point to release tags.
 - `just runners` — verify the repository uses public runners.

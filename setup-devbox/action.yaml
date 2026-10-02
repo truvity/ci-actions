@@ -142,63 +142,42 @@ inputs:
 runs:
   using: composite
   steps:
+    # First, so a runner that cannot do what the rest of this action
+    # needs fails here with one message naming the fix, not forty
+    # seconds later as a cryptic error from nix or devbox.
     - name: Preflight
-      # First, so a runner that cannot do what the rest of this action
-      # needs fails here with one message naming the fix, not forty
-      # seconds later as a cryptic error from nix or devbox.
       shell: bash
-      run: bash "$ACTION_PATH/preflight.sh"
       env:
         ACTION_PATH: ${{ github.action_path }}
-
+        ACTION_REPOSITORY: ${{ github.action_repository }}
+        ACTION_REF: ${{ github.action_ref }}
+      run: bash "$ACTION_PATH/run.sh" preflight
+    # Caller-supplied: aws.ini is laptop-shaped (SSO + [default]) and a
+    # credential-less step consulting it hangs or dies on SSO. Repos that
+    # keep a CI-shaped variant name it here; others leave it empty. Values
+    # reach the binary through env, and the value is written to GITHUB_ENV
+    # with a random-delimiter heredoc (internal/setupdevbox).
     - name: CI face of the AWS config
-      # Caller-supplied: aws.ini is laptop-shaped (SSO + [default]) and a
-      # credential-less step consulting it hangs or dies on SSO. Repos that
-      # keep a CI-shaped variant name it here; others leave it empty.
       if: inputs.aws-config-file != ''
       shell: bash
-      # Values reach the shell through env, never through ${{ }} spliced
-      # into the script text: an expression is pasted in BEFORE bash sees
-      # the line, so a value containing a quote or $( ) would execute.
-      # Callers here are trusted, but this action is public and its next
-      # caller may not be. Same reason for every env: block below.
-      # Heredoc write with a random delimiter: GITHUB_ENV is
-      # line-oriented, so a value carrying a newline in the NAME=VALUE
-      # form writes a second variable of the caller's choosing (CodeQL
-      # envvar-injection). The delimiter is unguessable, so the value
-      # cannot terminate the block early either.
-      run: |
-        set -euo pipefail
-        # And write it with a RANDOM-DELIMITER heredoc, the multi-line form
-        # GitHub documents for GITHUB_ENV. 32 hex bytes of urandom make the
-        # delimiter unguessable, so a value carrying a newline cannot close
-        # the block early and open a variable of its own. CodeQL's own
-        # recommendation for this rule, and the stronger of the two it
-        # offers: the alternative strips newlines with `tr -d`, which mangles
-        # the value rather than preserving it.
-        #
-        # Belt and braces with the guard above, deliberately. The guard fails
-        # LOUDLY on anything unexpected; this stays structurally safe even if
-        # the guard is ever loosened.
-        d="EOF_$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')"
-        printf '%s<<%s\n%s\n%s\n' AWS_CONFIG_FILE "$d" "$GITHUB_WORKSPACE/$AWS_CONFIG_REL" "$d" >> "$GITHUB_ENV"
       env:
         AWS_CONFIG_REL: ${{ inputs.aws-config-file }}
-
+        ACTION_PATH: ${{ github.action_path }}
+        ACTION_REPOSITORY: ${{ github.action_repository }}
+        ACTION_REF: ${{ github.action_ref }}
+      run: bash "$ACTION_PATH/run.sh" aws-config
+    # The runner image bakes nix (S3 substituter pre-configured in the
+    # baked nix.conf) and devbox: installing them again per job was the bulk
+    # of the bootstrap minute. GitHub-hosted runners (release jobs) have
+    # neither and keep the install path.
     - name: Detect baked tools
-      # The runner image bakes nix (S3 substituter pre-configured in
-      # the baked nix.conf) and devbox — installing them again per job
-      # was the bulk of the bootstrap minute. GitHub-hosted runners
-      # (release jobs) have neither and keep the install path.
       id: baked
       shell: bash
-      run: |
-        echo "nix=$(command -v nix >/dev/null && echo true || echo false)" >> "$GITHUB_OUTPUT"
-        echo "devbox=$(command -v devbox >/dev/null && echo true || echo false)" >> "$GITHUB_OUTPUT"
-        # Same principle one layer up: ask the repository what it needs
-        # rather than making every caller declare it.
-        echo "prototools=$([ -f .prototools ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
-
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+        ACTION_REPOSITORY: ${{ github.action_repository }}
+        ACTION_REF: ${{ github.action_ref }}
+      run: bash "$ACTION_PATH/run.sh" detect-baked
     - name: Install nix
       # THE ONE REMAINING ROOT STEP: the nix installer needs root. It runs
       # only when nix is not baked (condition below), which is a
@@ -223,55 +202,42 @@ runs:
       if: steps.baked.outputs.nix != 'true'
       uses: DeterminateSystems/nix-installer-action@ef8a148080ab6020fd15196c2084a2eea5ff2d25 # v22
 
+    # The npm-backed cubic CLI is LOCAL review tooling; CI never invokes it
+    # and its proto plugin cannot bootstrap on a pristine runner. devbox's
+    # init hook materializes proto on the FIRST devbox run, so the strip
+    # must precede it. Workspace copy only; nothing is committed.
     - name: Strip local-only proto tools
-      # The npm-backed cubic CLI is LOCAL review tooling — CI never
-      # invokes it, and its proto plugin cannot bootstrap on a pristine
-      # runner (the plugin execs npm mid-materialization). devbox's
-      # init hook materializes proto on the FIRST devbox run, so the
-      # strip must precede it. Workspace copy only; nothing is
-      # committed.
-      #
-      # Nothing to strip in a repo with no .prototools, which is most of
-      # them — this step came from bar, where the file always exists, and
-      # `sed` on a missing file exits 2 and takes the whole bootstrap with
-      # it. A shared action may not assume one repository's layout.
       if: inputs.strip-local-tools == 'true' && steps.baked.outputs.prototools == 'true'
       shell: bash
-      run: |
-        [ -f .prototools ] || { echo "no .prototools; nothing to strip"; exit 0; }
-        sed -i '/@cubic-dev-ai/d' .prototools
-        # The strip modifies a TRACKED file. goreleaser reads `git
-        # status` and stamped every snapshot "dirty" over it (a release
-        # build REFUSES outright on dirty). The mutation is CI
-        # plumbing, not source — hide it from the index.
-        git update-index --assume-unchanged .prototools
-
-    - name: Install devbox
-      # The release binary into $RUNNER_TEMP/bin, checksum-verified, no
-      # privilege (install-devbox.sh), when the runner does not bake devbox.
-      # It used to pipe get.jetify.com into bash, which unpacked into
-      # /usr/local/bin through root and ran whatever that script was that day.
-      if: steps.baked.outputs.devbox != 'true'
-      shell: bash
-      run: bash "$ACTION_PATH/install-devbox.sh"
       env:
         ACTION_PATH: ${{ github.action_path }}
-        DEVBOX_VERSION: ${{ inputs.devbox-version }}
-
-    - name: Materialize devbox environment
-      # Split so timings tell the truth (Oleg, 2026-08-14): the FIRST
-      # devbox invocation transparently fetches, unpacks and registers
-      # the whole nix closure — hidden inside whatever step happened to
-      # run devbox first ("Install proto toolchain" showed 1m28s of
-      # which ~85s was this). This step is the closure cost; every
-      # devbox step after it is only itself.
+        ACTION_REPOSITORY: ${{ github.action_repository }}
+        ACTION_REF: ${{ github.action_ref }}
+      run: bash "$ACTION_PATH/run.sh" strip-tools
+    # The release binary into $RUNNER_TEMP/bin, checksum-verified, no
+    # privilege, when the runner does not bake devbox. It used to pipe
+    # get.jetify.com into bash, which unpacked into /usr/local/bin through
+    # root and ran whatever that script was that day.
+    - name: Install devbox
+      if: steps.baked.outputs.devbox != 'true'
       shell: bash
-      run: |
-        retry() { for i in 1 2; do "$@" && return 0; echo "attempt $i failed; sleeping"; sleep 20; done; "$@"; }
-        START=$(date +%s)
-        retry devbox run -- true
-        echo "- devbox closure: $(( $(date +%s) - START ))s" >> "$GITHUB_STEP_SUMMARY"
-
+      env:
+        DEVBOX_VERSION: ${{ inputs.devbox-version }}
+        ACTION_PATH: ${{ github.action_path }}
+        ACTION_REPOSITORY: ${{ github.action_repository }}
+        ACTION_REF: ${{ github.action_ref }}
+      run: bash "$ACTION_PATH/run.sh" install-devbox
+    # Split so timings tell the truth: the FIRST devbox invocation
+    # transparently fetches, unpacks and registers the whole nix closure.
+    # This step is the closure cost; every devbox step after it is only
+    # itself.
+    - name: Materialize devbox environment
+      shell: bash
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+        ACTION_REPOSITORY: ${{ github.action_repository }}
+        ACTION_REF: ${{ github.action_ref }}
+      run: bash "$ACTION_PATH/run.sh" materialize
     - name: Cache proto toolchains
       if: inputs.proto == 'true' || (inputs.proto == 'auto' && steps.baked.outputs.prototools == 'true')
       # proto downloads toolchains from GitHub releases/upstreams — no
@@ -289,26 +255,19 @@ runs:
         path: .proto
         key: proto-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.prototools') }}
 
+    # Pure proto now; the closure cost lives in "Materialize devbox
+    # environment" above. Retries: proto's plugin fetches are flaky from the
+    # NAT'd runner (intermittent non-JSON responses with the token present).
     - name: Install proto toolchain
       if: inputs.proto == 'true' || (inputs.proto == 'auto' && steps.baked.outputs.prototools == 'true')
-      # Pure proto now — the closure cost lives in "Materialize devbox
-      # environment" above. Retries: proto's plugin fetches are flaky
-      # from the NAT'd runner (intermittent non-JSON responses with
-      # the token present — consecutive runs disagree); three attempts
-      # each, the final one outside the loop so its status propagates.
       shell: bash
-      run: |
-        retry() { for i in 1 2; do "$@" && return 0; echo "attempt $i failed; sleeping"; sleep 20; done; "$@"; }
-        START=$(date +%s)
-        retry devbox run -- proto use 2>&1 | tee "$RUNNER_TEMP/bootstrap-proto.log"
-        {
-          echo "### Bootstrap ($RUNNER_ARCH)"
-          echo "- proto use: $(( $(date +%s) - START ))s ($(grep -ac 'installed' "$RUNNER_TEMP/bootstrap-proto.log" || true) install lines; warm cache = near-zero)"
-        } >> "$GITHUB_STEP_SUMMARY"
       env:
         GITHUB_TOKEN: ${{ inputs.github-token }}
         RUNNER_ARCH: ${{ runner.arch }}
-
+        ACTION_PATH: ${{ github.action_path }}
+        ACTION_REPOSITORY: ${{ github.action_repository }}
+        ACTION_REF: ${{ github.action_ref }}
+      run: bash "$ACTION_PATH/run.sh" proto
     # Gated on the App, NOT on go-private. Fetching private Go modules was
     # the first use; reading a sibling repository's files from a recipe is
     # the general one -- TrustForm's OpenAPI contracts sit in a private
@@ -333,162 +292,50 @@ runs:
     # overloading it would silently repoint every unrelated gh call in
     # every recipe at a token scoped to other repositories, and the
     # failure would surface far from here.
+      # Hand the token to the recipes as well as to git. A recipe that curls
+      # the GitHub API needs the token itself. A DISTINCT name, never GH_TOKEN:
+      # `gh` reads GH_TOKEN implicitly, so overloading it would silently repoint
+      # every unrelated gh call in every recipe at a token scoped to other
+      # repositories.
     - name: Expose the token to recipes
       if: steps.module-token.outputs.token != ''
       shell: bash
       env:
         MODULE_TOKEN: ${{ steps.module-token.outputs.token }}
-      run: |
-        set -euo pipefail
-        echo "::add-mask::$MODULE_TOKEN"
-        # VALIDATE before writing. GITHUB_ENV is line-oriented and
-        # append-only, so a value carrying a newline writes a SECOND
-        # variable of someone else's choosing. printf does not prevent
-        # that -- it formats, it does not sanitise.
-        #
-        # Checks for a NEWLINE, not a character set. An earlier version
-        # asserted ^[A-Za-z0-9_]+$ and rejected every real token: App
-        # installation tokens are 383 characters and contain dots, not the
-        # short ghs_XXXX shape that regex assumed. Guessing at the shape of
-        # someone else's credential is how a guard becomes an outage.
-        #
-        # `case`, not `[[ =~ ]]`: the pattern is a literal newline/CR in a
-        # bracket expression, which needs no regex engine and cannot be
-        # confused by a token's own punctuation. Empty is rejected too --
-        # a masked value stripped somewhere upstream arrives empty, and
-        # writing CI_CONTENTS_TOKEN= would fail later and further away.
-        case "$MODULE_TOKEN" in
-          *[$'\n\r']* | "")
-            echo "::error::the minted token is empty or contains a newline; refusing to write it to GITHUB_ENV"
-            exit 1
-            ;;
-        esac
-
-        d="EOF_$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')"
-        printf '%s<<%s\n%s\n%s\n' "CI_CONTENTS_TOKEN" "$d" "$MODULE_TOKEN" "$d" >> "$GITHUB_ENV"
-
+        ACTION_PATH: ${{ github.action_path }}
+        ACTION_REPOSITORY: ${{ github.action_repository }}
+        ACTION_REF: ${{ github.action_ref }}
+      run: bash "$ACTION_PATH/run.sh" expose-token
+    # GOPRIVATE alone is not enough: it tells go to skip the proxy and go
+    # straight to git, and git then refuses a private repository with an
+    # authentication prompt that CI reports as "terminal prompts disabled".
+    # The token arrives through env, is masked first, and the GOPRIVATE value
+    # is validated and written with a random-delimiter heredoc.
     - name: Reach private Go modules
       if: inputs.go-private != ''
       shell: bash
-      # GOPRIVATE alone is not enough and fails in a confusing way: it
-      # tells go to skip the proxy and go straight to git, and git then
-      # refuses a private repository with an authentication prompt that
-      # CI reports as "terminal prompts disabled" — which reads like a
-      # git bug rather than a missing credential.
-      #
-      # The rewrite is global rather than repo-local because `go` clones
-      # into its own module cache, outside any checkout, so a --local
-      # config would never be consulted.
-      #
-      # The token arrives through env and is written with a heredoc, not
-      # spliced into the command line: a ${{ }} expression is pasted in
-      # before bash parses the line, and an argument is visible in `ps`
-      # for as long as the process lives.
-      run: |
-        set -euo pipefail
-
-        # Mask FIRST, so anything below that echoes the token — including
-        # a shell trace someone enables while debugging — is redacted.
-        echo "::add-mask::$MODULE_TOKEN"
-
-        if [ -z "$MODULE_TOKEN" ]; then
-          echo "::error::go-private is set but no module token was minted — check module-app-client-id and module-app-private-key"
-          exit 1
-        fi
-
-        # GITHUB_ENV is line-oriented: a value carrying a newline writes
-        # a SECOND variable of the attacker's choosing. This input comes
-        # from a caller's workflow, so it is validated rather than
-        # trusted. GOPRIVATE is a comma-separated list of module path
-        # patterns, so the alphabet is small and a stray character is far
-        # more likely to be a typo than an attack.
-        #
-        # `[[ =~ ]]`, NOT grep: grep matches line by line, so
-        # $'github.com/truvity\nPATH=/evil' passes it — every line
-        # satisfies the pattern individually. Bash anchors ^ and $ to the
-        # whole string, and newline is outside the class, so the
-        # multi-line case is rejected. Measured both ways before
-        # choosing.
-        if [[ ! "$GO_PRIVATE" =~ ^[A-Za-z0-9._~/*,-]+$ ]]; then
-          echo "::error::go-private must be a comma-separated list of module path patterns; got something outside [A-Za-z0-9._~/*,-]"
-          exit 1
-        fi
-
-        # Belt on top of the validation above: the heredoc write with a
-        # random delimiter cannot mint a second variable even if the
-        # regex ever loosens (CodeQL envvar-injection).
-        d="EOF_$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')"
-        printf '%s<<%s\n%s\n%s\n' GOPRIVATE "$d" "$GO_PRIVATE" "$d" >> "$GITHUB_ENV"
-
-        git config --global --replace-all \
-          "url.https://x-access-token:$MODULE_TOKEN@github.com/.insteadOf" \
-          "https://github.com/"
       env:
         GO_PRIVATE: ${{ inputs.go-private }}
         MODULE_TOKEN: ${{ steps.module-token.outputs.token }}
-
+        ACTION_PATH: ${{ github.action_path }}
+        ACTION_REPOSITORY: ${{ github.action_repository }}
+        ACTION_REF: ${{ github.action_ref }}
+      run: bash "$ACTION_PATH/run.sh" go-private
+    # The token comes from the DEFAULT credential chain deliberately: on a
+    # runner that is the pool's pod identity. Fails LOUDLY on an empty token:
+    # an empty one fetches anonymously and fails later as an npm
+    # authentication error naming npm while the cause is a missing IAM grant.
     - name: Log in to CodeArtifact
       if: inputs.codeartifact-domain != ''
       shell: bash
-      # The token comes from the DEFAULT credential chain deliberately: on a
-      # runner that is the pool's pod identity, which carries
-      # <cluster>-codeartifact-read. Nothing to configure per repository.
-      #
-      # Fails LOUDLY on an empty token, which is the whole reason this step
-      # exists. Every repo that needed CodeArtifact had its own copy of
-      #
-      #   export CODEARTIFACT_AUTH_TOKEN="$(aws codeartifact ... || echo '')"
-      #
-      # and that `|| echo ''` turned an IAM failure into an anonymous fetch,
-      # so it surfaced as "Invalid authentication (as an anonymous user)" --
-      # a message naming npm while the cause was a missing IAM grant. It cost
-      # a day to find (2026-08-30).
-      run: |
-        set -euo pipefail
-
-        # The CLI comes from the PATH on a hosted runner and from devbox on
-        # an ARC runner, whose image ships no aws at all (everything but
-        # nix arrives through the project's devbox). The first stable-tier
-        # release (dms v0.37.0, 2026-09-07) died here on "aws: command not
-        # found". tail -n1 + CR strip: devbox prefixes Info lines to stdout.
-        aws_cli() {
-          if command -v aws >/dev/null 2>&1; then
-            command aws "$@"
-          else
-            devbox run -- aws "$@" | tail -n1 | tr -d '\r'
-          fi
-        }
-
-        if ! token="$(aws_cli codeartifact get-authorization-token \
-            --domain "$CA_DOMAIN" \
-            --domain-owner "$CA_OWNER" \
-            --region "$CA_REGION" \
-            --query authorizationToken --output text)"; then
-          echo "::error::CodeArtifact login failed for domain $CA_DOMAIN. The identity" \
-               "this build runs as needs codeartifact:GetAuthorizationToken plus" \
-               "sts:GetServiceBearerToken — see <cluster>-codeartifact-read."
-          exit 1
-        fi
-
-        if [ -z "$token" ] || [ "$token" = "None" ]; then
-          echo "::error::CodeArtifact returned an empty token for domain $CA_DOMAIN;" \
-               "refusing to continue, because an empty token fetches anonymously" \
-               "and fails later as an npm authentication error."
-          exit 1
-        fi
-
-        echo "::add-mask::$token"
-
-        # Heredoc with a random delimiter, same as GOPRIVATE above: a value
-        # containing a newline must not be able to define a second variable.
-        d="EOF_$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')"
-        printf '%s<<%s\n%s\n%s\n' CODEARTIFACT_AUTH_TOKEN "$d" "$token" "$d" >> "$GITHUB_ENV"
       env:
         CA_DOMAIN: ${{ inputs.codeartifact-domain }}
         CA_OWNER: ${{ inputs.codeartifact-domain-owner }}
         CA_REGION: ${{ inputs.codeartifact-region }}
-
-
+        ACTION_PATH: ${{ github.action_path }}
+        ACTION_REPOSITORY: ${{ github.action_repository }}
+        ACTION_REF: ${{ github.action_ref }}
+      run: bash "$ACTION_PATH/run.sh" codeartifact
     # The caches are wired by truvity/ci-cache, not here.
     #
     # The chart that runs them, the clients that talk to them and the
@@ -523,33 +370,19 @@ runs:
     - name: Warn on the retired cache-server input
       if: inputs.go-cache-server != ''
       shell: bash
-      run: |
-        echo "::warning::go-cache-server is retired and ignored; the Go build cache goes straight to go-cache-bucket. Remove the input and the CI_GOCACHE_SERVER org variable."
-
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+        ACTION_REPOSITORY: ${{ github.action_repository }}
+        ACTION_REF: ${{ github.action_ref }}
+      run: bash "$ACTION_PATH/run.sh" retired-cache-server
     - name: Guard GOPROXY against devbox.json
       if: inputs.goproxy != ''
       shell: bash
-      run: |
-        set -euo pipefail
-        file="devbox.json"
-        if [ ! -f "$file" ]; then
-          exit 0
-        fi
-        if ! command -v jq >/dev/null 2>&1; then
-          echo "jq not on PATH; skipping the devbox.json GOPROXY check"
-          exit 0
-        fi
-        # `// empty` covers both a missing env block and a missing key; a
-        # file jq cannot parse (devbox tolerates comments) skips the check
-        # rather than failing the job.
-        if ! pinned=$(jq -r '.env.GOPROXY // empty' "$file" 2>/dev/null); then
-          echo "$file is not plain JSON; skipping the GOPROXY check"
-          exit 0
-        fi
-        if [ -n "$pinned" ]; then
-          echo "::warning file=${file}::${file} sets env.GOPROXY (${pinned}). devbox run re-applies that env block, so it overrides the CI module proxy passed as the goproxy input for every recipe. Remove GOPROXY from ${file}; laptops fall back to Go's default proxy."
-        fi
-
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+        ACTION_REPOSITORY: ${{ github.action_repository }}
+        ACTION_REF: ${{ github.action_ref }}
+      run: bash "$ACTION_PATH/run.sh" guard-goproxy
     # The same class of problem as GOPROXY, for the AWS identity: this action
     # points AWS_CONFIG_FILE at the CI config (profiles that take their
     # credentials from the job's OIDC token), and devbox run re-applies the
@@ -557,22 +390,8 @@ runs:
     # authenticates with the wrong profile and the build runs cold.
     - name: Guard AWS config against devbox.json
       shell: bash
-      run: |
-        set -euo pipefail
-        file="devbox.json"
-        if [ ! -f "$file" ]; then
-          exit 0
-        fi
-        if ! command -v jq >/dev/null 2>&1; then
-          echo "jq not on PATH; skipping the devbox.json AWS config check"
-          exit 0
-        fi
-        for key in AWS_CONFIG_FILE AWS_PROFILE; do
-          if ! pinned=$(jq -r --arg k "$key" '.env[$k] // empty' "$file" 2>/dev/null); then
-            echo "$file is not plain JSON; skipping the AWS config check"
-            exit 0
-          fi
-          if [ -n "$pinned" ]; then
-            echo "::warning file=${file}::${file} sets env.${key} (${pinned}). devbox run re-applies that env block, so it overrides the CI AWS config and identity (OIDC) and build tooling such as the Go cache plugin loses its credentials. Set it in shell.init_hook with a fallback instead, e.g. export ${key}=\"\${${key}:-<default>}\"."
-          fi
-        done
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+        ACTION_REPOSITORY: ${{ github.action_repository }}
+        ACTION_REF: ${{ github.action_ref }}
+      run: bash "$ACTION_PATH/run.sh" guard-aws

@@ -22,11 +22,11 @@ lint:
 kit:
     @./hack/policy-kit-current.sh
 
-# Test cache environment wiring against stub
+# setup-devbox's cache delegation holds (reads ci-cache's action at the pinned sha)
 cache-env:
-    @./hack/cache-env-cases.sh
+    go run ./cmd/ci-actions repo-check cache-seam
 
-# Go vet and table tests: tagged-pins against local remotes, fleet pins, fleet-discover, caller-parity, openbao-secrets cluster and policy-conformance (against fixture repositories) against fakes
+# Go vet and table tests: tagged-pins against local remotes, fleet pins, fleet-discover, caller-parity, openbao-secrets, cluster, policy-conformance (against fixture repositories) and setup-devbox (preflight, the devbox install, tokens, CodeArtifact, guards) against fakes
 go-test:
     go vet ./...
     go test ./...
@@ -38,14 +38,6 @@ pins-wrapper:
 # Fail if any action file or script escalates privilege
 no-escalation:
     @./hack/no-escalation-cases.sh
-
-# Test setup-devbox's privilege-free devbox install against a local release
-install-devbox-cases:
-    @./hack/install-devbox-cases.sh
-
-# Test setup-devbox's preflight, one failure at a time
-preflight-cases:
-    @./hack/preflight-cases.sh
 
 # Run the step scripts as a restricted runner (needs docker and yq)
 restricted-sim:
@@ -156,5 +148,5 @@ leak-canary:
     @./hack/leak-canary.sh
 
 # Run all checks (the merge gate)
-check: lint kit cache-env go-test pins-wrapper no-escalation preflight-cases pins runners conformance leak-canary
+check: lint kit cache-env go-test pins-wrapper no-escalation pins runners conformance leak-canary
     @echo "✓ All checks passed"

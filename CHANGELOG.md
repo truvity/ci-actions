@@ -6,6 +6,37 @@ an untagged commit; `tagged-pins` refuses anything else.
 
 ## Unreleased
 
+`setup-devbox`, the rest of its logic:
+
+- **Every step that was inline shell or a script is now a step of `ci-actions
+  setup-devbox <step>`** (`preflight`, `aws-config`, `detect-baked`,
+  `strip-tools`, `install-devbox`, `materialize`, `proto`, `expose-token`,
+  `go-private`, `codeartifact`, `retired-cache-server`, `guard-goproxy`,
+  `guard-aws`); the composite keeps its structure (the third-party actions,
+  the conditions, the caches) and each of its own steps is a thin wrapper.
+  Inputs, outputs, every log, `::warning::` and `::error::` line, what is
+  written to `GITHUB_ENV`, `GITHUB_OUTPUT` and the step summary (a
+  random-delimiter heredoc, as before), and the exit statuses are unchanged:
+  fifty-one scenarios (each preflight branch, the devbox install against a
+  local release with a tampered archive, unlisted asset, missing release and
+  `latest`, the AWS config, baked-tool detection, the `.prototools` strip, the
+  closure and proto retries, the token validation including a newline, the
+  `GOPRIVATE` validation and git rewrite, CodeArtifact through `aws` and
+  through devbox, the retired-input warning and both devbox.json guards) ran
+  through the old shell and the binary in one CI run, and stdout, the exit
+  status, the files written and the git config were identical.
+- **`preflight.sh`, `install-devbox.sh`, `hack/preflight-cases.sh`,
+  `hack/install-devbox-cases.sh` and `hack/cache-env-cases.sh` are gone.** The
+  cases are Go table tests; the cache seam (that the composite delegates to a
+  SHA-pinned `truvity/ci-cache/setup`, passes every input it declares, wires
+  the retired input to its warning and writes no cache itself) is
+  `ci-actions repo-check cache-seam`, read live at the pinned sha and run in
+  `check`.
+- **Needs more of the runner than before: `curl` and `tar` (or Go) to fetch the
+  binary, in the first step of every job.** The wrappers cache the resolved
+  binary per pinned commit, so it is fetched once per job. The `devbox.json`
+  guards no longer need `jq` on the runner.
+
 `policy-conformance`:
 
 - **Now a thin wrapper around `ci-actions policy-conformance`.** Inputs, the
@@ -51,7 +82,7 @@ an untagged commit; `tagged-pins` refuses anything else.
   the same release the script chose, now resolved from the releases page's
   redirect and verified); pin a tag to make the release a reviewed one.
   **A job that ran `/usr/local/bin/devbox` by absolute path must use `devbox`
-  from `PATH`.** `hack/install-devbox-cases.sh` covers the install against a
+  from `PATH`.** The Go tests of `internal/setupdevbox` cover the install against a
   local release, and `restricted-sim` runs it under the restricted profile.
 - **The nix installer is the one remaining root step**, and it is documented
   and said out loud: it runs only when nix is not baked into the runner (a

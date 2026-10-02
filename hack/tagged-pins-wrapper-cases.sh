@@ -155,6 +155,16 @@ has "$log" "::error::setup-remote-builders needs the ci-actions binary" \
   && ok "setup-remote-builders with no binary fails naming itself" \
   || bad "setup-remote-builders with no binary fails naming itself: $log"
 
+runsd() { (cd "$work/ws" && env -i HOME="$work" RUNNER_TEMP="$work/tmp" ACTION_PATH="$here/setup-devbox" "$@" bash "$here/setup-devbox/run.sh" preflight 2>&1); }
+log=$(runsd PATH="$work/min" CI_ACTIONS_BIN="$work/stubdir/ci-actions" STUB_EXIT=0)
+has "$log" "stub ran: setup-devbox preflight LIBRARIES=unset" \
+  && ok "setup-devbox runs the binary as 'setup-devbox <step>'" \
+  || bad "setup-devbox runs the binary as 'setup-devbox <step>': $log"
+log=$(runsd PATH="$work/min")
+has "$log" "::error::setup-devbox needs the ci-actions binary" \
+  && ok "setup-devbox with no binary fails naming itself" \
+  || bad "setup-devbox with no binary fails naming itself: $log"
+
 echo
 if [ "$fail" = 0 ]; then echo "all cases pass"; else echo "::error::tagged-pins wrapper cases failed"; fi
 exit "$fail"
