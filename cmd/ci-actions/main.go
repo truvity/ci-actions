@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/truvity/ci-actions/internal/fleet"
+	"github.com/truvity/ci-actions/internal/fleetdiscover"
 	"github.com/truvity/ci-actions/internal/publicrunners"
 	"github.com/truvity/ci-actions/internal/taggedpins"
 )
@@ -27,6 +28,9 @@ Commands:
                        (env: LIBRARIES, whitespace- or comma-separated)
   public-runners       refuse a self-hosted runner in a public repository
                        (env: RUNNERS, VISIBILITY, GITHUB_REPOSITORY, GH_TOKEN, GITHUB_API_URL)
+  fleet discover       which repositories of a GitHub App installation a fleet job works on
+                       (env: TOKEN, ESTATE, REQUIRE_CHECK, REQUIRE_FILE, FILTER, ENROLLED, API,
+                       GITHUB_OUTPUT, GITHUB_STEP_SUMMARY)
   fleet pins           which ci-workflows, ci-actions and setup-devbox versions each
                        repository pins, transitively (token from GITHUB_TOKEN or GH_TOKEN)
   version              print the version
@@ -82,6 +86,20 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, getenv fu
 	case "fleet":
 		if len(args) >= 2 && args[1] == "pins" {
 			return fleetPins(ctx, args[2:], stdout, stderr, getenv)
+		}
+		if len(args) >= 2 && args[1] == "discover" {
+			err := fleetdiscover.Run(ctx, fleetdiscover.Options{
+				Token: getenv("TOKEN"), Estate: getenv("ESTATE"), RequireCheck: getenv("REQUIRE_CHECK"),
+				RequireFile: getenv("REQUIRE_FILE"), Filter: getenv("FILTER"), Enrolled: getenv("ENROLLED"),
+				API: getenv("API"), Out: stdout, Summary: getenv("GITHUB_STEP_SUMMARY"), Output: getenv("GITHUB_OUTPUT"),
+			})
+			if err != nil {
+				if !errors.Is(err, fleetdiscover.ErrReported) {
+					fmt.Fprintln(stderr, "fleet discover:", err)
+				}
+				return 1
+			}
+			return 0
 		}
 		fmt.Fprint(stderr, usage)
 		return 2

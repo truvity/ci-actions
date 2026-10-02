@@ -9,7 +9,7 @@
 FROM ubuntu:24.04
 RUN apt-get update \
  && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-      sudo git jq ca-certificates \
+      sudo git jq ca-certificates python3 \
  && rm -rf /var/lib/apt/lists/* \
  && useradd --uid 1001 --user-group --create-home --home-dir /home/runner --shell /bin/bash runner \
  && echo 'runner ALL=(ALL) NOPASSWD:ALL' >/etc/sudoers.d/runner \
