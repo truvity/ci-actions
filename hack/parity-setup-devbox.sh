@@ -178,8 +178,8 @@ scenario go-private "valid" MODULE_TOKEN=ghs_tok GO_PRIVATE='github.com/example,
 scenario go-private "a newline injects nothing" MODULE_TOKEN=ghs_tok GO_PRIVATE=$'github.com/example\nPATH=/evil'
 scenario go-private "a space" MODULE_TOKEN=ghs_tok GO_PRIVATE='a b'
 scenario go-private "no token" MODULE_TOKEN= GO_PRIVATE=github.com/example
-scenario codeartifact "aws on PATH" CA_DOMAIN=dom CA_OWNER=111122223333 CA_REGION=eu-west-1 EXTRA_PATH="@W@/awsbin"
-scenario codeartifact "through devbox" CA_DOMAIN=dom CA_OWNER=111122223333 CA_REGION=eu-west-1
+scenario codeartifact "aws on PATH" CA_DOMAIN=dom CA_OWNER=owner-acct CA_REGION=eu-west-1 EXTRA_PATH="@W@/awsbin"
+scenario codeartifact "through devbox" CA_DOMAIN=dom CA_OWNER=owner-acct CA_REGION=eu-west-1
 scenario codeartifact "a failing login" CA_DOMAIN=dom CA_OWNER=1 CA_REGION=r AWS_EXIT=3 EXTRA_PATH="@W@/awsbin"
 scenario codeartifact "an empty token" CA_DOMAIN=dom CA_OWNER=1 CA_REGION=r CA_TOKEN= EXTRA_PATH="@W@/awsbin"
 scenario codeartifact "None" CA_DOMAIN=dom CA_OWNER=1 CA_REGION=r CA_TOKEN=None EXTRA_PATH="@W@/awsbin"
