@@ -38,9 +38,9 @@ Most repositories get it from ci-workflows' `check.yaml` by setting its
 | `renovate-preset` | `github>truvity/ci-workflows` | The one preset C7 expects `extends` to name. |
 | `working-directory` | `.` | The repository root to judge. |
 
-It needs bash, git and jq, which every hosted runner has, and no
-token. Run it locally from a repository root with
-`bash <path>/policy-conformance.sh`.
+It needs bash and git, plus curl and tar or Go to fetch the `ci-actions`
+binary (the rules are its `policy-conformance` command), and no token. Run it locally from a repository root with
+`ci-actions policy-conformance` (the Go CLI; `go run ./cmd/ci-actions policy-conformance` from a checkout of ci-actions).
 
 ## What each rule reads
 
@@ -106,10 +106,10 @@ Findings the exemption covers are dropped and the line says how many.
 
 ## Tests
 
-`hack/policy-conformance-cases.sh` builds a repository that meets every
+The Go table tests in `internal/policyconformance` build a repository that meets every
 rule, proves each says `PASS`, then breaks one rule at a time and proves
 that rule, and only that rule, says `FAIL`. It also covers `strict`,
 `skip` with and without a reason, the job summary, and a repository with
 nothing in it. No network: `origin` is a local bare repository.
-`self-check.yaml` runs it inside `check`, and runs the action itself
+`self-check.yaml` runs them inside `check`, and runs the action itself
 against this repository with `strict: false`.

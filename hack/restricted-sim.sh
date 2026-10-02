@@ -22,7 +22,7 @@
 # keep it offline: what is under test is the privilege contract, not those
 # tools.
 #
-#   hack/restricted-sim.sh                 setup-devbox, recipe, tagged-pins, public-runners, fleet-discover, devbox-parity, caller-parity, openbao-secrets and cluster (mode shared) against the fixture
+#   hack/restricted-sim.sh                 setup-devbox, recipe, tagged-pins, public-runners, fleet-discover, devbox-parity, caller-parity, openbao-secrets, cluster (mode shared) and policy-conformance against the fixture
 #   hack/restricted-sim.sh --control       prove the image escalates WITHOUT the flag
 #   hack/restricted-sim.sh --self-test     prove the harness fails a privileged step
 #   hack/restricted-sim.sh ACTION_DIR...   other actions, by directory
@@ -253,7 +253,7 @@ case "${1:-}" in
   fi
   ;;
 *)
-  if [ $# -eq 0 ]; then set -- "$here/setup-devbox" "$here/recipe" "$here/tagged-pins" "$here/public-runners" "$here/fleet-discover" "$here/devbox-parity" "$here/caller-parity" "$here/openbao-secrets" "$here/cluster"; fi
+  if [ $# -eq 0 ]; then set -- "$here/setup-devbox" "$here/recipe" "$here/tagged-pins" "$here/public-runners" "$here/fleet-discover" "$here/devbox-parity" "$here/caller-parity" "$here/openbao-secrets" "$here/cluster" "$here/policy-conformance"; fi
   simulate "$@"
   ;;
 esac
