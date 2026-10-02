@@ -26,7 +26,7 @@ kit:
 cache-env:
     @./hack/cache-env-cases.sh
 
-# Go vet and table tests: tagged-pins against local remotes, fleet pins, fleet-discover and caller-parity against a fake GitHub
+# Go vet and table tests: tagged-pins against local remotes, fleet pins, fleet-discover, caller-parity, openbao-secrets and cluster against fakes
 go-test:
     go vet ./...
     go test ./...
@@ -34,10 +34,6 @@ go-test:
 # Test the tagged-pins wrapper that finds the binary
 pins-wrapper:
     @./hack/tagged-pins-wrapper-cases.sh
-
-# Test fork-guard against fake event payloads
-fork-guard:
-    @./hack/fork-guard-cases.sh
 
 # Fail if any action file or script escalates privilege
 no-escalation:
@@ -167,5 +163,5 @@ leak-canary:
     @./hack/leak-canary.sh
 
 # Run all checks (the merge gate)
-check: lint kit cache-env go-test pins-wrapper conformance-cases no-escalation preflight-cases fork-guard pins runners conformance leak-canary
+check: lint kit cache-env go-test pins-wrapper conformance-cases no-escalation preflight-cases pins runners conformance leak-canary
     @echo "✓ All checks passed"

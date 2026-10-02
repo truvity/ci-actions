@@ -97,6 +97,12 @@ jobs:
       # library whose pins are never looked at passes silently), the
       # `fleet pins` resolution against a fake GitHub, and the CLI's exit
       # codes. No network, no token.
+      # cluster (internal/cluster) is in here too: the fork refusal against
+      # fake event payloads, the kind launch and its background/wait pair
+      # against a fake box and docker, and the shared steps against a fake
+      # kubectl and a fake file tree. cluster-kind below proves the real
+      # box end to end.
+      #
       # openbao-secrets (internal/openbaosecrets) is in here too, against a
       # stub OpenBAO and a stub accessctl: the one action that handles
       # secret values, so the tests assert that none is ever printed
@@ -128,7 +134,7 @@ jobs:
           args: check
 
       # The thin wrapper that finds the binary, with the binary stubbed.
-      - name: wrapper cases (tagged-pins, public-runners, fleet-discover, devbox-parity, caller-parity, openbao-secrets)
+      - name: wrapper cases (tagged-pins, public-runners, fleet-discover, devbox-parity, caller-parity, openbao-secrets, cluster)
         run: ./hack/tagged-pins-wrapper-cases.sh
 
       # policy-conformance, against fixture repositories: one that meets
@@ -137,14 +143,6 @@ jobs:
       # at nothing, so each rule is proved to FAIL on its own defect.
       - name: policy-conformance cases
         run: ./hack/policy-conformance-cases.sh
-
-      # cluster's mode: shared hands out this repository's kubeconfig,
-      # aws.ini and (optionally) an ECR login, so the one thing that must
-      # never be true is a fork pull request reaching it. Run against
-      # fake event payloads: no network, no token, and the actual guard
-      # script rather than a description of what it should do.
-      - name: fork-guard cases
-        run: ./hack/fork-guard-cases.sh
 
       # The guard, asked of this repository. `git ls-remote` needs the
       # tags of the libraries it judges, not of this checkout, so there is
@@ -185,6 +183,22 @@ jobs:
       # variables.
       - name: leak canary
         run: ./hack/leak-canary.sh
+
+  # TEMPORARY: the shell actions against their Go ports on the same
+  # fixtures; removed before merge.
+  parity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - run: git fetch origin master:refs/remotes/origin/master || true
+      - name: cluster, old against new
+        run: ./hack/parity-cluster.sh
 
   # The actions' step scripts, run as a Pod Security `restricted` runner:
   # uid 1001, no_new_privs, all capabilities dropped, read-only root. A

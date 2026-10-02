@@ -22,7 +22,7 @@
 # keep it offline: what is under test is the privilege contract, not those
 # tools.
 #
-#   hack/restricted-sim.sh                 setup-devbox, recipe, tagged-pins, public-runners, fleet-discover, devbox-parity, caller-parity and openbao-secrets against the fixture
+#   hack/restricted-sim.sh                 setup-devbox, recipe, tagged-pins, public-runners, fleet-discover, devbox-parity, caller-parity, openbao-secrets and cluster (mode shared) against the fixture
 #   hack/restricted-sim.sh --control       prove the image escalates WITHOUT the flag
 #   hack/restricted-sim.sh --self-test     prove the harness fails a privileged step
 #   hack/restricted-sim.sh ACTION_DIR...   other actions, by directory
@@ -53,10 +53,16 @@ export SIM_INPUT_openbao_secrets__path="${SIM_INPUT_openbao_secrets__path:-ci/si
 # profile (it downloads the pinned release into RUNNER_TEMP): the step the
 # baked-runner condition normally skips, and the one that used to need root.
 export SIM_INPUT_devbox_version="${SIM_INPUT_devbox_version:-0.18.4}"
+# cluster, mode shared: the fork guard and the connect step, which read the
+# fixture's own kubeconfig and aws.ini (kind needs a container runtime and is
+# proved end to end by the separate cluster-kind job).
+export SIM_INPUT_cluster__mode="${SIM_INPUT_cluster__mode:-shared}"
+export SIM_INPUT_cluster__kubeconfig="${SIM_INPUT_cluster__kubeconfig:-.kube/config}"
+export SIM_INPUT_cluster__aws_config_file="${SIM_INPUT_cluster__aws_config_file:-aws.ini}"
 export SIM_INPUT_devbox_parity__mode="${SIM_INPUT_devbox_parity__mode:-align}"
 
 # Steps with an `if:` that is true for default inputs on a baked runner.
-CONDITIONAL=("Strip local-only proto tools" "Install proto toolchain" "Install devbox")
+CONDITIONAL=("Strip local-only proto tools" "Install proto toolchain" "Install devbox" "shared refuses a fork pull request" "shared cluster identity")
 
 command -v docker >/dev/null || { echo "::error::docker is required"; exit 2; }
 command -v yq >/dev/null || { echo "::error::yq (mikefarah, v4) is required"; exit 2; }
@@ -247,7 +253,7 @@ case "${1:-}" in
   fi
   ;;
 *)
-  if [ $# -eq 0 ]; then set -- "$here/setup-devbox" "$here/recipe" "$here/tagged-pins" "$here/public-runners" "$here/fleet-discover" "$here/devbox-parity" "$here/caller-parity" "$here/openbao-secrets"; fi
+  if [ $# -eq 0 ]; then set -- "$here/setup-devbox" "$here/recipe" "$here/tagged-pins" "$here/public-runners" "$here/fleet-discover" "$here/devbox-parity" "$here/caller-parity" "$here/openbao-secrets" "$here/cluster"; fi
   simulate "$@"
   ;;
 esac

@@ -18,7 +18,7 @@ cannot be edited after the push.
 `just check` is the gate and needs no credentials and no cluster. It runs:
 
 - `lint` runs actionlint over every workflow and composite action
-- the case scripts for each action (`discover`, `parity`, `kit`, `cache-env`, `go-test`, `pins-wrapper`, `fork-guard`, `conformance-cases`, `no-escalation`, `preflight-cases`) run it against stubs and fixture repositories
+- the case scripts for each action (`kit`, `cache-env`, `go-test`, `pins-wrapper`, `conformance-cases`, `no-escalation`, `preflight-cases`) and the Go table tests (`go-test`, which cover the actions moved into the `ci-actions` binary) run it against stubs and fixture repositories run it against stubs and fixture repositories
 - `pins` and `runners` hold this repository to its own rules: library pins name release tags, public repositories use hosted runners
 - `conformance` runs `policy-conformance` against this repository
 - `leak-canary`
