@@ -54,14 +54,6 @@ jobs:
           tar xzf actionlint.tgz actionlint
           ./actionlint -color
 
-      # The other rule whose wrong answer is quiet: what counts as a
-      # DIFFERENCE between a repository's shared caller workflow and the
-      # canonical copy. Too strict and every repository differs over its
-      # own prose; too loose and a repository that dropped a trigger
-      # reads as at parity.
-      - name: caller-parity cases
-        run: ./hack/caller-parity-cases.sh
-
       # The golangci-depguard kit is a hand copy of truvity/policy's
       # lint/golangci-depguard.yaml, pinned by kits.yaml's `source:`. A
       # live read, not a stub: truvity/policy is public and the point is
@@ -98,6 +90,12 @@ jobs:
       # library whose pins are never looked at passes silently), the
       # `fleet pins` resolution against a fake GitHub, and the CLI's exit
       # codes. No network, no token.
+      # caller-parity's comparison (internal/callerparity) is in here too,
+      # against a stub API: what counts as a DIFFERENCE between a
+      # repository's shared caller workflow and the canonical copy. Too
+      # strict and every repository differs over its own prose; too loose
+      # and a repository that dropped a trigger reads as at parity.
+      #
       # fleet-discover's required-check rule (internal/fleetdiscover) is
       # in here too, against a stub API: the one rule that decides whether
       # a repository is processed at all, and a wrong answer there is
@@ -116,7 +114,7 @@ jobs:
           args: check
 
       # The thin wrapper that finds the binary, with the binary stubbed.
-      - name: wrapper cases (tagged-pins, public-runners, fleet-discover, devbox-parity)
+      - name: wrapper cases (tagged-pins, public-runners, fleet-discover, devbox-parity, caller-parity)
         run: ./hack/tagged-pins-wrapper-cases.sh
 
       # policy-conformance, against fixture repositories: one that meets
@@ -173,6 +171,22 @@ jobs:
       # variables.
       - name: leak canary
         run: ./hack/leak-canary.sh
+
+  # TEMPORARY: the shell actions against their Go ports on the same
+  # fixtures; removed before merge.
+  parity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - run: git fetch origin master:refs/remotes/origin/master || true
+      - name: caller-parity, old against new
+        run: ./hack/parity-caller-parity.sh
 
   # The actions' step scripts, run as a Pod Security `restricted` runner:
   # uid 1001, no_new_privs, all capabilities dropped, read-only root. A

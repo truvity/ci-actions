@@ -54,6 +54,26 @@ an untagged commit; `tagged-pins` refuses anything else.
   rules over the API with the token rather than through `gh api` (same
   answer, shared with `fleet-discover` in `internal/gates`).
 
+`caller-parity`:
+
+- **Now a thin wrapper around `ci-actions caller-parity`.** Inputs, outputs
+  (`differences`, `absent`), log lines, summary table and diffs are unchanged:
+  the shell version's own cases (the dropped trigger, added inputs and
+  blocks, a staggered cron, a library pin renovate has not moved, 403 and
+  gone repositories, a kit turned off, and the whole depguard-block set) ran
+  through the old script and the binary in one CI run, and stdout, summary,
+  outputs and exit status were identical. The cases became Go table tests.
+  The wrapper needs curl and tar or Go, and no longer needs `yq` or `jq` on
+  the runner; the report's diffs still come from `diff -u`.
+- **First dependency of the Go module: `go.yaml.in/yaml/v3`** (the
+  maintained continuation of `gopkg.in/yaml.v3`, which the depguard kit
+  itself bans for Go repositories). It replaces `yq` for reading
+  `kits/kits.yaml` and comparing a block of a lint configuration as sorted
+  data, which a hand-written parser would get wrong on anchors, flow style
+  and multi-line scalars. Nothing else uses it.
+- One difference: a `kits.yaml` that is not valid YAML is now an error; the
+  shell version read every setting as unset and compared whole files.
+
 ## v1.7.0
 
 `policy-conformance`:

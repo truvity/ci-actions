@@ -18,10 +18,6 @@ lint:
         actionlint -color
     fi
 
-# Test caller-parity rule against sample workflows
-parity:
-    @./hack/caller-parity-cases.sh
-
 # Test policy kit currency
 kit:
     @./hack/policy-kit-current.sh
@@ -30,7 +26,7 @@ kit:
 cache-env:
     @./hack/cache-env-cases.sh
 
-# Go vet and table tests: tagged-pins against local remotes, fleet pins and fleet-discover against a fake GitHub
+# Go vet and table tests: tagged-pins against local remotes, fleet pins, fleet-discover and caller-parity against a fake GitHub
 go-test:
     go vet ./...
     go test ./...
@@ -167,5 +163,5 @@ leak-canary:
     @./hack/leak-canary.sh
 
 # Run all checks (the merge gate)
-check: lint parity kit cache-env go-test pins-wrapper conformance-cases no-escalation preflight-cases fork-guard pins runners conformance leak-canary
+check: lint kit cache-env go-test pins-wrapper conformance-cases no-escalation preflight-cases fork-guard pins runners conformance leak-canary
     @echo "✓ All checks passed"

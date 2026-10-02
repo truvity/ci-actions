@@ -178,7 +178,6 @@ bodies and read what they do". That is what `hack/` is, with recipes for
 each:
 
 - `just lint` — actionlint over every workflow and composite.
-- `just parity` — what counts as a DIFFERENCE from the canonical caller.
 - `just kit` — the golangci-depguard kit against truvity/policy.
 - `just cache-env` — what setup-devbox writes into GITHUB_ENV, per cache shape.
 - `just go-test` — `go vet` and the table tests of the Go CLI: the pin guard against local git remotes, `fleet pins` against a fake GitHub.
@@ -211,7 +210,7 @@ end to end, outside `check` and not required.
 
 Logic that outgrows a shell script lives in one Go binary, `cmd/ci-actions`
 (standard library only), and the composite actions become thin wrappers that
-run it. `tagged-pins`, `public-runners`, `fleet-discover` and `devbox-parity` are in: each
+run it. `tagged-pins`, `public-runners`, `fleet-discover`, `devbox-parity` and `caller-parity` are in: each
 action keeps its inputs, outputs and messages and runs `ci-actions <command>`.
 The wrapper (`<action>/run.sh`, sharing `lib/ci-actions-bin.sh`) uses a `ci-actions` already on `PATH`, else the goreleaser archive of the tag
 the action is pinned at (the pinned commit resolves back to its tag; the
@@ -222,6 +221,7 @@ ci-actions tagged-pins                 # env LIBRARIES, as the action's `librari
 ci-actions public-runners              # env RUNNERS, VISIBILITY, GITHUB_REPOSITORY, GH_TOKEN
 ci-actions fleet discover              # env TOKEN, ESTATE, REQUIRE_CHECK, REQUIRE_FILE, FILTER, ENROLLED, API
 ci-actions devbox-parity               # env TOKEN, WORKDIR, BASE, LABEL, MODE, FULL_DAY, MODULE_DIRS, GIT_USER, GIT_EMAIL
+ci-actions caller-parity               # env TOKEN, REPOSITORIES, KITS, FAIL_ON_DIFF, API
 ci-actions fleet pins --org example-org --org other-org \
     --min-setup-devbox v1.6.1 --json pins.json
 ```
