@@ -306,6 +306,19 @@ func TestKindFetchesTheBox(t *testing.T) {
 	if st, _ := os.Stat(filepath.Join(box, "up.sh")); st.Mode()&0o111 == 0 {
 		t.Error("the box's scripts are executable")
 	}
+	// an entry that climbs out of the box is refused outright
+	h2 := newHarness(t)
+	h2.env["POLICY_VERSION"] = "v0.8.1"
+	o2 := h2.opts()
+	o2.Fetch = func(_ context.Context, _, dest string) error {
+		return os.WriteFile(dest, tarball(t, map[string]string{"policy-0.8.1/hack/kind/../../../escape": "x"}), 0o644)
+	}
+	if err := KindLaunch(context.Background(), o2); code(err) != 1 || !strings.Contains(h2.err.String(), "unsafe path") {
+		t.Errorf("a path that climbs out is refused: %v %q", err, h2.err.String())
+	}
+	if _, err := os.Stat(filepath.Join(h2.dir, "escape")); err == nil {
+		t.Error("nothing is written outside the box")
+	}
 	// an archive without the subtree, and a failed download, fail the step
 	for name, fetch := range map[string]func(context.Context, string, string) error{
 		"no hack/kind": func(_ context.Context, _, dest string) error {
