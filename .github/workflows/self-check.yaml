@@ -54,14 +54,6 @@ jobs:
           tar xzf actionlint.tgz actionlint
           ./actionlint -color
 
-      # The one rule that decides whether a repository is processed at
-      # all, run against a stub API. A wrong answer there is silent -- a
-      # repository the fleet skips looks exactly like a repository with
-      # nothing to do -- so the shapes it must survive are pinned here.
-      # No network and no token: the stub is a local http.server.
-      - name: discovery cases
-        run: ./hack/discover-cases.sh
-
       # The other rule whose wrong answer is quiet: what counts as a
       # DIFFERENCE between a repository's shared caller workflow and the
       # canonical copy. Too strict and every repository differs over its
@@ -106,6 +98,10 @@ jobs:
       # library whose pins are never looked at passes silently), the
       # `fleet pins` resolution against a fake GitHub, and the CLI's exit
       # codes. No network, no token.
+      # fleet-discover's required-check rule (internal/fleetdiscover) is
+      # in here too, against a stub API: the one rule that decides whether
+      # a repository is processed at all, and a wrong answer there is
+      # silent -- a skipped repository looks exactly like a quiet one.
       - name: go vet and tests
         run: |
           go vet ./...
@@ -120,7 +116,7 @@ jobs:
           args: check
 
       # The thin wrapper that finds the binary, with the binary stubbed.
-      - name: wrapper cases (tagged-pins, public-runners)
+      - name: wrapper cases (tagged-pins, public-runners, fleet-discover)
         run: ./hack/tagged-pins-wrapper-cases.sh
 
       # policy-conformance, against fixture repositories: one that meets
@@ -177,6 +173,22 @@ jobs:
       # variables.
       - name: leak canary
         run: ./hack/leak-canary.sh
+
+  # TEMPORARY: the shell actions against their Go ports on the same
+  # fixtures; removed before merge.
+  parity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - run: git fetch origin master:refs/remotes/origin/master || true
+      - name: fleet-discover, old against new
+        run: ./hack/parity-fleet-discover.sh
 
   # The actions' step scripts, run as a Pod Security `restricted` runner:
   # uid 1001, no_new_privs, all capabilities dropped, read-only root. A

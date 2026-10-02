@@ -74,6 +74,16 @@ rc=$?
   && ok "public-runners with no binary fails naming itself" \
   || bad "public-runners with no binary fails naming itself (rc=$rc): $log"
 
+runfd() { (cd "$work/ws" && env -i HOME="$work" RUNNER_TEMP="$work/tmp" ACTION_PATH="$here/fleet-discover" "$@" bash "$here/fleet-discover/run.sh" 2>&1); }
+log=$(runfd PATH="$work/min" CI_ACTIONS_BIN="$work/stubdir/ci-actions" STUB_EXIT=0)
+has "$log" "stub ran: fleet discover LIBRARIES=unset" \
+  && ok "fleet-discover runs the binary as 'fleet discover'" \
+  || bad "fleet-discover runs the binary as 'fleet discover': $log"
+log=$(runfd PATH="$work/min")
+has "$log" "::error::fleet-discover needs the ci-actions binary" \
+  && ok "fleet-discover with no binary fails naming itself" \
+  || bad "fleet-discover with no binary fails naming itself: $log"
+
 echo
 if [ "$fail" = 0 ]; then echo "all cases pass"; else echo "::error::tagged-pins wrapper cases failed"; fi
 exit "$fail"

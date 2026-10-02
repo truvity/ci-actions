@@ -67,6 +67,19 @@ with `--user 1001:1001 --security-opt no-new-privileges --cap-drop ALL
   `lib/ci-actions-bin.sh`. The shell cases became Go table tests, and
   `restricted-sim` now also runs this wrapper with the built binary.
 
+`fleet-discover`:
+
+- **Now a thin wrapper around `ci-actions fleet discover`.** Inputs, outputs,
+  log, summary and `GITHUB_OUTPUT` lines are unchanged (checked against the
+  shell version on a stub API in one CI run). It no longer needs `curl` and
+  `jq` for the rules; the wrapper needs curl and tar or Go to fetch the
+  binary. The required-check rule (rulesets and classic protection, with an
+  unreadable source undecided, never a skip) is the same, now table-tested in
+  Go; `hack/discover-cases.sh` is gone. One fix: an invalid `filter`
+  expression used to skip every repository without a word, and now also
+  prints one `::warning::` saying so. `fleet pins` and `fleet-discover` share
+  one GitHub client (`internal/ghapi`).
+
 New:
 
 - **`ci-actions fleet pins` follows repo-local composite actions.** It reads

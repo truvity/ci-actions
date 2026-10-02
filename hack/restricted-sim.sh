@@ -22,7 +22,7 @@
 # keep it offline: what is under test is the privilege contract, not those
 # tools.
 #
-#   hack/restricted-sim.sh                 setup-devbox, recipe, tagged-pins and public-runners against the fixture
+#   hack/restricted-sim.sh                 setup-devbox, recipe, tagged-pins, public-runners and fleet-discover against the fixture
 #   hack/restricted-sim.sh --control       prove the image escalates WITHOUT the flag
 #   hack/restricted-sim.sh --self-test     prove the harness fails a privileged step
 #   hack/restricted-sim.sh ACTION_DIR...   other actions, by directory
@@ -39,6 +39,9 @@ export SIM_INPUT_recipe="${SIM_INPUT_recipe:-fixture}"
 # public-runners' required input, and a visibility so it needs no network.
 export SIM_INPUT_runners="${SIM_INPUT_runners:-ubuntu-latest}"
 export SIM_INPUT_visibility="${SIM_INPUT_visibility:-public}"
+# fleet-discover: a token and a one-repository API served inside the container.
+export SIM_INPUT_token="${SIM_INPUT_token:-sim-token}"
+export SIM_INPUT_api_url="${SIM_INPUT_api_url:-http://127.0.0.1:8765}"
 
 # Steps with an `if:` that is true for default inputs on a baked runner.
 CONDITIONAL=("Strip local-only proto tools" "Install proto toolchain")
@@ -146,6 +149,8 @@ run_sim() {
       cd /work/ws
       git init -q . && git add -A && git -c user.name=sim -c user.email=sim@example.invalid commit -qm fixture
       export PATH=/ci-bin:/stubs:$PATH
+      python3 /stubs/github-api.py 8765 &
+      for _ in $(seq 1 50); do (exec 3<>/dev/tcp/127.0.0.1/8765) 2>/dev/null && break; sleep 0.1; done
       for sh in /steps/*.sh; do
         base=${sh%.sh}
         echo "::group::$(cat "$base.name")"
@@ -227,7 +232,7 @@ case "${1:-}" in
   fi
   ;;
 *)
-  if [ $# -eq 0 ]; then set -- "$here/setup-devbox" "$here/recipe" "$here/tagged-pins" "$here/public-runners"; fi
+  if [ $# -eq 0 ]; then set -- "$here/setup-devbox" "$here/recipe" "$here/tagged-pins" "$here/public-runners" "$here/fleet-discover"; fi
   simulate "$@"
   ;;
 esac

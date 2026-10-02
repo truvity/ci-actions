@@ -21,10 +21,12 @@
 #                 (`renovate.json`, `devbox.json`). Opt-in is a file, not
 #                 a workflow — a repository connects nothing in Actions.
 #
-# Everything reaches the shell through env, never spliced into script
-# text. curl + jq only: the self-hosted image ships no gh. The rules
-# themselves live in discover.sh next to this file, so they can be
-# exercised against a stub API (hack/discover-cases.sh).
+# Everything reaches the binary through env, never spliced into script
+# text. The rules are the `ci-actions` binary's `fleet discover` command
+# (internal/fleetdiscover, table-tested against a stub API); this action is
+# a thin wrapper that finds that binary (release archive of the pinned tag,
+# or built with Go) and runs it. It needs bash plus curl and tar or Go, and
+# no gh and no jq: the self-hosted image ships neither.
 name: fleet-discover
 description: List the repositories a fleet job should process, from the App installation the token belongs to.
 
@@ -91,4 +93,7 @@ runs:
         FILTER: ${{ inputs.filter }}
         ENROLLED: ${{ inputs.repositories }}
         API: ${{ inputs.api-url }}
-      run: bash "$GITHUB_ACTION_PATH/discover.sh"
+        ACTION_PATH: ${{ github.action_path }}
+        ACTION_REPOSITORY: ${{ github.action_repository }}
+        ACTION_REF: ${{ github.action_ref }}
+      run: bash "$ACTION_PATH/run.sh"
