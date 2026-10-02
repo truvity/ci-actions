@@ -10,8 +10,10 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 
+	"github.com/truvity/ci-actions/internal/callerparity"
 	"github.com/truvity/ci-actions/internal/devboxparity"
 	"github.com/truvity/ci-actions/internal/fleet"
 	"github.com/truvity/ci-actions/internal/fleetdiscover"
@@ -29,6 +31,9 @@ Commands:
                        (env: LIBRARIES, whitespace- or comma-separated)
   public-runners       refuse a self-hosted runner in a public repository
                        (env: RUNNERS, VISIBILITY, GITHUB_REPOSITORY, GH_TOKEN, GITHUB_API_URL)
+  caller-parity        compare each repository's shared caller workflows with the canonical kits
+                       (env: TOKEN, REPOSITORIES, KITS or ACTION_PATH/kits, FAIL_ON_DIFF, API,
+                       GITHUB_OUTPUT, GITHUB_STEP_SUMMARY)
   devbox-parity        refresh devbox, align the go toolchain and playwright followers, open one PR
                        (env: TOKEN, WORKDIR, BASE, LABEL, MODE, FULL_DAY, MODULE_DIRS, GIT_USER, GIT_EMAIL)
   fleet discover       which repositories of a GitHub App installation a fleet job works on
@@ -66,6 +71,26 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, getenv fu
 			return 1
 		default:
 			fmt.Fprintln(stderr, "tagged-pins:", err)
+			return 1
+		}
+	case "caller-parity":
+		kits := getenv("KITS")
+		if kits == "" {
+			// the action's own kits/, next to its action.yaml
+			kits = filepath.Join(getenv("ACTION_PATH"), "kits")
+		}
+		err := callerparity.Run(ctx, callerparity.Options{
+			Token: getenv("TOKEN"), Repositories: getenv("REPOSITORIES"), Kits: kits,
+			FailOnDiff: getenv("FAIL_ON_DIFF"), API: getenv("API"), Out: stdout,
+			Summary: getenv("GITHUB_STEP_SUMMARY"), Output: getenv("GITHUB_OUTPUT"),
+		})
+		switch {
+		case err == nil:
+			return 0
+		case errors.Is(err, callerparity.ErrReported):
+			return 1
+		default:
+			fmt.Fprintln(stderr, "caller-parity:", err)
 			return 1
 		}
 	case "devbox-parity":

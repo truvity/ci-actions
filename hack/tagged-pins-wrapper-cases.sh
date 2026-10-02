@@ -51,7 +51,9 @@ fi
 # runner). The workspace pins nothing, so the real binary says so.
 if command -v go >/dev/null 2>&1; then
   gobin=$(dirname "$(command -v go)")
-  log=$(run PATH="$gobin:$work/min" GOFLAGS=-mod=mod GOCACHE="${GOCACHE:-$work/gocache}" GOPATH="${GOPATH:-$work/gopath}")
+  # The build needs the module's one dependency, so it uses the caller's own
+  # module and build caches rather than a fresh pair in the scratch dir.
+  log=$(run PATH="$gobin:$work/min" GOFLAGS=-mod=mod GOCACHE="$(go env GOCACHE)" GOPATH="$(go env GOPATH)")
   rc=$?
   [ $rc = 0 ] && has "$log" "tagged-pins: 0 of 3 libraries had pins in this checkout, all naming releases" \
     && ok "without a binary or a release, Go builds it from the checkout and it runs" \
@@ -93,6 +95,16 @@ log=$(runfp PATH="$work/min")
 has "$log" "::error::devbox-parity needs the ci-actions binary" \
   && ok "devbox-parity with no binary fails naming itself" \
   || bad "devbox-parity with no binary fails naming itself: $log"
+
+runcp() { (cd "$work/ws" && env -i HOME="$work" RUNNER_TEMP="$work/tmp" ACTION_PATH="$here/caller-parity" "$@" bash "$here/caller-parity/run.sh" 2>&1); }
+log=$(runcp PATH="$work/min" CI_ACTIONS_BIN="$work/stubdir/ci-actions" STUB_EXIT=0)
+has "$log" "stub ran: caller-parity LIBRARIES=unset" \
+  && ok "caller-parity runs the binary as 'caller-parity'" \
+  || bad "caller-parity runs the binary as 'caller-parity': $log"
+log=$(runcp PATH="$work/min")
+has "$log" "::error::caller-parity needs the ci-actions binary" \
+  && ok "caller-parity with no binary fails naming itself" \
+  || bad "caller-parity with no binary fails naming itself: $log"
 
 echo
 if [ "$fail" = 0 ]; then echo "all cases pass"; else echo "::error::tagged-pins wrapper cases failed"; fi

@@ -26,6 +26,12 @@
 # carries `enabled`, which is how a kit ships written but not yet
 # compared.
 #
+# The comparison is the `ci-actions` binary's `caller-parity` command
+# (internal/callerparity, table-tested against a stub API); this action is a
+# thin wrapper that finds that binary (release archive of the pinned tag, or
+# built with Go) and runs it. It needs bash plus curl and tar or Go, and no
+# jq or yq; `diff` writes the report's diffs.
+#
 # THIS ACTION REPORTS. It opens no branch and no pull request and
 # rewrites nothing: the estate reads what would change before anything
 # changes it. `fail-on-diff` is the lever for turning the report into a
@@ -77,7 +83,10 @@ runs:
       env:
         TOKEN: ${{ inputs.token }}
         REPOSITORIES: ${{ inputs.repositories }}
-        KITS: ${{ inputs.kits-dir || format('{0}/kits', github.action_path) }}
+        KITS: ${{ inputs.kits-dir }}
         FAIL_ON_DIFF: ${{ inputs.fail-on-diff }}
         API: ${{ inputs.api-url }}
-      run: bash "$GITHUB_ACTION_PATH/caller-parity.sh"
+        ACTION_PATH: ${{ github.action_path }}
+        ACTION_REPOSITORY: ${{ github.action_repository }}
+        ACTION_REF: ${{ github.action_ref }}
+      run: bash "$ACTION_PATH/run.sh"

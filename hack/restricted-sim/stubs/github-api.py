@@ -24,6 +24,8 @@ class H(http.server.BaseHTTPRequestHandler):
         if path == "/installation/repositories":
             return self.send(200, {"repositories": [
                 {"full_name": "example/sim", "visibility": "private", "archived": False, "default_branch": "main"}]})
+        if path == "/repos/example/sim":
+            return self.send(200, {"default_branch": "main"})
         if "/rules/branches/" in path:
             return self.send(200, [{"type": "required_status_checks",
                                     "parameters": {"required_status_checks": [{"context": "check"}]}}])

@@ -22,7 +22,7 @@
 # keep it offline: what is under test is the privilege contract, not those
 # tools.
 #
-#   hack/restricted-sim.sh                 setup-devbox, recipe, tagged-pins, public-runners, fleet-discover and devbox-parity against the fixture
+#   hack/restricted-sim.sh                 setup-devbox, recipe, tagged-pins, public-runners, fleet-discover, devbox-parity and caller-parity against the fixture
 #   hack/restricted-sim.sh --control       prove the image escalates WITHOUT the flag
 #   hack/restricted-sim.sh --self-test     prove the harness fails a privileged step
 #   hack/restricted-sim.sh ACTION_DIR...   other actions, by directory
@@ -43,6 +43,8 @@ export SIM_INPUT_visibility="${SIM_INPUT_visibility:-public}"
 export SIM_INPUT_token="${SIM_INPUT_token:-sim-token}"
 export SIM_INPUT_api_url="${SIM_INPUT_api_url:-http://127.0.0.1:8765}"
 # devbox-parity: align only (no `devbox update`), on a repository already at parity.
+# caller-parity: one repository, read from the same stub API.
+export SIM_INPUT_caller_parity__repositories="${SIM_INPUT_caller_parity__repositories:-[\"example/sim\"]}"
 export SIM_INPUT_devbox_parity__mode="${SIM_INPUT_devbox_parity__mode:-align}"
 
 # Steps with an `if:` that is true for default inputs on a baked runner.
@@ -237,7 +239,7 @@ case "${1:-}" in
   fi
   ;;
 *)
-  if [ $# -eq 0 ]; then set -- "$here/setup-devbox" "$here/recipe" "$here/tagged-pins" "$here/public-runners" "$here/fleet-discover" "$here/devbox-parity"; fi
+  if [ $# -eq 0 ]; then set -- "$here/setup-devbox" "$here/recipe" "$here/tagged-pins" "$here/public-runners" "$here/fleet-discover" "$here/devbox-parity" "$here/caller-parity"; fi
   simulate "$@"
   ;;
 esac
