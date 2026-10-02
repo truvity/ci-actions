@@ -32,8 +32,8 @@ an untagged commit; `tagged-pins` refuses anything else.
   the retired input to its warning and writes no cache itself) is
   `ci-actions repo-check cache-seam`, read live at the pinned sha and run in
   `check`.
-- **Needs more of the runner than before: `curl` and `tar` (or Go) to fetch the
-  binary, in the first step of every job.** The wrappers cache the resolved
+- **Needs more of the runner than before: `curl`, `tar` and `sha256sum` (or
+  Go) to fetch the binary, in the first step of every job.** The wrappers cache the resolved
   binary per pinned commit, so it is fetched once per job. The `devbox.json`
   guards no longer need `jq` on the runner.
 

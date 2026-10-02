@@ -109,7 +109,9 @@ with one exception named below.
   workflow (it applies to `run:` steps only, never to `just`), or give
   a Justfile whose recipes need bash `set shell := ["bash", "-euo",
   "pipefail", "-c"]`.
-- `setup-devbox` starts with a `preflight` that prints the uid, gid,
+- `setup-devbox`'s first step runs the `ci-actions` binary, so the runner
+  needs `curl`, `tar` and `sha256sum` (or Go): hosted runners and the actions
+  runner base image have them. It then starts with a `preflight` that prints the uid, gid,
   `no_new_privs`, what `/bin/sh` is, whether `HOME`, `RUNNER_TEMP` and the
   work directory are writable, whether devbox and nix are baked or will be
   installed (and that the nix installer is the one step needing root), and,
