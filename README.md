@@ -204,7 +204,6 @@ each:
 - `just install-devbox-cases` — setup-devbox's privilege-free devbox install, against a local release.
 - `just preflight-cases` — setup-devbox's preflight, one failure at a time.
 - `just restricted-sim` — the step scripts under uid 1001, no_new_privs, no capabilities, read-only root (needs docker and yq).
-- `just fork-guard` — cluster's fork refusal, against fake event payloads.
 - `just pins` — verify all pins point to release tags.
 - `just runners` — verify the repository uses public runners.
 - `just conformance` — run policy-conformance against this repository.
@@ -228,7 +227,7 @@ end to end, outside `check` and not required.
 
 Logic that outgrows a shell script lives in one Go binary, `cmd/ci-actions`
 (standard library only), and the composite actions become thin wrappers that
-run it. `tagged-pins`, `public-runners`, `fleet-discover`, `devbox-parity`, `caller-parity` and `openbao-secrets` are in: each
+run it. `tagged-pins`, `public-runners`, `fleet-discover`, `devbox-parity`, `caller-parity`, `openbao-secrets` and `cluster` are in: each
 action keeps its inputs, outputs and messages and runs `ci-actions <command>`.
 The wrapper (`<action>/run.sh`, sharing `lib/ci-actions-bin.sh`) uses a `ci-actions` already on `PATH`, else the goreleaser archive of the tag
 the action is pinned at (the pinned commit resolves back to its tag; the
@@ -241,6 +240,7 @@ ci-actions fleet discover              # env TOKEN, ESTATE, REQUIRE_CHECK, REQUI
 ci-actions devbox-parity               # env TOKEN, WORKDIR, BASE, LABEL, MODE, FULL_DAY, MODULE_DIRS, GIT_USER, GIT_EMAIL
 ci-actions caller-parity               # env TOKEN, REPOSITORIES, KITS, FAIL_ON_DIFF, API
 ci-actions openbao-secrets             # env ISSUER, ADDRESS, KV_PATH, ... (no value is ever printed)
+ci-actions cluster kind                # also: fork-guard, wait, shared-connect, shared-finish
 ci-actions fleet pins --org example-org --org other-org \
     --min-setup-devbox v1.6.1 --json pins.json
 ```

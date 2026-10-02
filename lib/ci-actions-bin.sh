@@ -33,19 +33,34 @@ ci_actions_run() {
 
   mkdir -p "$tmp"
 
-  if _ci_actions_fetch_release "$repo" "$ref" "$tmp"; then
-    exec "$tmp/ci-actions" "$@"
-  fi
+  # A job calls several steps of the same action (cluster has five), and
+  # each is a separate process: a binary already resolved for this pin is
+  # reused, never fetched twice. Keyed by the pinned commit, so two pins of
+  # this library in one job never share a binary.
+  local bin rc=0
+  bin=$(_ci_actions_fetch_release "$repo" "$ref" "$tmp") || rc=$?
+  [ "$rc" = 0 ] && exec "$bin" "$@"
+  # 2 is a checksum mismatch: never fall through to another binary after it.
+  [ "$rc" = 2 ] && exit 1
 
   if command -v go >/dev/null 2>&1 && [ -f "$action_path/../go.mod" ]; then
-    (cd "$action_path/.." && CGO_ENABLED=0 go build -trimpath -o "$tmp/ci-actions" ./cmd/ci-actions)
-    exec "$tmp/ci-actions" "$@"
+    bin="$tmp/ci-actions"
+    if [[ "$ref" =~ ^[0-9a-f]{40}$ ]]; then
+      bin="$tmp/build-$ref/ci-actions"
+      mkdir -p "$tmp/build-$ref"
+    fi
+    if [ ! -x "$bin" ] || [ "$bin" = "$tmp/ci-actions" ]; then
+      (cd "$action_path/.." && CGO_ENABLED=0 go build -trimpath -o "$bin" ./cmd/ci-actions)
+    fi
+    exec "$bin" "$@"
   fi
 
   echo "::error::${name} needs the ci-actions binary: this action is pinned at ${ref:-a local path}, which names no release archive, and Go is not on PATH to build it. Pin the commit of a release tag, or put Go on PATH."
   exit 1
 }
 
+# Prints the path of the verified binary, or fails. Everything else goes to
+# stderr: stdout is the answer.
 _ci_actions_fetch_release() {
   local repo=$1 ref=$2 tmp=$3
   [[ "$ref" =~ ^[0-9a-f]{40}$ ]] && [ -n "$repo" ] || return 1
@@ -65,12 +80,19 @@ _ci_actions_fetch_release() {
   name="ci-actions_${tag#v}_${os}_${arch}.tar.gz"
   base="https://github.com/${repo}/releases/download/${tag}"
 
-  curl -fsSL --retry 2 -o "$tmp/$name" "$base/$name" || return 1
-  curl -fsSL --retry 2 -o "$tmp/checksums.txt" "$base/checksums.txt" || return 1
-  (cd "$tmp" && grep -F " $name" checksums.txt | sha256sum -c - >/dev/null) || {
-    echo "::error::checksum mismatch for $name; refusing to run it"
-    exit 1
+  local dir="$tmp/$ref"
+  if [ -x "$dir/ci-actions" ]; then
+    printf '%s' "$dir/ci-actions"
+    return 0
+  fi
+  mkdir -p "$dir"
+  curl -fsSL --retry 2 -o "$dir/$name" "$base/$name" || return 1
+  curl -fsSL --retry 2 -o "$dir/checksums.txt" "$base/checksums.txt" || return 1
+  (cd "$dir" && grep -F " $name" checksums.txt | sha256sum -c - >/dev/null) || {
+    echo "::error::checksum mismatch for $name; refusing to run it" >&2
+    return 2
   }
-  tar -xzf "$tmp/$name" -C "$tmp" ci-actions
+  tar -xzf "$dir/$name" -C "$dir" ci-actions
+  printf '%s' "$dir/ci-actions"
   return 0
 }

@@ -116,6 +116,16 @@ has "$log" "::error::openbao-secrets needs the ci-actions binary" \
   && ok "openbao-secrets with no binary fails naming itself" \
   || bad "openbao-secrets with no binary fails naming itself: $log"
 
+runcl() { (cd "$work/ws" && env -i HOME="$work" RUNNER_TEMP="$work/tmp" ACTION_PATH="$here/cluster" "$@" bash "$here/cluster/run.sh" "${CLUSTER_STEP:-fork-guard}" 2>&1); }
+log=$(runcl PATH="$work/min" CI_ACTIONS_BIN="$work/stubdir/ci-actions" STUB_EXIT=0)
+has "$log" "stub ran: cluster fork-guard LIBRARIES=unset" \
+  && ok "cluster runs the binary as 'cluster <step>'" \
+  || bad "cluster runs the binary as 'cluster <step>': $log"
+log=$(runcl PATH="$work/min")
+has "$log" "::error::cluster needs the ci-actions binary" \
+  && ok "cluster with no binary fails naming itself" \
+  || bad "cluster with no binary fails naming itself: $log"
+
 echo
 if [ "$fail" = 0 ]; then echo "all cases pass"; else echo "::error::tagged-pins wrapper cases failed"; fi
 exit "$fail"

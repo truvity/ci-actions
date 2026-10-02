@@ -127,6 +127,32 @@ an untagged commit; `tagged-pins` refuses anything else.
   `::error::` instead of failing inside TLS. The `value` output's heredoc
   delimiter is random rather than time-based.
 
+`cluster`:
+
+- **Now thin wrappers around `ci-actions cluster <step>`** (`fork-guard`,
+  `kind`, `wait`, `shared-connect`, `shared-finish`). Inputs, the five
+  outputs (`kubeconfig`, `snapshot-registry`, `gemaal-tier`,
+  `gemaal-namespace`, `gemaal-release`), their `$GITHUB_ENV` twins, the
+  state-dir files a background launch leaves for its `wait`, every log and
+  `::error::` line and the exit status (a failed box exits with the box's
+  own code) are unchanged: twenty-eight scenarios (the fork guard on each
+  payload shape, the kind launch in the foreground and the background with
+  its wait, a failing box, a box that publishes no registry on 5001, defaults
+  and explicit names, the shared connect with matching and differing
+  identities, retries and every missing input, and the finish step) ran
+  through the shell scripts and the binary in one CI run, and stdout, the exit
+  status, `GITHUB_ENV`, `GITHUB_OUTPUT` and the state files were identical.
+  `hack/fork-guard-cases.sh` and the six scripts are gone; the cases are Go
+  table tests. `docker`, `kind` (through the policy box's own `up.sh`) and
+  `kubectl` are still the commands that run. The `cluster-kind` job is
+  unchanged and still proves the real box end to end.
+- One difference: a fork guard whose event payload is not JSON still refuses
+  (the one guard that must fail closed) but now with exit status 1 rather
+  than `jq`'s 5, and says what was wrong on stderr.
+- The binary the wrappers resolve is now kept per pinned commit under
+  `$RUNNER_TEMP`, so the five steps of one `cluster` call in a job fetch the
+  release archive once, not five times.
+
 ## v1.7.0
 
 `policy-conformance`:

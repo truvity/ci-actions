@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	"github.com/truvity/ci-actions/internal/callerparity"
+	"github.com/truvity/ci-actions/internal/cluster"
 	"github.com/truvity/ci-actions/internal/devboxparity"
 	"github.com/truvity/ci-actions/internal/fleet"
 	"github.com/truvity/ci-actions/internal/fleetdiscover"
@@ -35,6 +36,8 @@ Commands:
                        ACCESSCTL_MODE, GITHUB_OUTPUT)
   public-runners       refuse a self-hosted runner in a public repository
                        (env: RUNNERS, VISIBILITY, GITHUB_REPOSITORY, GH_TOKEN, GITHUB_API_URL)
+  cluster <step>       the cluster action's steps: fork-guard, kind, wait, shared-connect,
+                       shared-finish (env: see cluster/action.yml)
   caller-parity        compare each repository's shared caller workflows with the canonical kits
                        (env: TOKEN, REPOSITORIES, KITS or ACTION_PATH/kits, FAIL_ON_DIFF, API,
                        GITHUB_OUTPUT, GITHUB_STEP_SUMMARY)
@@ -77,6 +80,8 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, getenv fu
 			fmt.Fprintln(stderr, "tagged-pins:", err)
 			return 1
 		}
+	case "cluster":
+		return clusterCmd(ctx, args[1:], stdout, stderr, getenv)
 	case "caller-parity":
 		kits := getenv("KITS")
 		if kits == "" {
@@ -282,4 +287,52 @@ func redact(s, token string) string {
 		return s
 	}
 	return strings.ReplaceAll(s, token, "***")
+}
+
+// clusterCmd runs one step of the cluster action. The step's own exit status
+// is the command's: a failed kind box exits with the box's code.
+func clusterCmd(ctx context.Context, args []string, stdout, stderr io.Writer, getenv func(string) string) int {
+	o := cluster.Options{Getenv: getenv, Out: stdout, Err: stderr}
+	if len(args) == 0 {
+		fmt.Fprint(stderr, usage)
+		return 2
+	}
+	var err error
+	switch args[0] {
+	case "fork-guard":
+		err = cluster.ForkGuard(o)
+	case "kind":
+		err = cluster.KindLaunch(ctx, o)
+	case "wait":
+		err = cluster.KindWait(o)
+	case "shared-connect":
+		err = cluster.SharedConnect(ctx, o)
+	case "shared-finish":
+		err = cluster.SharedFinish(o)
+	case "box-run":
+		// the detached half of `kind` with background: true
+		fs := flag.NewFlagSet("cluster box-run", flag.ContinueOnError)
+		fs.SetOutput(stderr)
+		state := fs.String("state-dir", "", "")
+		box := fs.String("box", "", "")
+		kubeconfig := fs.String("kubeconfig", "", "")
+		version := fs.String("policy-version", "", "")
+		if fs.Parse(args[1:]) != nil {
+			return 2
+		}
+		return cluster.BoxRun(ctx, o, *state, *box, *kubeconfig, *version)
+	default:
+		fmt.Fprintf(stderr, "ci-actions: unknown cluster step %q\n\n%s", args[0], usage)
+		return 2
+	}
+	var ee *cluster.ExitError
+	switch {
+	case err == nil:
+		return 0
+	case errors.As(err, &ee):
+		return ee.Code
+	default:
+		fmt.Fprintln(stderr, "cluster:", err)
+		return 1
+	}
 }

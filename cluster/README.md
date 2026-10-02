@@ -136,8 +136,9 @@ re-runs never collide over a release name.
 
 ## Tests
 
-`hack/fork-guard-cases.sh` runs the fork refusal against fake event
-payloads, inside `check`. `self-check.yaml`'s separate `cluster-kind` job
+The Go table tests (`internal/cluster`, inside `check`) run the fork
+refusal against fake event payloads, and every step against a fake box,
+`docker`, `kubectl` and filesystem. `self-check.yaml`'s separate `cluster-kind` job
 stands up a real box from a pinned policy release, with the
 background/wait pattern, and proves the exported `KUBECONFIG` and the
 registry answer. It needs network and a container runtime and takes
