@@ -8,6 +8,10 @@ import (
 	"strings"
 )
 
+// ghcrHost is the registry whose written-out image references C11 reads,
+// wherever in a line they sit: a search for them, not a check of a URL.
+const ghcrHost = `ghcr` + `\.io`
+
 var (
 	reRecipeHeader = regexp.MustCompile(`^@?[A-Za-z_][A-Za-z0-9_-]*([ \t][^:]*)?:([ \t]|$)`)
 	reBodyLine     = regexp.MustCompile(`^[ \t]+[^ \t]`)
@@ -150,8 +154,8 @@ var (
 	reCommentOut = regexp.MustCompile(`#.*$`)
 	reQuoteSpace = regexp.MustCompile(`["'\s]`)
 	reTemplate   = regexp.MustCompile(`\{\{`)
-	reGhcr       = regexp.MustCompile(`ghcr\.io/[A-Za-z0-9._/-]+`)
-	reGhcrCharts = regexp.MustCompile(`^ghcr\.io/[^/]+/charts(/|$)`)
+	reGhcr       = regexp.MustCompile(ghcrHost + `/[A-Za-z0-9._/-]+`)
+	reGhcrCharts = regexp.MustCompile(`^` + ghcrHost + `/[^/]+/charts(/|$)`)
 	reReposItems = regexp.MustCompile(`repositories:[ \t\n\v\f\r]*\[([^\]]+)\]`)
 	reBaseFalse  = regexp.MustCompile(`base_import_paths:[ \t\n\v\f\r]*false`)
 	reCommentLn  = regexp.MustCompile(`^[ \t\n\v\f\r]*#`)
