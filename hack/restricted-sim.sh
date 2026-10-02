@@ -31,7 +31,7 @@ set -uo pipefail
 here="$(cd "$(dirname "$0")/.." && pwd)"
 sim="$here/hack/restricted-sim"
 image=ci-actions-restricted-sim
-# Spelled in two pieces: hack/no-escalation-cases.sh forbids the word in scripts.
+# Spelled in two pieces: `ci-actions repo-check no-escalation` forbids the word in scripts.
 priv='su''do'
 
 # The fixture's recipe, for the recipe action's required input.

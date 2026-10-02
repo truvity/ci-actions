@@ -20,7 +20,7 @@ lint:
 
 # Test policy kit currency
 kit:
-    @./hack/policy-kit-current.sh
+    go run ./cmd/ci-actions repo-check policy-kit
 
 # setup-devbox's cache delegation holds (reads ci-cache's action at the pinned sha)
 cache-env:
@@ -37,7 +37,7 @@ pins-wrapper:
 
 # Fail if any action file or script escalates privilege
 no-escalation:
-    @./hack/no-escalation-cases.sh
+    go run ./cmd/ci-actions repo-check no-escalation
 
 # Run the step scripts as a restricted runner (needs docker and yq)
 restricted-sim:

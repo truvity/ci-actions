@@ -118,7 +118,7 @@ with one exception named below.
   when nix is present, whether its store answers. It fails with one
   `::error::` naming what is missing.
 
-`hack/no-escalation-cases.sh` fails the gate if any action file or script says
+`ci-actions repo-check no-escalation` fails the gate if any action file or script says
 `sudo`; the Go tests of `internal/setupdevbox` check the devbox install, including that
 a tampered archive is refused, and the preflight, one failure at a time. `hack/restricted-sim.sh` runs the actions' step scripts in a
 container with `--user 1001:1001 --security-opt no-new-privileges

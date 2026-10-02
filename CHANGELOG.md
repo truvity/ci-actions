@@ -6,6 +6,21 @@ an untagged commit; `tagged-pins` refuses anything else.
 
 ## Unreleased
 
+This repository's own gate:
+
+- **`hack/no-escalation-cases.sh` and `hack/policy-kit-current.sh` are now
+  `ci-actions repo-check no-escalation` and `ci-actions repo-check
+  policy-kit`**, next to `repo-check cache-seam`. The scan for the
+  privilege-escalation command (whole word, comments included, prose and the
+  simulation's control image exempt, binary files unread) reports the same hits
+  and exit status as the script on the same fixtures, and the scan's own
+  cases (the call planted in each shape it must catch, and the shapes it must
+  leave) are Go tests. The depguard-kit check reads the tagged blob of the
+  policy repository over HTTPS exactly as before and prints the same lines and
+  the same `diff -u` on drift. With these, no shell script of this
+  repository's gate is left but the leak canary, the wrapper cases and the
+  restricted-runner simulation, which are about shell by nature.
+
 `setup-devbox`, the rest of its logic:
 
 - **Every step that was inline shell or a script is now a step of `ci-actions

@@ -40,8 +40,10 @@ Commands:
   policy-conformance   hold the checkout against the component contract's rules C1-C13
                        (env: STRICT, SKIP, REASON, RENOVATE_PRESET, DEFAULT_BRANCH, GITHUB_REPOSITORY,
                        GITHUB_STEP_SUMMARY; run it from the repository root)
-  repo-check cache-seam  this repository's own gate: setup-devbox's cache delegation holds
-                       (reads ci-cache's action at the pinned sha; env: none, run from the root)
+  repo-check <name>    this repository's own gate, run from its root: cache-seam (setup-devbox's cache
+                       delegation holds, read at the pinned ci-cache sha), no-escalation (no action or
+                       script calls the privilege-escalation command), policy-kit (the depguard kit is
+                       still a verbatim copy of the policy repository's, at its pinned tag)
   setup-devbox <step>  the setup-devbox action's steps: preflight, aws-config, detect-baked, strip-tools,
                        install-devbox, materialize, proto, expose-token, go-private, codeartifact,
                        retired-cache-server, guard-goproxy, guard-aws (env: see setup-devbox/action.yaml)
@@ -155,21 +157,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, getenv fu
 			return 1
 		}
 	case "repo-check":
-		if len(args) >= 2 && args[1] == "cache-seam" {
-			root := "."
-			if len(args) >= 3 {
-				root = args[2]
-			}
-			if err := repocheck.CacheSeam(ctx, repocheck.CacheSeamOptions{Root: root, Out: stdout}); err != nil {
-				if !errors.Is(err, repocheck.ErrFailed) {
-					fmt.Fprintln(stderr, "repo-check:", err)
-				}
-				return 1
-			}
-			return 0
-		}
-		fmt.Fprint(stderr, usage)
-		return 2
+		return repoCheck(ctx, args[1:], stdout, stderr)
 	case "setup-devbox":
 		return setupDevbox(ctx, args[1:], stdout, stderr, getenv)
 	case "recipe":
@@ -460,5 +448,38 @@ func setupDevbox(ctx context.Context, args []string, stdout, stderr io.Writer, g
 	default:
 		fmt.Fprintln(stderr, "setup-devbox:", err)
 		return runcmd.ExitCode(err)
+	}
+}
+
+// repoCheck runs one of the checks this repository makes on itself.
+func repoCheck(ctx context.Context, args []string, stdout, stderr io.Writer) int {
+	if len(args) == 0 {
+		fmt.Fprint(stderr, usage)
+		return 2
+	}
+	root := "."
+	if len(args) >= 2 {
+		root = args[1]
+	}
+	var err error
+	switch args[0] {
+	case "cache-seam":
+		err = repocheck.CacheSeam(ctx, repocheck.CacheSeamOptions{Root: root, Out: stdout})
+	case "no-escalation":
+		err = repocheck.NoEscalation(root, stdout)
+	case "policy-kit":
+		err = repocheck.PolicyKit(ctx, repocheck.PolicyKitOptions{Root: root, BaseURL: os.Getenv("CI_ACTIONS_POLICY_RAW_URL"), Out: stdout})
+	default:
+		fmt.Fprintf(stderr, "ci-actions: unknown repo-check %q\n\n%s", args[0], usage)
+		return 2
+	}
+	switch {
+	case err == nil:
+		return 0
+	case errors.Is(err, repocheck.ErrFailed):
+		return 1
+	default:
+		fmt.Fprintln(stderr, "repo-check:", err)
+		return 1
 	}
 }
