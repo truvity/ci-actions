@@ -529,10 +529,10 @@ func TestGoPrivate(t *testing.T) {
 func TestCodeArtifact(t *testing.T) {
 	setup := func(t *testing.T) *h {
 		x := newH(t)
-		x.env["CA_DOMAIN"], x.env["CA_OWNER"], x.env["CA_REGION"] = "dom", "111122223333", "eu-west-1"
+		x.env["CA_DOMAIN"], x.env["CA_OWNER"], x.env["CA_REGION"] = "dom", "owner-acct", "eu-west-1"
 		return x
 	}
-	awsArgs := "codeartifact get-authorization-token --domain dom --domain-owner 111122223333 --region eu-west-1 --query authorizationToken --output text"
+	awsArgs := "codeartifact get-authorization-token --domain dom --domain-owner owner-acct --region eu-west-1 --query authorizationToken --output text"
 	t.Run("aws on PATH", func(t *testing.T) {
 		x := setup(t)
 		bin := filepath.Join(x.dir, "bin")
