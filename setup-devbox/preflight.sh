@@ -13,9 +13,18 @@
 # work without fail the step:
 #   - HOME, RUNNER_TEMP or the work directory is not writable
 #   - nix is expected and its daemon/store does not answer
+#   - nix is absent AND the runner cannot escalate privilege: the install
+#     step would run the nix installer, which needs root
 # Not failures, because the action no longer depends on them:
 #   - no_new_privs set        (escalation cannot work; nothing here asks for it)
 #   - /bin/sh is not bash     (steps say `shell: bash` explicitly)
+#
+# THE ONE ROOT STEP. Everything else here is privilege-free (devbox is the
+# checksum-verified release binary in $RUNNER_TEMP/bin). The exception is the
+# nix installer, which needs root and runs ONLY when nix is not baked into the
+# runner image: that is a GitHub-hosted runner, which has root. A runner that
+# is restricted (no_new_privs) and has no nix cannot be made to work, and this
+# says so here, in one line, instead of a minute later in the installer.
 #
 # The probe locations can be redirected through PREFLIGHT_* variables so
 # hack/preflight-cases.sh can exercise every branch without being root.
@@ -25,6 +34,9 @@ proc_status="${PREFLIGHT_PROC_STATUS:-/proc/self/status}"
 sh_path="${PREFLIGHT_SH_PATH:-/bin/sh}"
 expect_nix="${PREFLIGHT_EXPECT_NIX:-auto}" # auto | true | false
 workdir="${GITHUB_WORKSPACE:-$PWD}"
+# Where nix and devbox are, "" for absent. Unset means ask PATH.
+nix_bin="${PREFLIGHT_NIX_BIN-$(command -v nix 2>/dev/null || true)}"
+devbox_bin="${PREFLIGHT_DEVBOX_BIN-$(command -v devbox 2>/dev/null || true)}"
 
 problems=()
 
@@ -70,14 +82,21 @@ writable HOME "${HOME:-}"
 writable RUNNER_TEMP "${RUNNER_TEMP:-}"
 writable workdir "$workdir"
 
+# devbox: baked into the image, or installed by this action from the release
+# binary, checksum-verified, into $RUNNER_TEMP/bin. Neither needs privilege.
+if [ -n "$devbox_bin" ]; then
+  echo "preflight: devbox is baked ($devbox_bin); nothing to install"
+else
+  echo "preflight: devbox is not baked; the install step will fetch the release binary into \$RUNNER_TEMP/bin (checksum-verified, no privilege)"
+fi
+
 # nix: expected when it is already on PATH (a runner image that bakes it)
-# or the caller says so. A hosted runner has none before the install step,
-# and that is fine.
+# or the caller says so. A hosted runner has none before the install step.
 if [ "$expect_nix" = auto ]; then
-  if command -v nix >/dev/null 2>&1; then expect_nix=true; else expect_nix=false; fi
+  if [ -n "$nix_bin" ]; then expect_nix=true; else expect_nix=false; fi
 fi
 if [ "$expect_nix" = true ]; then
-  if ! command -v nix >/dev/null 2>&1; then
+  if [ -z "$nix_bin" ]; then
     echo "preflight: nix expected but not on PATH"
     problems+=("nix is expected but not on PATH: use a runner image that bakes nix, or unset the expectation")
   elif timeout 30 nix store ping >/dev/null 2>&1; then
@@ -87,7 +106,14 @@ if [ "$expect_nix" = true ]; then
     problems+=("the nix store/daemon does not answer 'nix store ping': check that the daemon socket (/nix/var/nix/daemon-socket/socket) is mounted into this job and readable by uid $(id -u)")
   fi
 else
-  echo "preflight: nix not expected yet (the install step provides it)"
+  if [ -n "$nix_bin" ]; then
+    echo "preflight: nix is baked ($nix_bin); the nix installer will not run"
+  elif [ "$nnp" = 1 ]; then
+    echo "preflight: nix is NOT baked and no_new_privs=1: the nix installer needs root and cannot run here"
+    problems+=("nix is not on PATH and this runner cannot escalate privilege (no_new_privs=1), which the nix installer needs: use a runner image that bakes nix. The nix installer is the one root step in setup-devbox, and it exists for GitHub-hosted runners only")
+  else
+    echo "preflight: nix is NOT baked: the install step will run the nix installer, which needs root. That is the one root step in this action, used only when nix is not baked (a GitHub-hosted runner); a runner that cannot escalate must bake nix into its image"
+  fi
 fi
 
 if [ ${#problems[@]} -gt 0 ]; then
