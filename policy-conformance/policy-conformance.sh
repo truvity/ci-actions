@@ -190,8 +190,15 @@ repo_ships_image() {
   return 0
 }
 
+# The upstream a MIRROR chart republishes, from the Chart.yaml annotation
+# `truvity.io/mirror: "<owner>/<repo>@<version>"` (C1). Prints the whole
+# value; empty when the chart does not declare one.
+chart_mirror() {
+  sed -n -E "s|^[[:space:]]+truvity\.io/mirror:[[:space:]]*[\"']?([^\"'#[:space:]]*)[\"']?.*\$|\1|p" "$1" | head -1
+}
+
 rule_C1() {
-  local charts=(charts/*/Chart.yaml) f name v av probs=() exempt="" exempt_list=""
+  local charts=(charts/*/Chart.yaml) f name v av mirror mv mirrors=0 probs=() exempt="" exempt_list=""
   if [ ${#charts[@]} -eq 0 ]; then
     emit C1 SKIP "no charts/*/Chart.yaml"
     return
@@ -207,6 +214,24 @@ rule_C1() {
       continue
     fi
     v=$(top_key "$f" version)
+    mirror=$(chart_mirror "$f")
+    if [ -n "$mirror" ]; then
+      # A mirror chart republishes a third-party artifact unchanged, so its
+      # version IS the upstream's, declared once in the annotation; version
+      # and appVersion must equal it. Everything else stays 0.0.0.
+      mirrors=$((mirrors + 1))
+      if ! grep -qE '^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+@[A-Za-z0-9][A-Za-z0-9._+-]*$' <<<"$mirror"; then
+        probs+=("charts/$name truvity.io/mirror is '$mirror', not <owner>/<repo>@<version>")
+        continue
+      fi
+      mv=${mirror##*@}
+      [ "$v" = "$mv" ] || probs+=("charts/$name version is ${v:-absent}, not the mirrored $mv")
+      if grep -qE '^appVersion:' "$f"; then
+        av=$(top_key "$f" appVersion)
+        [ "$av" = "$mv" ] || probs+=("charts/$name appVersion is ${av:-empty}, not the mirrored $mv")
+      fi
+      continue
+    fi
     [ "$v" = 0.0.0 ] || probs+=("charts/$name version is ${v:-absent}, not 0.0.0")
     # appVersion is optional (a chart that ships no image has none), but
     # when it is committed AND the repo ships an image it is the same
@@ -217,6 +242,7 @@ rule_C1() {
     fi
   done
   local ok="${#charts[@]} chart(s) commit version 0.0.0"
+  [ "$mirrors" -eq 0 ] || ok="$((${#charts[@]} - mirrors)) chart(s) commit version 0.0.0, $mirrors mirror chart(s) at the upstream version"
   [ -n "$exempt" ] && ok="$ok (exempt: $exempt_list: $exempt)"
   verdict C1 "$ok" "${probs[@]}"
 }

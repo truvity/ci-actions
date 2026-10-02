@@ -203,6 +203,27 @@ holds() {
 holds C12 "@latest named only in prose, outside a fenced block, is not an install" \
   "printf '\nPin a real version -- an OCI reference has no \`@latest\` tag to fall back to.\n' >>README.md"
 
+# ── C1 · a mirror chart carries the upstream's version ───────────────────
+
+holds C1 "a declared mirror chart carries the upstream version" \
+  "printf 'annotations:\n  truvity.io/mirror: \"acme/widget@1.2.3\"\n' >>charts/widget/Chart.yaml
+   sed -i 's/^version: 0.0.0/version: 1.2.3/; s/^appVersion: .*/appVersion: \"1.2.3\"/' charts/widget/Chart.yaml"
+
+breaks C1 "a chart with a real version and no mirror declaration" \
+  "sed -i 's/^version: 0.0.0/version: 1.2.3/' charts/widget/Chart.yaml" "version is 1.2.3"
+
+breaks C1 "a mirror chart whose version differs from the mirrored one" \
+  "printf 'annotations:\n  truvity.io/mirror: \"acme/widget@1.2.3\"\n' >>charts/widget/Chart.yaml
+   sed -i 's/^version: 0.0.0/version: 1.2.4/' charts/widget/Chart.yaml" "not the mirrored 1.2.3"
+
+breaks C1 "a mirror chart whose appVersion differs from the mirrored version" \
+  "printf 'annotations:\n  truvity.io/mirror: \"acme/widget@1.2.3\"\n' >>charts/widget/Chart.yaml
+   sed -i 's/^version: 0.0.0/version: 1.2.3/; s/^appVersion: .*/appVersion: 0.0.0/' charts/widget/Chart.yaml" "appVersion is 0.0.0, not the mirrored 1.2.3"
+
+breaks C1 "a mirror annotation that is not owner/repo@version" \
+  "printf 'annotations:\n  truvity.io/mirror: \"1.2.3\"\n' >>charts/widget/Chart.yaml
+   sed -i 's/^version: 0.0.0/version: 1.2.3/' charts/widget/Chart.yaml" "not <owner>/<repo>@<version>"
+
 # ── C1 · a chart-only repository judges no appVersion ────────────────────
 
 holds C1 "appVersion is not judged when every goreleaser build is skipped" \

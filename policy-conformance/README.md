@@ -46,7 +46,7 @@ token. Run it locally from a repository root with
 
 | rule | passes when | notes |
 | -- | -- | -- |
-| C1 | every `charts/*/Chart.yaml` has `version: 0.0.0`, and `appVersion: 0.0.0` when it has an `appVersion` | `0.0.0-dev` fails |
+| C1 | every `charts/*/Chart.yaml` has `version: 0.0.0`, and `appVersion: 0.0.0` when it has an `appVersion`; a MIRROR chart instead declares `annotations: {truvity.io/mirror: "<owner>/<repo>@<version>"}` and its `version` (and `appVersion`, when present) equals that `<version>` | `0.0.0-dev` fails; a mirror annotation not shaped `<owner>/<repo>@<version>`, or a version that differs from it, fails |
 | C2 | every chart directory has `values.schema.json` | |
 | C3 | every chart has files under `tests/golden/<chart>/` and `tests/invalid/<chart>/`, or a `*_test.go` under `charts/` mentions an invalid fixture | the Go alternative is textual: it proves the test names a fixture, not that it asserts on it |
 | C4 | `hack/leak-canary.sh` exists and the Justfile mentions it | textual: the Justfile naming the canary is taken as `just check` running it |
