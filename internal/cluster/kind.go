@@ -266,6 +266,11 @@ func untarSubtree(archive, prefix, dest string) (int, error) {
 		if err != nil {
 			return n, err
 		}
+		// A path that climbs out of the destination is refused outright, before
+		// anything is joined to it.
+		if strings.Contains(h.Name, "..") || filepath.IsAbs(h.Name) {
+			return n, fmt.Errorf("unsafe path %q in archive", h.Name)
+		}
 		name := strings.TrimSuffix(h.Name, "/")
 		if name != prefix && !strings.HasPrefix(name, prefix+"/") {
 			continue
