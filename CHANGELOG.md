@@ -6,6 +6,10 @@ an untagged commit; `tagged-pins` refuses anything else.
 
 ## Unreleased
 
+`policy-conformance`:
+
+- **C1 accepts a declared mirror chart.** A chart that republishes a third-party artifact unchanged (vendored CRDs) declares `annotations: {truvity.io/mirror: "<owner>/<repo>@<version>"}` in `Chart.yaml`; C1 then requires its `version` (and `appVersion`, when present) to equal that `<version>` instead of `0.0.0`. An undeclared chart with any other version still fails, as does an annotation not shaped `<owner>/<repo>@<version>` or a version that differs from it. Every other chart in the repository is still judged `0.0.0`. Cases added to `hack/policy-conformance-cases.sh`.
+
 No action needs privilege any more: no root, no `sudo`, no relinking of
 `/bin/sh`, by contract (see "Running without privilege" in the README).
 
