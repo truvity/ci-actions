@@ -6,6 +6,12 @@ an untagged commit; `tagged-pins` refuses anything else.
 
 ## Unreleased
 
+`fleet pins`:
+
+- **A repository with no commit is no error.** GitHub answers its tree with
+  `409 Git Repository is empty.`; that made the whole run exit 3. It now
+  counts as a repository that pins nothing. Any other 409 is still an error.
+
 `public-runners`:
 
 - **Now a thin wrapper around the `ci-actions` Go binary**
