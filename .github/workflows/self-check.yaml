@@ -134,15 +134,14 @@ jobs:
           args: check
 
       # The thin wrapper that finds the binary, with the binary stubbed.
-      - name: wrapper cases (tagged-pins, public-runners, fleet-discover, devbox-parity, caller-parity, openbao-secrets, cluster)
+      - name: wrapper cases (tagged-pins, public-runners, fleet-discover, devbox-parity, caller-parity, openbao-secrets, cluster, policy-conformance)
         run: ./hack/tagged-pins-wrapper-cases.sh
 
-      # policy-conformance, against fixture repositories: one that meets
-      # every rule, then one rule broken at a time. A conformance check
-      # that says PASS everywhere cannot be told apart from one that looks
-      # at nothing, so each rule is proved to FAIL on its own defect.
-      - name: policy-conformance cases
-        run: ./hack/policy-conformance-cases.sh
+      # policy-conformance (internal/policyconformance), in the Go tests
+      # above: against fixture repositories, one that meets every rule, then
+      # one rule broken at a time. A conformance check that says PASS
+      # everywhere cannot be told apart from one that looks at nothing, so
+      # each rule is proved to FAIL on its own defect.
 
       # The guard, asked of this repository. `git ls-remote` needs the
       # tags of the libraries it judges, not of this checkout, so there is
@@ -183,6 +182,22 @@ jobs:
       # variables.
       - name: leak canary
         run: ./hack/leak-canary.sh
+
+  # TEMPORARY: the shell actions against their Go ports on the same
+  # fixtures; removed before merge.
+  parity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - run: git fetch origin master:refs/remotes/origin/master || true
+      - name: policy-conformance, old against new
+        run: ./hack/parity-policy-conformance.sh
 
   # The actions' step scripts, run as a Pod Security `restricted` runner:
   # uid 1001, no_new_privs, all capabilities dropped, read-only root. A

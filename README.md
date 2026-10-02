@@ -199,7 +199,6 @@ each:
 - `just cache-env` — what setup-devbox writes into GITHUB_ENV, per cache shape.
 - `just go-test` — `go vet` and the table tests of the Go CLI: the pin guard against local git remotes, `fleet pins` against a fake GitHub.
 - `just pins-wrapper` — the thin `tagged-pins` wrapper that finds the binary, with the binary stubbed.
-- `just conformance-cases` — policy-conformance rule tests against fixture repositories.
 - `just no-escalation` — fail if any action file or script calls `sudo`.
 - `just install-devbox-cases` — setup-devbox's privilege-free devbox install, against a local release.
 - `just preflight-cases` — setup-devbox's preflight, one failure at a time.

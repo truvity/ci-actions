@@ -125,6 +125,15 @@ log=$(runcl PATH="$work/min")
 has "$log" "::error::cluster needs the ci-actions binary" \
   && ok "cluster with no binary fails naming itself" \
   || bad "cluster with no binary fails naming itself: $log"
+runpc() { (cd "$work/ws" && env -i HOME="$work" RUNNER_TEMP="$work/tmp" ACTION_PATH="$here/policy-conformance" "$@" bash "$here/policy-conformance/run.sh" 2>&1); }
+log=$(runpc PATH="$work/min" CI_ACTIONS_BIN="$work/stubdir/ci-actions" STUB_EXIT=0)
+has "$log" "stub ran: policy-conformance LIBRARIES=unset cwd=ws" \
+  && ok "policy-conformance runs the binary as 'policy-conformance' in the caller's directory" \
+  || bad "policy-conformance runs the binary as 'policy-conformance': $log"
+log=$(runpc PATH="$work/min")
+has "$log" "::error::policy-conformance needs the ci-actions binary" \
+  && ok "policy-conformance with no binary fails naming itself" \
+  || bad "policy-conformance with no binary fails naming itself: $log"
 
 echo
 if [ "$fail" = 0 ]; then echo "all cases pass"; else echo "::error::tagged-pins wrapper cases failed"; fi

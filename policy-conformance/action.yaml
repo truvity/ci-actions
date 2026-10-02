@@ -12,6 +12,12 @@
 #
 # Checkout must precede this action. It fetches the caller's tags itself
 # (C5 needs the latest one), unshallowing a depth-1 checkout to do it.
+#
+# The rules are the `ci-actions` binary's `policy-conformance` command
+# (internal/policyconformance, table-tested); this action is a thin wrapper
+# that finds that binary (release archive of the pinned tag, or built with Go)
+# and runs it. It needs git, bash, and curl and tar or Go, and no jq, awk or
+# sed.
 name: policy-conformance
 description: >-
   Check a repository against the component contract's rules C1-C13 and
@@ -57,4 +63,7 @@ runs:
         REASON: ${{ inputs.reason }}
         RENOVATE_PRESET: ${{ inputs.renovate-preset }}
         DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
-      run: ${{ github.action_path }}/policy-conformance.sh
+        ACTION_PATH: ${{ github.action_path }}
+        ACTION_REPOSITORY: ${{ github.action_repository }}
+        ACTION_REF: ${{ github.action_ref }}
+      run: bash "$ACTION_PATH/run.sh"

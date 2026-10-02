@@ -6,6 +6,23 @@ an untagged commit; `tagged-pins` refuses anything else.
 
 ## Unreleased
 
+`policy-conformance`:
+
+- **Now a thin wrapper around `ci-actions policy-conformance`.** Inputs, the
+  line per rule (`C1 PASS: ...`), the `::warning::`/`::error::` annotations,
+  the C13 finding lines, the job-summary table and the exit status are
+  unchanged: the shell version's own cases (every rule broken one at a time,
+  C1's mirror-chart rule, the exemption file in each shape, the C5 tag cases,
+  the C10 `check`-reaches-`vuln` cases, the C11 image-name cases, the C13
+  estate-fact cases and their paired exemptions, `strict`, `skip`, the job
+  summary, an empty repository) plus three mirror charts (a CRD chart of each
+  of two repositories, and drifted, malformed and mixed variants) ran through
+  the old script and the binary in one CI run, 93 invocations, and stdout,
+  stderr, the summary file and the exit status were identical. Every case is a
+  Go table test now; the 1,065-line script and `hack/policy-conformance-cases.sh`
+  are gone. `git` is still the command that reads tags and tracked files; the
+  step needs no `jq`, `awk` or `sed`.
+
 `setup-devbox`:
 
 - **devbox is installed without privilege.** When the runner does not bake

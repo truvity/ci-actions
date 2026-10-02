@@ -19,6 +19,7 @@ import (
 	"github.com/truvity/ci-actions/internal/fleet"
 	"github.com/truvity/ci-actions/internal/fleetdiscover"
 	"github.com/truvity/ci-actions/internal/openbaosecrets"
+	"github.com/truvity/ci-actions/internal/policyconformance"
 	"github.com/truvity/ci-actions/internal/publicrunners"
 	"github.com/truvity/ci-actions/internal/taggedpins"
 )
@@ -31,6 +32,9 @@ const usage = `ci-actions <command>
 Commands:
   tagged-pins          refuse a pin into a shared CI library that names no release
                        (env: LIBRARIES, whitespace- or comma-separated)
+  policy-conformance   hold the checkout against the component contract's rules C1-C13
+                       (env: STRICT, SKIP, REASON, RENOVATE_PRESET, DEFAULT_BRANCH, GITHUB_REPOSITORY,
+                       GITHUB_STEP_SUMMARY; run it from the repository root)
   openbao-secrets      read one OpenBAO KV path as the job's own identity (env: ISSUER, ADDRESS,
                        KV_PATH, BAO_NAMESPACE, MOUNT, AUTH_MOUNT, ROLE, AUDIENCE, WANTED, CA_CERT,
                        ACCESSCTL_MODE, GITHUB_OUTPUT)
@@ -119,6 +123,22 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, getenv fu
 			return 1
 		default:
 			fmt.Fprintln(stderr, "devbox-parity:", err)
+			return 1
+		}
+	case "policy-conformance":
+		err := policyconformance.Run(ctx, policyconformance.Options{
+			Strict: getenv("STRICT"), Skip: getenv("SKIP"), Reason: getenv("REASON"),
+			RenovatePreset: getenv("RENOVATE_PRESET"), DefaultBranch: getenv("DEFAULT_BRANCH"),
+			GithubRepository: getenv("GITHUB_REPOSITORY"), SummaryPath: getenv("GITHUB_STEP_SUMMARY"), Out: stdout,
+		})
+		var ee *policyconformance.ExitError
+		switch {
+		case err == nil:
+			return 0
+		case errors.As(err, &ee):
+			return ee.Code
+		default:
+			fmt.Fprintln(stderr, "policy-conformance:", err)
 			return 1
 		}
 	case "openbao-secrets":

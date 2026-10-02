@@ -26,7 +26,7 @@ kit:
 cache-env:
     @./hack/cache-env-cases.sh
 
-# Go vet and table tests: tagged-pins against local remotes, fleet pins, fleet-discover, caller-parity, openbao-secrets and cluster against fakes
+# Go vet and table tests: tagged-pins against local remotes, fleet pins, fleet-discover, caller-parity, openbao-secrets cluster and policy-conformance (against fixture repositories) against fakes
 go-test:
     go vet ./...
     go test ./...
@@ -136,10 +136,6 @@ runners:
     
     echo "public repository, hosted runners only — checked"
 
-# Test policy-conformance rule against fixture repositories
-conformance-cases:
-    @./hack/policy-conformance-cases.sh
-
 # Run policy-conformance against this repository
 conformance:
     #!/usr/bin/env bash
@@ -147,21 +143,18 @@ conformance:
     # Fetch tags for C5 check
     git fetch --tags origin 2>/dev/null || true
 
-    # Run the conformance action against this repo
-    STRICT=false bash -c '
-      env GITHUB_ACTION_PATH=. \
-          STRICT=false \
-          SKIP="C10" \
-          REASON="standalone security.yaml; a pin into ci-workflows would make the libraries pin each other" \
-          RENOVATE_PRESET="github>truvity/ci-workflows" \
-          DEFAULT_BRANCH="master" \
-          ./policy-conformance/policy-conformance.sh
-    '
+    # Run policy-conformance (the Go CLI's command) against this repo
+    STRICT=false \
+    SKIP="C10" \
+    REASON="standalone security.yaml; a pin into ci-workflows would make the libraries pin each other" \
+    RENOVATE_PRESET="github>truvity/ci-workflows" \
+    DEFAULT_BRANCH="master" \
+    go run ./cmd/ci-actions policy-conformance
 
 # Scan for secrets and sensitive data
 leak-canary:
     @./hack/leak-canary.sh
 
 # Run all checks (the merge gate)
-check: lint kit cache-env go-test pins-wrapper conformance-cases no-escalation preflight-cases pins runners conformance leak-canary
+check: lint kit cache-env go-test pins-wrapper no-escalation preflight-cases pins runners conformance leak-canary
     @echo "✓ All checks passed"
