@@ -23,6 +23,22 @@ an untagged commit; `tagged-pins` refuses anything else.
   are gone. `git` is still the command that reads tags and tracked files; the
   step needs no `jq`, `awk` or `sed`.
 
+`recipe` and `setup-remote-builders`:
+
+- **Now thin wrappers around `ci-actions recipe` and `ci-actions
+  remote-builders`.** Inputs, every log and `::error::` line and the exit
+  status are unchanged: sixteen scenarios (a clean recipe, another task
+  runner, a failing recipe, a recipe that dirties the tree or leaves an
+  untracked file, a gitignored output; two nodes with and without devbox, one
+  node with several platforms, the plugin link, an absent builder, empty and
+  space-only nodes, a platform the builder does not offer, a failing
+  registration, newline- and tab-separated entries) ran through the old
+  inline shell and the binary with stand-ins for devbox, the task runners and
+  docker in one CI run, and stdout, the exit status, the docker calls,
+  `GITHUB_ENV`, the plugin link and the saved inspect output were identical.
+  devbox, git, docker and buildx are still the commands that run. Each step
+  needs bash plus curl and tar or Go.
+
 `setup-devbox`:
 
 - **devbox is installed without privilege.** When the runner does not bake

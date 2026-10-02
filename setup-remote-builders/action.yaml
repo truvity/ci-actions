@@ -29,6 +29,12 @@
 # caller's: whatever `docker login` / amazon-ecr-login wrote to
 # ~/.docker/config.json is forwarded to the builder at push time, so
 # log in BEFORE building, not before registering.
+#
+# The logic is the `ci-actions` binary's `remote-builders` command
+# (internal/remotebuilders, table-tested); this action is a thin wrapper that
+# finds that binary (release archive of the pinned tag, or built with Go) and
+# runs it. docker and buildx (through devbox when the project has one) are
+# still the commands that run.
 name: Setup remote builders
 description: Register the CI plane's BuildKit builders as one buildx builder (nodes from a caller variable)
 
@@ -46,43 +52,7 @@ runs:
       shell: bash
       env:
         NODES: ${{ inputs.remote-builders }}
-      run: |
-        set -euo pipefail
-        # The builder name is a literal: it is written to GITHUB_ENV
-        # below, and an input there is exactly what CodeQL's
-        # environment-injection query objects to.
-        BUILDER=ci
-        [ -n "${NODES// /}" ] || { echo "::error::remote-builders is empty — set the org variable or skip this step"; exit 1; }
-        # docker + buildx resolve from the job's PATH; through devbox
-        # when the project has one (a devbox docker only finds the
-        # plugins it can see, hence the symlink), and the runner image's
-        # system-wide plugin path covers the rest.
-        run() { if [ -f devbox.json ]; then devbox run -- "$@"; else "$@"; fi; }
-        if plugin="$(run sh -c 'command -v docker-buildx' 2>/dev/null)" && [ -n "$plugin" ]; then
-          mkdir -p ~/.docker/cli-plugins
-          ln -sf "$plugin" ~/.docker/cli-plugins/docker-buildx
-        fi
-        # rm is the ONLY tolerated failure (builder absent on a fresh
-        # ephemeral runner); registrations must fail the step — a
-        # builder missing a platform surfaces later as a baffling "no
-        # match for platform" build error.
-        run docker buildx rm "$BUILDER" 2>/dev/null || true
-        first=1
-        for entry in $NODES; do
-          platforms="${entry%%=*}"; endpoint="${entry#*=}"
-          if [ "$first" = 1 ]; then
-            run docker buildx create --name "$BUILDER" --driver remote "$endpoint" --platform "$platforms"
-            first=0
-          else
-            run docker buildx create --append --name "$BUILDER" --driver remote "$endpoint" --platform "$platforms"
-          fi
-        done
-        run docker buildx use "$BUILDER"
-        run docker buildx inspect --bootstrap "$BUILDER" | tee "$RUNNER_TEMP/buildx-$BUILDER.txt"
-        for entry in $NODES; do
-          platforms="${entry%%=*}"
-          for p in ${platforms//,/ }; do
-            grep -q "$p" "$RUNNER_TEMP/buildx-$BUILDER.txt" || { echo "::error::builder $BUILDER does not offer $p"; exit 1; }
-          done
-        done
-        echo "BUILDX_BUILDER=$BUILDER" >> "$GITHUB_ENV"
+        ACTION_PATH: ${{ github.action_path }}
+        ACTION_REPOSITORY: ${{ github.action_repository }}
+        ACTION_REF: ${{ github.action_ref }}
+      run: bash "$ACTION_PATH/run.sh"

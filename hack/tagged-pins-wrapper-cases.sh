@@ -135,6 +135,26 @@ has "$log" "::error::policy-conformance needs the ci-actions binary" \
   && ok "policy-conformance with no binary fails naming itself" \
   || bad "policy-conformance with no binary fails naming itself: $log"
 
+runrc() { (cd "$work/ws" && env -i HOME="$work" RUNNER_TEMP="$work/tmp" ACTION_PATH="$here/recipe" "$@" bash "$here/recipe/run.sh" 2>&1); }
+log=$(runrc PATH="$work/min" CI_ACTIONS_BIN="$work/stubdir/ci-actions" STUB_EXIT=0)
+has "$log" "stub ran: recipe LIBRARIES=unset" \
+  && ok "recipe runs the binary as 'recipe'" \
+  || bad "recipe runs the binary as 'recipe': $log"
+log=$(runrc PATH="$work/min")
+has "$log" "::error::recipe needs the ci-actions binary" \
+  && ok "recipe with no binary fails naming itself" \
+  || bad "recipe with no binary fails naming itself: $log"
+
+runrb() { (cd "$work/ws" && env -i HOME="$work" RUNNER_TEMP="$work/tmp" ACTION_PATH="$here/setup-remote-builders" "$@" bash "$here/setup-remote-builders/run.sh" 2>&1); }
+log=$(runrb PATH="$work/min" CI_ACTIONS_BIN="$work/stubdir/ci-actions" STUB_EXIT=0)
+has "$log" "stub ran: remote-builders LIBRARIES=unset" \
+  && ok "setup-remote-builders runs the binary as 'remote-builders'" \
+  || bad "setup-remote-builders runs the binary as 'remote-builders': $log"
+log=$(runrb PATH="$work/min")
+has "$log" "::error::setup-remote-builders needs the ci-actions binary" \
+  && ok "setup-remote-builders with no binary fails naming itself" \
+  || bad "setup-remote-builders with no binary fails naming itself: $log"
+
 echo
 if [ "$fail" = 0 ]; then echo "all cases pass"; else echo "::error::tagged-pins wrapper cases failed"; fi
 exit "$fail"

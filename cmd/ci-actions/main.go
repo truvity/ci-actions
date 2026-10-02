@@ -21,6 +21,9 @@ import (
 	"github.com/truvity/ci-actions/internal/openbaosecrets"
 	"github.com/truvity/ci-actions/internal/policyconformance"
 	"github.com/truvity/ci-actions/internal/publicrunners"
+	"github.com/truvity/ci-actions/internal/recipe"
+	"github.com/truvity/ci-actions/internal/remotebuilders"
+	"github.com/truvity/ci-actions/internal/runcmd"
 	"github.com/truvity/ci-actions/internal/taggedpins"
 )
 
@@ -35,6 +38,9 @@ Commands:
   policy-conformance   hold the checkout against the component contract's rules C1-C13
                        (env: STRICT, SKIP, REASON, RENOVATE_PRESET, DEFAULT_BRANCH, GITHUB_REPOSITORY,
                        GITHUB_STEP_SUMMARY; run it from the repository root)
+  recipe               run one task-runner recipe in devbox and assert a clean tree (env: RECIPE, COMMAND)
+  remote-builders      register BuildKit builders as one buildx builder (env: NODES, plus
+                       HOME, RUNNER_TEMP, GITHUB_ENV)
   openbao-secrets      read one OpenBAO KV path as the job's own identity (env: ISSUER, ADDRESS,
                        KV_PATH, BAO_NAMESPACE, MOUNT, AUTH_MOUNT, ROLE, AUDIENCE, WANTED, CA_CERT,
                        ACCESSCTL_MODE, GITHUB_OUTPUT)
@@ -140,6 +146,31 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, getenv fu
 		default:
 			fmt.Fprintln(stderr, "policy-conformance:", err)
 			return 1
+		}
+	case "recipe":
+		err := recipe.Run(ctx, recipe.Options{Recipe: getenv("RECIPE"), Command: getenv("COMMAND"), Out: stdout, Err: stderr})
+		switch {
+		case err == nil:
+			return 0
+		case errors.Is(err, recipe.ErrFailed):
+			return 1
+		default:
+			fmt.Fprintln(stderr, "recipe:", err)
+			return 1
+		}
+	case "remote-builders":
+		err := remotebuilders.Run(ctx, remotebuilders.Options{
+			Nodes: getenv("NODES"), Home: getenv("HOME"), RunnerTemp: getenv("RUNNER_TEMP"), GithubEnv: getenv("GITHUB_ENV"),
+			Out: stdout, Err: stderr,
+		})
+		switch {
+		case err == nil:
+			return 0
+		case errors.Is(err, remotebuilders.ErrFailed):
+			return 1
+		default:
+			fmt.Fprintln(stderr, "remote-builders:", err)
+			return runcmd.ExitCode(err)
 		}
 	case "openbao-secrets":
 		err := openbaosecrets.Run(ctx, openbaosecrets.Options{
