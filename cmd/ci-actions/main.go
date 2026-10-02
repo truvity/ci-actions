@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/truvity/ci-actions/internal/fleet"
+	"github.com/truvity/ci-actions/internal/publicrunners"
 	"github.com/truvity/ci-actions/internal/taggedpins"
 )
 
@@ -24,6 +25,8 @@ const usage = `ci-actions <command>
 Commands:
   tagged-pins          refuse a pin into a shared CI library that names no release
                        (env: LIBRARIES, whitespace- or comma-separated)
+  public-runners       refuse a self-hosted runner in a public repository
+                       (env: RUNNERS, VISIBILITY, GITHUB_REPOSITORY, GH_TOKEN, GITHUB_API_URL)
   fleet pins           which ci-workflows, ci-actions and setup-devbox versions each
                        repository pins, transitively (token from GITHUB_TOKEN or GH_TOKEN)
   version              print the version
@@ -56,6 +59,24 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, getenv fu
 			return 1
 		default:
 			fmt.Fprintln(stderr, "tagged-pins:", err)
+			return 1
+		}
+	case "public-runners":
+		token := getenv("GH_TOKEN")
+		if token == "" {
+			token = getenv("GITHUB_TOKEN")
+		}
+		err := publicrunners.Run(ctx, publicrunners.Options{
+			Runners: getenv("RUNNERS"), Visibility: getenv("VISIBILITY"), Repository: getenv("GITHUB_REPOSITORY"),
+			Token: token, APIURL: getenv("GITHUB_API_URL"), Out: stdout,
+		})
+		switch {
+		case err == nil:
+			return 0
+		case errors.Is(err, publicrunners.ErrRefused):
+			return 1
+		default:
+			fmt.Fprintln(stderr, "public-runners:", err)
 			return 1
 		}
 	case "fleet":

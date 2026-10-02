@@ -22,7 +22,7 @@
 # keep it offline: what is under test is the privilege contract, not those
 # tools.
 #
-#   hack/restricted-sim.sh                 setup-devbox, recipe and tagged-pins against the fixture
+#   hack/restricted-sim.sh                 setup-devbox, recipe, tagged-pins and public-runners against the fixture
 #   hack/restricted-sim.sh --control       prove the image escalates WITHOUT the flag
 #   hack/restricted-sim.sh --self-test     prove the harness fails a privileged step
 #   hack/restricted-sim.sh ACTION_DIR...   other actions, by directory
@@ -36,6 +36,9 @@ priv='su''do'
 
 # The fixture's recipe, for the recipe action's required input.
 export SIM_INPUT_recipe="${SIM_INPUT_recipe:-fixture}"
+# public-runners' required input, and a visibility so it needs no network.
+export SIM_INPUT_runners="${SIM_INPUT_runners:-ubuntu-latest}"
+export SIM_INPUT_visibility="${SIM_INPUT_visibility:-public}"
 
 # Steps with an `if:` that is true for default inputs on a baked runner.
 CONDITIONAL=("Strip local-only proto tools" "Install proto toolchain")
@@ -131,7 +134,7 @@ run_sim() {
     -e HOME=/home/runner -e RUNNER_TEMP=/work/temp -e GITHUB_WORKSPACE=/work/ws \
     -e GITHUB_ENV=/work/temp/github_env -e GITHUB_OUTPUT=/work/temp/github_output \
     -e GITHUB_PATH=/work/temp/github_path -e GITHUB_STEP_SUMMARY=/work/temp/summary \
-    -e RUNNER_ARCH=X64 -e RUNNER_OS=Linux -e CI=true -e GITHUB_ACTIONS=true \
+    -e GITHUB_REPOSITORY=example/sim -e RUNNER_ARCH=X64 -e RUNNER_OS=Linux -e CI=true -e GITHUB_ACTIONS=true \
     "$@" \
     "$image" bash -c '
       set -uo pipefail
@@ -224,7 +227,7 @@ case "${1:-}" in
   fi
   ;;
 *)
-  if [ $# -eq 0 ]; then set -- "$here/setup-devbox" "$here/recipe" "$here/tagged-pins"; fi
+  if [ $# -eq 0 ]; then set -- "$here/setup-devbox" "$here/recipe" "$here/tagged-pins" "$here/public-runners"; fi
   simulate "$@"
   ;;
 esac

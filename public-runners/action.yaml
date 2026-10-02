@@ -2,7 +2,10 @@ name: public-runners
 description: >-
   Refuse a self-hosted runner in a PUBLIC repository. Runs on a hosted
   runner itself, before any job that would land on the estate's own
-  infrastructure, and needs no toolchain beyond bash.
+  infrastructure. The rule is the `ci-actions` binary's `public-runners`
+  command; this action is a thin wrapper that finds that binary (release
+  archive of the pinned tag, or built with Go) and runs it. Needs bash,
+  plus curl and tar or Go.
 
 inputs:
   runners:
@@ -27,4 +30,7 @@ runs:
         RUNNERS: ${{ inputs.runners }}
         VISIBILITY: ${{ inputs.visibility }}
         GH_TOKEN: ${{ github.token }}
-      run: ${{ github.action_path }}/public-runners.sh
+        ACTION_PATH: ${{ github.action_path }}
+        ACTION_REPOSITORY: ${{ github.action_repository }}
+        ACTION_REF: ${{ github.action_ref }}
+      run: bash "$ACTION_PATH/run.sh"

@@ -54,6 +54,19 @@ with `--user 1001:1001 --security-opt no-new-privileges --cap-drop ALL
   commits, so they get the archive. `hack/tagged-pins-cases.sh` became Go
   table tests.
 
+`public-runners`:
+
+- **Now a thin wrapper around the `ci-actions` Go binary**
+  (`ci-actions public-runners`). Inputs, log lines and exit status are
+  unchanged (checked byte for byte against the shell version on twelve
+  fixtures in one CI run). Like `tagged-pins` it uses a `ci-actions` on
+  `PATH`, else the release archive of the pinned tag, else builds with Go, so
+  it now needs curl and tar or Go on the runner (a hosted runner has both).
+  The visibility lookup uses the job's token against the API directly rather
+  than the `gh` CLI. The binary-finding logic is shared by every wrapper in
+  `lib/ci-actions-bin.sh`. The shell cases became Go table tests, and
+  `restricted-sim` now also runs this wrapper with the built binary.
+
 New:
 
 - **`ci-actions fleet pins` follows repo-local composite actions.** It reads
