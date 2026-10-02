@@ -22,7 +22,7 @@
 # keep it offline: what is under test is the privilege contract, not those
 # tools.
 #
-#   hack/restricted-sim.sh                 setup-devbox, recipe, tagged-pins, public-runners and fleet-discover against the fixture
+#   hack/restricted-sim.sh                 setup-devbox, recipe, tagged-pins, public-runners, fleet-discover and devbox-parity against the fixture
 #   hack/restricted-sim.sh --control       prove the image escalates WITHOUT the flag
 #   hack/restricted-sim.sh --self-test     prove the harness fails a privileged step
 #   hack/restricted-sim.sh ACTION_DIR...   other actions, by directory
@@ -42,6 +42,8 @@ export SIM_INPUT_visibility="${SIM_INPUT_visibility:-public}"
 # fleet-discover: a token and a one-repository API served inside the container.
 export SIM_INPUT_token="${SIM_INPUT_token:-sim-token}"
 export SIM_INPUT_api_url="${SIM_INPUT_api_url:-http://127.0.0.1:8765}"
+# devbox-parity: align only (no `devbox update`), on a repository already at parity.
+export SIM_INPUT_devbox_parity__mode="${SIM_INPUT_devbox_parity__mode:-align}"
 
 # Steps with an `if:` that is true for default inputs on a baked runner.
 CONDITIONAL=("Strip local-only proto tools" "Install proto toolchain")
@@ -59,8 +61,11 @@ subst() {
   while [[ "$v" =~ \$\{\{[[:space:]]*inputs\.([A-Za-z0-9_-]+)[[:space:]]*\}\} ]]; do
     name=${BASH_REMATCH[1]}
     # SIM_INPUT_<name> overrides a declared default (required inputs have none).
-    local var="SIM_INPUT_${name//-/_}"
-    if [ -n "${!var+x}" ]; then def=${!var}; else def=$(NAME="$name" yq -r '.inputs[strenv(NAME)].default // ""' "$file"); fi
+    local var="SIM_INPUT_${name//-/_}" avar
+    # SIM_INPUT_<action>__<name> wins, for an input name two actions share.
+    avar="SIM_INPUT_$(basename "$(dirname "$file")" | tr - _)__${name//-/_}"
+    if [ -n "${!avar+x}" ]; then def=${!avar}
+    elif [ -n "${!var+x}" ]; then def=${!var}; else def=$(NAME="$name" yq -r '.inputs[strenv(NAME)].default // ""' "$file"); fi
     v=${v//"${BASH_REMATCH[0]}"/$def}
   done
   v=${v//'${{ github.action_path }}'/ACTION_PATH_PLACEHOLDER}
@@ -232,7 +237,7 @@ case "${1:-}" in
   fi
   ;;
 *)
-  if [ $# -eq 0 ]; then set -- "$here/setup-devbox" "$here/recipe" "$here/tagged-pins" "$here/public-runners" "$here/fleet-discover"; fi
+  if [ $# -eq 0 ]; then set -- "$here/setup-devbox" "$here/recipe" "$here/tagged-pins" "$here/public-runners" "$here/fleet-discover" "$here/devbox-parity"; fi
   simulate "$@"
   ;;
 esac

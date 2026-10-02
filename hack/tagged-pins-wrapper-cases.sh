@@ -84,6 +84,16 @@ has "$log" "::error::fleet-discover needs the ci-actions binary" \
   && ok "fleet-discover with no binary fails naming itself" \
   || bad "fleet-discover with no binary fails naming itself: $log"
 
+runfp() { (cd "$work/ws" && env -i HOME="$work" RUNNER_TEMP="$work/tmp" ACTION_PATH="$here/devbox-parity" "$@" bash "$here/devbox-parity/run.sh" 2>&1); }
+log=$(runfp PATH="$work/min" CI_ACTIONS_BIN="$work/stubdir/ci-actions" STUB_EXIT=0)
+has "$log" "stub ran: devbox-parity LIBRARIES=unset" \
+  && ok "devbox-parity runs the binary as 'devbox-parity'" \
+  || bad "devbox-parity runs the binary as 'devbox-parity': $log"
+log=$(runfp PATH="$work/min")
+has "$log" "::error::devbox-parity needs the ci-actions binary" \
+  && ok "devbox-parity with no binary fails naming itself" \
+  || bad "devbox-parity with no binary fails naming itself: $log"
+
 echo
 if [ "$fail" = 0 ]; then echo "all cases pass"; else echo "::error::tagged-pins wrapper cases failed"; fi
 exit "$fail"
