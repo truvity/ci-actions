@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# Stand-in for just: runs the fixture recipe's declared command under bash,
+# the way a Justfile with `set shell := ["bash", "-c"]` does.
+recipe=${1:?recipe}
+echo "[just stub] $recipe"
+case "$recipe" in
+fixture) bash -c 'echo "recipe ran as uid $(id -u) in $PWD"; test -w .' ;;
+*) echo "just stub: unknown recipe $recipe" >&2; exit 1 ;;
+esac

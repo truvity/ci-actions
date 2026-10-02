@@ -1,5 +1,8 @@
 # Shared bootstrap for every bar job (CI, integration, release):
-# AWS CI face → nix → bash-as-sh → prototools strip → devbox → proto.
+# preflight → AWS CI face → nix → prototools strip → devbox → proto.
+#
+# Runs with NO privilege, by contract: no root, no privilege escalation, no relinking of
+# /bin/sh. Every step that needs bash says `shell: bash`; see CHANGELOG.
 # Checkout must precede this action — GitHub resolves repo-local
 # actions from the workspace.
 name: Setup runner environment
@@ -123,6 +126,15 @@ inputs:
 runs:
   using: composite
   steps:
+    - name: Preflight
+      # First, so a runner that cannot do what the rest of this action
+      # needs fails here with one message naming the fix, not forty
+      # seconds later as a cryptic error from nix or devbox.
+      shell: bash
+      run: bash "$ACTION_PATH/preflight.sh"
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+
     - name: CI face of the AWS config
       # Caller-supplied: aws.ini is laptop-shaped (SSO + [default]) and a
       # credential-less step consulting it hangs or dies on SSO. Repos that
@@ -189,20 +201,6 @@ runs:
       # choice).
       if: steps.baked.outputs.nix != 'true'
       uses: DeterminateSystems/nix-installer-action@ef8a148080ab6020fd15196c2084a2eea5ff2d25 # v22
-
-    - name: Use bash as sh
-      # devbox/moon scripts assume bash semantics; self-hosted runner
-      # images and GitHub-hosted ubuntu both ship dash as /bin/sh.
-      shell: bash
-      run: |
-        # A runner image that already maps sh to bash needs no change, and
-        # a runner with no_new_privs (a Pod Security `restricted` pod) has
-        # no working sudo: ask for it only when the link has to change.
-        if [ "$(readlink -f /bin/sh)" = "$(readlink -f /bin/bash)" ]; then
-          echo "/bin/sh is already bash"
-          exit 0
-        fi
-        sudo ln -sf /bin/bash /bin/sh
 
     - name: Strip local-only proto tools
       # The npm-backed cubic CLI is LOCAL review tooling — CI never
@@ -274,10 +272,10 @@ runs:
       run: |
         retry() { for i in 1 2; do "$@" && return 0; echo "attempt $i failed; sleeping"; sleep 20; done; "$@"; }
         START=$(date +%s)
-        retry devbox run -- proto use 2>&1 | tee /tmp/bootstrap-proto.log
+        retry devbox run -- proto use 2>&1 | tee "$RUNNER_TEMP/bootstrap-proto.log"
         {
           echo "### Bootstrap ($RUNNER_ARCH)"
-          echo "- proto use: $(( $(date +%s) - START ))s ($(grep -ac 'installed' /tmp/bootstrap-proto.log || true) install lines; warm cache = near-zero)"
+          echo "- proto use: $(( $(date +%s) - START ))s ($(grep -ac 'installed' "$RUNNER_TEMP/bootstrap-proto.log" || true) install lines; warm cache = near-zero)"
         } >> "$GITHUB_STEP_SUMMARY"
       env:
         GITHUB_TOKEN: ${{ inputs.github-token }}

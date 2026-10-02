@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# Stand-in for the devbox CLI: `devbox run -- <cmd...>` runs <cmd>. The
+# real thing needs nix and a network; what the simulation proves is the
+# privilege contract of the steps around it.
+[ "${1:-}" = run ] || { echo "devbox stub: only 'run' is supported" >&2; exit 2; }
+shift
+[ "${1:-}" = -- ] && shift
+echo "[devbox stub] $*"
+exec "$@"

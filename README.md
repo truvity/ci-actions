@@ -73,6 +73,38 @@ line per pin into the shared CI libraries and fails on an `UNTAGGED`
 one. A repository that calls ci-workflows' `check.yaml` already runs
 both.
 
+## Running without privilege
+
+Every action here runs with **no privilege, by contract**: no root, no
+`sudo`, no changes outside `$HOME`, `$RUNNER_TEMP` and the work
+directory. The reference environment is a runner under the Pod Security
+`restricted` profile: uid 1001, `runAsNonRoot`, `allowPrivilegeEscalation:
+false` (so `no_new_privs`, and `sudo` can never work), all capabilities
+dropped. GitHub-hosted runners have passwordless `sudo`; we do not use it.
+
+- **`/bin/sh` is left alone.** `setup-devbox` used to relink it to bash;
+  it no longer does. Every step in these actions says `shell: bash`
+  explicitly and every script has a bash shebang.
+- **Inside `devbox run`, `sh` is already bash.** devbox puts its own bash,
+  with a `sh` link, on `PATH`, so `just`'s default `sh -cu` line recipes
+  and devbox scripts run under bash whatever `/bin/sh` is. Verified with
+  devbox 0.18 and just 1.58.
+- **Outside devbox, say so.** A caller step that relies on bash
+  semantics (`[[ ]]`, arrays, `pipefail`) must not assume `sh` is bash
+  on a hosted runner. Either set `defaults.run.shell: bash` in the
+  workflow (it applies to `run:` steps only, never to `just`), or give
+  a Justfile whose recipes need bash `set shell := ["bash", "-euo",
+  "pipefail", "-c"]`.
+- `setup-devbox` starts with a `preflight` that prints the uid, gid,
+  `no_new_privs`, what `/bin/sh` is, whether `HOME`, `RUNNER_TEMP` and the
+  work directory are writable and, when nix is present, whether its store
+  answers. It fails with one `::error::` naming what is missing.
+
+`hack/no-escalation-cases.sh` fails the gate if any action file or script says
+`sudo`. `hack/restricted-sim.sh` runs the actions' step scripts in a
+container with `--user 1001:1001 --security-opt no-new-privileges
+--cap-drop ALL --read-only` (see the `restricted-sim` job).
+
 ## Consumers
 
 | consumer | what it uses |
@@ -152,6 +184,9 @@ each:
 - `just cache-env` — what setup-devbox writes into GITHUB_ENV, per cache shape.
 - `just pins-cases` — the pin guard, against local git remotes.
 - `just conformance-cases` — policy-conformance rule tests against fixture repositories.
+- `just no-escalation` — fail if any action file or script calls `sudo`.
+- `just preflight-cases` — setup-devbox's preflight, one failure at a time.
+- `just restricted-sim` — the step scripts under uid 1001, no_new_privs, no capabilities, read-only root (needs docker and yq).
 - `just fork-guard` — cluster's fork refusal, against fake event payloads.
 - `just pins` — verify all pins point to release tags.
 - `just runners` — verify the repository uses public runners.
@@ -164,6 +199,9 @@ one of them plus `policy-conformance` against this repository, under the
 `check` context. `check` is the whole merge gate: no approving review,
 and no bypass. Renovate opens a pull request like anyone else and
 GitHub's auto-merge finishes it when `check` goes green.
+
+`restricted-sim` needs docker, so `self-check.yaml` runs it as its own
+`restricted-sim` job, outside `check` and not required.
 
 `cluster`'s `mode: kind` needs a real kind cluster and a container
 runtime, so `self-check.yaml`'s separate `cluster-kind` job proves it

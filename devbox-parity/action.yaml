@@ -85,9 +85,9 @@ runs:
           aarch64 | arm64) arch=arm64 ;;
           *) echo "unsupported arch: $(uname -m)"; exit 1 ;;
         esac
-        curl -fsSL -o /tmp/gh.tgz "https://github.com/cli/cli/releases/download/v${v}/gh_${v}_linux_${arch}.tar.gz"
-        mkdir -p /tmp/gh && tar xzf /tmp/gh.tgz -C /tmp/gh --strip-components=1
-        echo "/tmp/gh/bin" >> "$GITHUB_PATH"
+        curl -fsSL -o "$RUNNER_TEMP/gh.tgz" "https://github.com/cli/cli/releases/download/v${v}/gh_${v}_linux_${arch}.tar.gz"
+        mkdir -p "$RUNNER_TEMP/gh" && tar xzf "$RUNNER_TEMP/gh.tgz" -C "$RUNNER_TEMP/gh" --strip-components=1
+        echo "$RUNNER_TEMP/gh/bin" >> "$GITHUB_PATH"
         echo "gh installed: v${v}"
 
     - name: Decide the mode
@@ -133,8 +133,8 @@ runs:
           lang=$(awk '/^go /{print $2; exit}' "$dir/go.mod")
           tc=$(awk '/^toolchain /{sub(/^go/,"",$2); print $2; exit}' "$dir/go.mod")
           tc=${tc:-$lang}
-          if (cd "$dir" && devbox run -- golangci-lint version) >/tmp/glci 2>/dev/null; then
-            built=$(grep -o 'built with go[0-9.]*' /tmp/glci | grep -o '[0-9][0-9.]*$')
+          if (cd "$dir" && devbox run -- golangci-lint version) >"$RUNNER_TEMP/glci" 2>/dev/null; then
+            built=$(grep -o 'built with go[0-9.]*' "$RUNNER_TEMP/glci" | grep -o '[0-9][0-9.]*$')
           else
             built=$(cd "$dir" && devbox run -- go env GOVERSION | grep -o '[0-9][0-9.]*')
           fi

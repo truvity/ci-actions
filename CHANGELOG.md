@@ -4,6 +4,38 @@ Every release of truvity/ci-actions, newest first. Pin the commit of a
 tag (`git rev-parse vX.Y.Z^{commit}`), never the tag object and never
 an untagged commit; `tagged-pins` refuses anything else.
 
+## Unreleased
+
+No action needs privilege any more: no root, no `sudo`, no relinking of
+`/bin/sh`, by contract (see "Running without privilege" in the README).
+
+`setup-devbox`:
+
+- **BEHAVIOUR CHANGE for GitHub-hosted callers: `/bin/sh` is no longer
+  relinked to bash.** The "Use bash as sh" step is removed. It ran
+  `sudo ln -sf /bin/bash /bin/sh`, which cannot work under a Pod Security
+  `restricted` runner (no_new_privs), and v1.6.1 only guarded it. On a hosted
+  runner `/bin/sh` stays dash. Inside `devbox run`, `sh` is bash already
+  (devbox puts its own bash on `PATH`), so devbox scripts and `just` recipes
+  are unaffected. A caller `run:` step that needs bash semantics must set
+  `shell: bash` or the workflow `defaults.run.shell: bash`; a Justfile whose
+  recipes need bash should `set shell := ["bash", "-euo", "pipefail", "-c"]`.
+  All actions in this repository already say `shell: bash` on every step.
+- **New first step, `preflight`.** Prints the uid and gid, whether
+  `no_new_privs` is set, whether `/bin/sh` is bash, whether `HOME`,
+  `RUNNER_TEMP` and the work directory are writable and, when nix is on
+  `PATH`, whether its store answers. Fails early with one `::error::` naming
+  what is missing and what to do. `no_new_privs` and a dash `/bin/sh` are
+  reported, not failures.
+- Scratch files go to `$RUNNER_TEMP` instead of `/tmp` (the proto log here,
+  the gh download in `devbox-parity`), so a read-only root filesystem works.
+
+Tests: `hack/no-escalation-cases.sh` fails if any action file or script contains
+`sudo`; `hack/preflight-cases.sh` covers the preflight; a new
+`restricted-sim` job in `self-check` runs the step scripts in a container
+with `--user 1001:1001 --security-opt no-new-privileges --cap-drop ALL
+--read-only` and fails when the pre-v1.6.1 `sudo` step is put back.
+
 ## v1.6.1
 
 Not yet released.
