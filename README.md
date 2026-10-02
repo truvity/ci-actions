@@ -220,7 +220,7 @@ archive is checked against `checksums.txt`), else builds the binary with Go.
 
 ```
 ci-actions tagged-pins                 # env LIBRARIES, as the action's `libraries` input
-ci-actions fleet pins --org truvity --org trust-form \
+ci-actions fleet pins --org example-org --org other-org \
     --min-setup-devbox v1.6.1 --json pins.json
 ```
 
