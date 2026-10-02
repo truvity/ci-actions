@@ -195,7 +195,9 @@ case "${1:-}" in
   out=$(run_sim "$steps" 2>&1)
   rc=$?
   rm -rf "$steps"
-  printf '%s\n' "$out" | tail -15
+  # The rejection is the EXPECTED outcome here, so its ::error:: line must
+  # not become an annotation on a green run.
+  printf '%s\n' "$out" | tail -15 | sed 's/^::error::/expected rejection: /; s/^::group::/-- /; s/^::endgroup:://'
   if [ $rc = 0 ]; then
     echo "::error::self-test failed: the simulation PASSED a privileged step"
     exit 1
