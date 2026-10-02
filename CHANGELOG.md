@@ -6,6 +6,32 @@ an untagged commit; `tagged-pins` refuses anything else.
 
 ## Unreleased
 
+`public-runners`:
+
+- **Now a thin wrapper around the `ci-actions` Go binary**
+  (`ci-actions public-runners`). Inputs, log lines and exit status are
+  unchanged (checked byte for byte against the shell version on twelve
+  fixtures in one CI run). Like `tagged-pins` it uses a `ci-actions` on
+  `PATH`, else the release archive of the pinned tag, else builds with Go, so
+  it now needs curl and tar or Go on the runner (a hosted runner has both).
+  The visibility lookup uses the job's token against the API directly rather
+  than the `gh` CLI. The binary-finding logic is shared by every wrapper in
+  `lib/ci-actions-bin.sh`. The shell cases became Go table tests, and
+  `restricted-sim` now also runs this wrapper with the built binary.
+
+`fleet-discover`:
+
+- **Now a thin wrapper around `ci-actions fleet discover`.** Inputs, outputs,
+  log, summary and `GITHUB_OUTPUT` lines are unchanged (checked against the
+  shell version on a stub API in one CI run). It no longer needs `curl` and
+  `jq` for the rules; the wrapper needs curl and tar or Go to fetch the
+  binary. The required-check rule (rulesets and classic protection, with an
+  unreadable source undecided, never a skip) is the same, now table-tested in
+  Go; `hack/discover-cases.sh` is gone. One fix: an invalid `filter`
+  expression used to skip every repository without a word, and now also
+  prints one `::warning::` saying so. `fleet pins` and `fleet-discover` share
+  one GitHub client (`internal/ghapi`).
+
 ## v1.7.0
 
 `policy-conformance`:
@@ -53,32 +79,6 @@ with `--user 1001:1001 --security-opt no-new-privileges --cap-drop ALL
   that is not a release tag therefore needs Go on `PATH`; consumers pin tag
   commits, so they get the archive. `hack/tagged-pins-cases.sh` became Go
   table tests.
-
-`public-runners`:
-
-- **Now a thin wrapper around the `ci-actions` Go binary**
-  (`ci-actions public-runners`). Inputs, log lines and exit status are
-  unchanged (checked byte for byte against the shell version on twelve
-  fixtures in one CI run). Like `tagged-pins` it uses a `ci-actions` on
-  `PATH`, else the release archive of the pinned tag, else builds with Go, so
-  it now needs curl and tar or Go on the runner (a hosted runner has both).
-  The visibility lookup uses the job's token against the API directly rather
-  than the `gh` CLI. The binary-finding logic is shared by every wrapper in
-  `lib/ci-actions-bin.sh`. The shell cases became Go table tests, and
-  `restricted-sim` now also runs this wrapper with the built binary.
-
-`fleet-discover`:
-
-- **Now a thin wrapper around `ci-actions fleet discover`.** Inputs, outputs,
-  log, summary and `GITHUB_OUTPUT` lines are unchanged (checked against the
-  shell version on a stub API in one CI run). It no longer needs `curl` and
-  `jq` for the rules; the wrapper needs curl and tar or Go to fetch the
-  binary. The required-check rule (rulesets and classic protection, with an
-  unreadable source undecided, never a skip) is the same, now table-tested in
-  Go; `hack/discover-cases.sh` is gone. One fix: an invalid `filter`
-  expression used to skip every repository without a word, and now also
-  prints one `::warning::` saying so. `fleet pins` and `fleet-discover` share
-  one GitHub client (`internal/ghapi`).
 
 New:
 
