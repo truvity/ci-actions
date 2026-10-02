@@ -106,6 +106,16 @@ has "$log" "::error::caller-parity needs the ci-actions binary" \
   && ok "caller-parity with no binary fails naming itself" \
   || bad "caller-parity with no binary fails naming itself: $log"
 
+runob() { (cd "$work/ws" && env -i HOME="$work" RUNNER_TEMP="$work/tmp" ACTION_PATH="$here/openbao-secrets" "$@" bash "$here/openbao-secrets/run.sh" 2>&1); }
+log=$(runob PATH="$work/min" CI_ACTIONS_BIN="$work/stubdir/ci-actions" STUB_EXIT=0)
+has "$log" "stub ran: openbao-secrets LIBRARIES=unset" \
+  && ok "openbao-secrets runs the binary as 'openbao-secrets'" \
+  || bad "openbao-secrets runs the binary as 'openbao-secrets': $log"
+log=$(runob PATH="$work/min")
+has "$log" "::error::openbao-secrets needs the ci-actions binary" \
+  && ok "openbao-secrets with no binary fails naming itself" \
+  || bad "openbao-secrets with no binary fails naming itself: $log"
+
 echo
 if [ "$fail" = 0 ]; then echo "all cases pass"; else echo "::error::tagged-pins wrapper cases failed"; fi
 exit "$fail"
