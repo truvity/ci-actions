@@ -10,7 +10,7 @@ import (
 
 // ghcrHost is the registry whose written-out image references C11 reads,
 // wherever in a line they sit: a search for them, not a check of a URL.
-const ghcrHost = `ghcr` + `\.io`
+const ghcrHost = "ghcr" + ".io"
 
 var (
 	reRecipeHeader = regexp.MustCompile(`^@?[A-Za-z_][A-Za-z0-9_-]*([ \t][^:]*)?:([ \t]|$)`)
@@ -154,12 +154,39 @@ var (
 	reCommentOut = regexp.MustCompile(`#.*$`)
 	reQuoteSpace = regexp.MustCompile(`["'\s]`)
 	reTemplate   = regexp.MustCompile(`\{\{`)
-	reGhcr       = regexp.MustCompile(ghcrHost + `/[A-Za-z0-9._/-]+`)
-	reGhcrCharts = regexp.MustCompile(`^` + ghcrHost + `/[^/]+/charts(/|$)`)
+	reGhcrCharts = regexp.MustCompile(`^ghcr\.io/[^/]+/charts(/|$)`)
 	reReposItems = regexp.MustCompile(`repositories:[ \t\n\v\f\r]*\[([^\]]+)\]`)
 	reBaseFalse  = regexp.MustCompile(`base_import_paths:[ \t\n\v\f\r]*false`)
 	reCommentLn  = regexp.MustCompile(`^[ \t\n\v\f\r]*#`)
 )
+
+// ghcrRefs is `grep -o 'ghcr\.io/[A-Za-z0-9._/-]+'`: every image reference
+// written out in a line, found by search, left to right, without overlap.
+func ghcrRefs(line string) []string {
+	var out []string
+	for {
+		i := strings.Index(line, ghcrHost+"/")
+		if i < 0 {
+			return out
+		}
+		start := i + len(ghcrHost) + 1
+		end := start
+		for end < len(line) {
+			c := line[end]
+			if c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '.' || c == '_' || c == '/' || c == '-' {
+				end++
+				continue
+			}
+			break
+		}
+		if end == start {
+			line = line[start:]
+			continue
+		}
+		out = append(out, line[i:end])
+		line = line[end:]
+	}
+}
 
 func uniqSorted(in []string) []string {
 	m := map[string]bool{}
@@ -288,7 +315,7 @@ func (r *run) c11() {
 			if reCommentLn.MatchString(l) {
 				continue
 			}
-			for _, m := range reGhcr.FindAllString(l, -1) {
+			for _, m := range ghcrRefs(l) {
 				if !reGhcrCharts.MatchString(m) {
 					refs = append(refs, m)
 				}
