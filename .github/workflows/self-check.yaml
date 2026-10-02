@@ -54,22 +54,23 @@ jobs:
           tar xzf actionlint.tgz actionlint
           ./actionlint -color
 
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+
       # The golangci-depguard kit is a hand copy of truvity/policy's
       # lint/golangci-depguard.yaml, pinned by kits.yaml's `source:`. A
       # live read, not a stub: truvity/policy is public and the point is
       # to catch OUR copy falling behind THEIRS, which a stub cannot see.
       - name: policy kit current
-        run: ./hack/policy-kit-current.sh
+        run: go run ./cmd/ci-actions repo-check policy-kit
 
       # The no-privilege contract: nothing here may escalate. Runners
       # under the Pod Security restricted profile cannot escalate, and a
-      # hosted runner that can is not the contract.
-      - name: no-escalation cases
-        run: ./hack/no-escalation-cases.sh
-
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          go-version-file: go.mod
+      # hosted runner that can is not the contract. (Its own cases, planting
+      # the call in each shape the scan must catch, are Go tests below.)
+      - name: no-escalation
+        run: go run ./cmd/ci-actions repo-check no-escalation
 
       # setup-devbox's cache seam: that the composite delegates to a
       # SHA-pinned truvity/ci-cache/setup and passes every input that action
@@ -173,6 +174,22 @@ jobs:
       # variables.
       - name: leak canary
         run: ./hack/leak-canary.sh
+
+  # TEMPORARY: the shell checks against their Go ports on the same
+  # fixtures; removed before merge.
+  parity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - run: git fetch origin master:refs/remotes/origin/master || true
+      - name: no-escalation and policy-kit, old against new
+        run: ./hack/parity-repo-checks.sh
 
   # The actions' step scripts, run as a Pod Security `restricted` runner:
   # uid 1001, no_new_privs, all capabilities dropped, read-only root. A
