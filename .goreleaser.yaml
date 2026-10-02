@@ -1,0 +1,38 @@
+# The ci-actions binary behind the thin composite wrappers.
+#
+# A release is an annotated vX.Y.Z tag (see README, "Releasing"); the tag
+# workflow runs this. Consumers pin the COMMIT of that tag, and the
+# wrappers resolve that commit back to the tag to fetch the matching
+# archive and checksums.txt, so asset names are a contract:
+#   ci-actions_<version without v>_<os>_<arch>.tar.gz and checksums.txt
+version: 2
+
+project_name: ci-actions
+
+builds:
+  - id: ci-actions
+    main: ./cmd/ci-actions
+    binary: ci-actions
+    env:
+      - CGO_ENABLED=0
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -X main.version={{ .Version }}
+    goos: [linux, darwin]
+    goarch: [amd64, arm64]
+
+archives:
+  - id: ci-actions
+    formats: [tar.gz]
+    name_template: "ci-actions_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+
+checksum:
+  name_template: checksums.txt
+
+changelog:
+  disable: true
+
+release:
+  # The CHANGELOG is the release note; a release here is the tag.
+  mode: keep-existing

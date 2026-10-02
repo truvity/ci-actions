@@ -34,9 +34,14 @@ kit:
 cache-env:
     @./hack/cache-env-cases.sh
 
-# Test tagged-pins rule against local remotes
-pins-cases:
-    @./hack/tagged-pins-cases.sh
+# Go vet and table tests: tagged-pins against local remotes, fleet pins against a fake GitHub
+go-test:
+    go vet ./...
+    go test ./...
+
+# Test the tagged-pins wrapper that finds the binary
+pins-wrapper:
+    @./hack/tagged-pins-wrapper-cases.sh
 
 # Test fork-guard against fake event payloads
 fork-guard:
@@ -55,6 +60,11 @@ restricted-sim:
     @./hack/restricted-sim.sh --control
     @./hack/restricted-sim.sh --self-test
     @./hack/restricted-sim.sh
+
+# Known vulnerabilities in the Go CLI. NOT part of `check`: security.yaml
+# runs it on its own schedule so a new advisory cannot redden the merge gate.
+vuln:
+    go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./...
 
 # Verify all pins point to release tags
 pins:
@@ -149,8 +159,8 @@ conformance:
     STRICT=false bash -c '
       env GITHUB_ACTION_PATH=. \
           STRICT=false \
-          SKIP="" \
-          REASON="" \
+          SKIP="C10" \
+          REASON="standalone security.yaml; a pin into ci-workflows would make the libraries pin each other" \
           RENOVATE_PRESET="github>truvity/ci-workflows" \
           DEFAULT_BRANCH="master" \
           ./policy-conformance/policy-conformance.sh
@@ -161,5 +171,5 @@ leak-canary:
     @./hack/leak-canary.sh
 
 # Run all checks (the merge gate)
-check: lint discover parity kit cache-env pins-cases conformance-cases no-escalation preflight-cases fork-guard pins runners conformance leak-canary
+check: lint discover parity kit cache-env go-test pins-wrapper conformance-cases no-escalation preflight-cases fork-guard pins runners conformance leak-canary
     @echo "✓ All checks passed"

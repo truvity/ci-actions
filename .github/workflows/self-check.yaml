@@ -96,12 +96,32 @@ jobs:
       - name: preflight cases
         run: ./hack/preflight-cases.sh
 
-      # The pin guard, against local remotes. It judges a LIST of
-      # libraries since the split, and a list is where it can be wrong in
-      # a way the old single-library shape could not: a second library
-      # whose pins are never looked at passes silently.
-      - name: tagged-pins cases
-        run: ./hack/tagged-pins-cases.sh
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+
+      # The Go CLI behind the thin wrappers: the pin guard against local
+      # git remotes (it judges a LIST of libraries, and a list is where it
+      # can be wrong in a way the single-library shape could not: a second
+      # library whose pins are never looked at passes silently), the
+      # `fleet pins` resolution against a fake GitHub, and the CLI's exit
+      # codes. No network, no token.
+      - name: go vet and tests
+        run: |
+          go vet ./...
+          go test ./...
+
+      # The release configuration is code too: a typo is found when a tag
+      # is cut, which is the worst time.
+      - name: goreleaser check
+        uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7.2.3
+        with:
+          version: "~> v2"
+          args: check
+
+      # The thin wrapper that finds the binary, with the binary stubbed.
+      - name: tagged-pins wrapper cases
+        run: ./hack/tagged-pins-wrapper-cases.sh
 
       # policy-conformance, against fixture repositories: one that meets
       # every rule, then one rule broken at a time. A conformance check
@@ -141,9 +161,15 @@ jobs:
       # Justfile, so several rules skip; the rest are judged, and the action
       # runs end to end from a real checkout, fetches its tags and writes
       # its summary.
+      #
+      # C10 (security.yaml calling ci-workflows) is skipped: this library
+      # has a standalone security.yaml, because ci-workflows pins these
+      # actions and a pin back would make the two pin each other.
       - uses: ./policy-conformance
         with:
           strict: "true"
+          skip: C10
+          reason: standalone security.yaml; a pin into ci-workflows would make the libraries pin each other
 
       # This repository is PUBLIC and its history cannot be unpublished.
       # Everything particular -- account ids, role ARNs, registry hosts,

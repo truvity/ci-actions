@@ -182,7 +182,8 @@ each:
 - `just parity` — what counts as a DIFFERENCE from the canonical caller.
 - `just kit` — the golangci-depguard kit against truvity/policy.
 - `just cache-env` — what setup-devbox writes into GITHUB_ENV, per cache shape.
-- `just pins-cases` — the pin guard, against local git remotes.
+- `just go-test` — `go vet` and the table tests of the Go CLI: the pin guard against local git remotes, `fleet pins` against a fake GitHub.
+- `just pins-wrapper` — the thin `tagged-pins` wrapper that finds the binary, with the binary stubbed.
 - `just conformance-cases` — policy-conformance rule tests against fixture repositories.
 - `just no-escalation` — fail if any action file or script calls `sudo`.
 - `just preflight-cases` — setup-devbox's preflight, one failure at a time.
@@ -207,10 +208,40 @@ GitHub's auto-merge finishes it when `check` goes green.
 runtime, so `self-check.yaml`'s separate `cluster-kind` job proves it
 end to end, outside `check` and not required.
 
+## The `ci-actions` CLI
+
+Logic that outgrows a shell script lives in one Go binary, `cmd/ci-actions`
+(standard library only), and the composite actions become thin wrappers that
+run it. `tagged-pins` is the first: the action keeps its inputs, outputs and
+messages and runs `ci-actions tagged-pins`. The wrapper (`tagged-pins/run.sh`)
+uses a `ci-actions` already on `PATH`, else the goreleaser archive of the tag
+the action is pinned at (the pinned commit resolves back to its tag; the
+archive is checked against `checksums.txt`), else builds the binary with Go.
+
+```
+ci-actions tagged-pins                 # env LIBRARIES, as the action's `libraries` input
+ci-actions fleet pins --org truvity --org trust-form \
+    --min-setup-devbox v1.6.1 --json pins.json
+```
+
+`fleet pins` reads every non-archived repository of the organisations with a
+token from `GITHUB_TOKEN` (or `GH_TOKEN`; it is never printed), resolves
+which ci-workflows and ci-actions versions each repository's workflows pin,
+and reads each pinned reusable workflow at its pinned commit to find the
+TRANSITIVE setup-devbox pin. The version is the tag the pinned commit IS,
+never the `# vX.Y.Z` comment beside it. A setup-devbox vendored inside a
+pre-split ci-workflows shows as `in-tree`, and a commit that names no release
+as `untagged:<sha>`; both count as below any `--min-setup-devbox`. It prints a
+table and, with `--json`, a machine-readable report. Exit codes: 1 when the
+gate fails, 3 when a repository could not be read (a gate that cannot see a
+repository must not pass it), 2 for usage.
+
 ## Releasing
 
 A release is an annotated `vX.Y.Z` tag on `master`; add its heading to
-[CHANGELOG.md](CHANGELOG.md) in the same change that is tagged.
+[CHANGELOG.md](CHANGELOG.md) in the same change that is tagged. Pushing the
+tag runs [`release.yaml`](.github/workflows/release.yaml), which publishes the
+`ci-actions` binary archives with goreleaser.
 [`auto-release.yaml`](.github/workflows/auto-release.yaml) cuts the
 next patch tag each Monday when `master` has moved, and at once for a
 merged pull request labelled `security`, but only while
