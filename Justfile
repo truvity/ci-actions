@@ -64,7 +64,7 @@ restricted-sim:
 # Known vulnerabilities in the Go CLI. NOT part of `check`: security.yaml
 # runs it on its own schedule so a new advisory cannot redden the merge gate.
 vuln:
-    go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./...
+    go run golang.org/x/vuln/cmd/govulncheck@v1.7.0 ./...
 
 # Verify all pins point to release tags
 pins:
