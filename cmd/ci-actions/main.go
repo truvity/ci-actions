@@ -94,11 +94,18 @@ func fleetPins(ctx context.Context, args []string, stdout, stderr io.Writer, get
 	acRepo := fs.String("actions-repo", "truvity/ci-actions", "the composite-action library")
 	minSetup := fs.String("min-setup-devbox", "", "exit 1 when any repository resolves setup-devbox below this version, e.g. v1.6.1")
 	jsonOut := fs.String("json", "", "write the machine-readable report to this file ('-' for stdout, which moves the table to stderr)")
+	runnerFilter := fs.String("runner-filter", "any", "only print repositories that run on: any, hosted or self-hosted (reporting only: the JSON, the gate and the exit code ignore it)")
 	archived := fs.Bool("include-archived", false, "also scan archived repositories")
 	all := fs.Bool("all", false, "list repositories that pin nothing too")
 	conc := fs.Int("concurrency", 8, "repositories scanned at once")
 	apiURL := fs.String("api-url", getenv("GITHUB_API_URL"), "GitHub API base URL")
 	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	switch *runnerFilter {
+	case "any", "hosted", "self-hosted":
+	default:
+		fmt.Fprintf(stderr, "fleet pins: --runner-filter %q is not any, hosted or self-hosted\n", *runnerFilter)
 		return 2
 	}
 	if len(orgs) == 0 {
@@ -122,6 +129,7 @@ func fleetPins(ctx context.Context, args []string, stdout, stderr io.Writer, get
 		fmt.Fprintln(stderr, "fleet pins:", redact(err.Error(), token))
 		return 1
 	}
+	rep.RunnerFilter = *runnerFilter
 	if *minSetup != "" {
 		if _, err := fleet.ApplyGate(rep, *minSetup); err != nil {
 			fmt.Fprintln(stderr, "fleet pins:", err)

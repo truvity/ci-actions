@@ -232,3 +232,36 @@ func (c *Client) Tags(ctx context.Context, repo string) ([]Tag, error) {
 	})
 	return tags, err
 }
+
+// Tree lists every file path of a repository at a ref with one request. A
+// missing repository or ref is an empty list; a tree GitHub truncated is an
+// error, because a scan that cannot see a file must not pass the repository.
+func (c *Client) Tree(ctx context.Context, repo, ref string) ([]string, error) {
+	body, _, err := c.do(ctx, c.BaseURL+"/repos/"+repo+"/git/trees/"+url.PathEscape(ref)+"?recursive=1", "application/vnd.github+json")
+	if errors.Is(err, ErrNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var t struct {
+		Tree []struct {
+			Path string `json:"path"`
+			Type string `json:"type"`
+		} `json:"tree"`
+		Truncated bool `json:"truncated"`
+	}
+	if err := json.Unmarshal(body, &t); err != nil {
+		return nil, fmt.Errorf("listing the tree of %s: %w", repo, err)
+	}
+	if t.Truncated {
+		return nil, fmt.Errorf("the tree of %s is too large for one listing", repo)
+	}
+	var out []string
+	for _, e := range t.Tree {
+		if e.Type == "blob" {
+			out = append(out, e.Path)
+		}
+	}
+	return out, nil
+}

@@ -231,7 +231,16 @@ and reads each pinned reusable workflow at its pinned commit to find the
 TRANSITIVE setup-devbox pin. The version is the tag the pinned commit IS,
 never the `# vX.Y.Z` comment beside it. A setup-devbox vendored inside a
 pre-split ci-workflows shows as `in-tree`, and a commit that names no release
-as `untagged:<sha>`; both count as below any `--min-setup-devbox`. It prints a
+as `untagged:<sha>`; both count as below any `--min-setup-devbox`. It also
+follows the repository's own composite actions: every
+`.github/actions/**/action.y*ml` is read, and so is any `uses: ./path` (a local
+action may call another), so a setup-devbox pin hidden inside them is seen; a
+pin found there shows as `local action <file>` in the VIA column. The RUNNERS
+column says what the repository's own workflows run on (`hosted`,
+`self-hosted`, `mixed`, `dynamic` for an expression, `-` when only reusable
+workflows are called); `--runner-filter hosted|self-hosted` narrows the
+printed table. It is reporting only: the JSON, the gate and the exit codes
+ignore it. It prints a
 table and, with `--json`, a machine-readable report. Exit codes: 1 when the
 gate fails, 3 when a repository could not be read (a gate that cannot see a
 repository must not pass it), 2 for usage.

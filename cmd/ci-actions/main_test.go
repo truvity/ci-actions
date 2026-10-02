@@ -68,6 +68,8 @@ func TestFleetPinsCLI(t *testing.T) {
 		{"gate above", []string{"fleet", "pins", "--org", "acme", "--min-setup-devbox", "v1.6.1"}, env, 1, []string{"acme/app", "below v1.6.1"}},
 		{"gate at or below", []string{"fleet", "pins", "--org", "acme", "--min-setup-devbox", "v1.4.0"}, env, 0, []string{"at or above v1.4.0"}},
 		{"bad gate", []string{"fleet", "pins", "--org", "acme", "--min-setup-devbox", "new"}, env, 2, nil},
+		{"runner filter", []string{"fleet", "pins", "--org", "acme", "--runner-filter", "self-hosted"}, env, 0, []string{"RUNNERS"}},
+		{"bad runner filter", []string{"fleet", "pins", "--org", "acme", "--runner-filter", "big"}, env, 2, []string{"--runner-filter"}},
 		{"no org", []string{"fleet", "pins"}, env, 2, []string{"--org"}},
 		{"no token", []string{"fleet", "pins", "--org", "acme"}, map[string]string{"GITHUB_API_URL": srv.URL}, 2, []string{"GITHUB_TOKEN"}},
 		{"json file", []string{"fleet", "pins", "--org", "acme", "--json", jsonPath}, env, 0, nil},
