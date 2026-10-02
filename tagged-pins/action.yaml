@@ -2,8 +2,10 @@ name: tagged-pins
 description: >-
   Refuse a pin into one of this estate's shared CI repositories that does
   not name a release. Reads each tag list with `git ls-remote` on a public
-  repository, so it needs no token, no API and no toolchain beyond git and
-  bash.
+  repository, so it needs no token and no API. The rule is the `ci-actions`
+  binary's `tagged-pins` command; this action is a thin wrapper that finds
+  that binary (release archive of the pinned tag, or built with Go) and
+  runs it. Needs git and bash, plus curl and tar or Go.
 
 inputs:
   libraries:
@@ -23,4 +25,7 @@ runs:
     - shell: bash
       env:
         LIBRARIES: ${{ inputs.libraries }}
-      run: ${{ github.action_path }}/tagged-pins.sh
+        ACTION_PATH: ${{ github.action_path }}
+        ACTION_REPOSITORY: ${{ github.action_repository }}
+        ACTION_REF: ${{ github.action_ref }}
+      run: bash "$ACTION_PATH/run.sh"

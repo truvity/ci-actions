@@ -36,6 +36,29 @@ Tests: `hack/no-escalation-cases.sh` fails if any action file or script contains
 with `--user 1001:1001 --security-opt no-new-privileges --cap-drop ALL
 --read-only` and fails when the pre-v1.6.1 `sudo` step is put back.
 
+`tagged-pins`:
+
+- **Now a thin wrapper around the new `ci-actions` Go binary**
+  (`ci-actions tagged-pins`). Inputs, outputs, log lines and exit status are
+  unchanged (checked byte for byte against the shell version on this
+  repository and on ci-workflows). The wrapper uses a `ci-actions` on `PATH`,
+  else the release archive of the tag the action is pinned at (verified
+  against `checksums.txt`), else builds the binary with Go. A pin to a commit
+  that is not a release tag therefore needs Go on `PATH`; consumers pin tag
+  commits, so they get the archive. `hack/tagged-pins-cases.sh` became Go
+  table tests.
+
+New:
+
+- **`ci-actions fleet pins`**: per repository of the given organisations,
+  which ci-workflows and ci-actions versions its workflows pin, including the
+  transitive setup-devbox pin read from the pinned reusable workflow at its
+  pinned commit. Prints a table and, with `--json`, a report.
+  `--min-setup-devbox vX.Y.Z` exits non-zero when any repository resolves
+  below it. Reads the token from `GITHUB_TOKEN` or `GH_TOKEN` and never prints
+  it.
+- `.goreleaser.yaml` and a tag-triggered `release.yaml` publish the binary.
+
 ## v1.6.1
 
 Not yet released.

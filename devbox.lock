@@ -5,6 +5,44 @@
       "last_modified": "2026-09-21T03:12:12Z",
       "resolved": "github:NixOS/nixpkgs/35e212742ceab4ae1dcfbfd9039a39215c816e8e?lastModified=1789960332"
     },
+    "go@1.25": {
+      "last_modified": "2026-09-14T07:18:56Z",
+      "resolved": "github:NixOS/nixpkgs/c7def046b9a883d46974757852106483d741586f#go_1_25",
+      "source": "devbox-search",
+      "version": "1.25.14",
+      "systems": {
+        "aarch64-darwin": {
+          "outputs": [
+            {
+              "name": "out",
+              "path": "/nix/store/ldhng9p5j6zr9wnqjckn8x3nzig3067h-go-1.25.14",
+              "default": true
+            }
+          ],
+          "store_path": "/nix/store/ldhng9p5j6zr9wnqjckn8x3nzig3067h-go-1.25.14"
+        },
+        "aarch64-linux": {
+          "outputs": [
+            {
+              "name": "out",
+              "path": "/nix/store/hk3g049iav9z6yn50wa4fg49v4yf0fzd-go-1.25.14",
+              "default": true
+            }
+          ],
+          "store_path": "/nix/store/hk3g049iav9z6yn50wa4fg49v4yf0fzd-go-1.25.14"
+        },
+        "x86_64-linux": {
+          "outputs": [
+            {
+              "name": "out",
+              "path": "/nix/store/466b4piy1nibc7fdmgqpjjr3dq4rzqi6-go-1.25.14",
+              "default": true
+            }
+          ],
+          "store_path": "/nix/store/466b4piy1nibc7fdmgqpjjr3dq4rzqi6-go-1.25.14"
+        }
+      }
+    },
     "jq@1.7.1": {
       "last_modified": "2025-06-18T03:01:18Z",
       "resolved": "github:NixOS/nixpkgs/5395fb3ab3f97b9b7abca147249fa2e8ed27b192#jq",

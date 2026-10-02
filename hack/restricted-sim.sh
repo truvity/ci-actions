@@ -22,7 +22,7 @@
 # keep it offline: what is under test is the privilege contract, not those
 # tools.
 #
-#   hack/restricted-sim.sh                 setup-devbox and recipe against the fixture
+#   hack/restricted-sim.sh                 setup-devbox, recipe and tagged-pins against the fixture
 #   hack/restricted-sim.sh --control       prove the image escalates WITHOUT the flag
 #   hack/restricted-sim.sh --self-test     prove the harness fails a privileged step
 #   hack/restricted-sim.sh ACTION_DIR...   other actions, by directory
@@ -105,6 +105,16 @@ extract() {
 run_sim() {
   local steps=$1
   shift
+  # The Go CLI the thin wrappers run: built here, statically, so the
+  # container needs no toolchain. An empty dir when there is no Go (the
+  # wrapper then says so, and the actions that need it fail loudly).
+  local bindir
+  bindir=$(mktemp -d)
+  chmod 755 "$bindir"
+  if command -v go >/dev/null 2>&1; then
+    (cd "$here" && CGO_ENABLED=0 go build -trimpath -o "$bindir/ci-actions" ./cmd/ci-actions) || { echo "::error::could not build the ci-actions binary"; exit 2; }
+  fi
+  local rc
   docker run --rm \
     --user 1001:1001 \
     --security-opt no-new-privileges \
@@ -117,6 +127,7 @@ run_sim() {
     -v "$sim/fixture:/fixture:ro" \
     -v "$sim/stubs:/stubs:ro" \
     -v "$steps:/steps:ro" \
+    -v "$bindir:/ci-bin:ro" \
     -e HOME=/home/runner -e RUNNER_TEMP=/work/temp -e GITHUB_WORKSPACE=/work/ws \
     -e GITHUB_ENV=/work/temp/github_env -e GITHUB_OUTPUT=/work/temp/github_output \
     -e GITHUB_PATH=/work/temp/github_path -e GITHUB_STEP_SUMMARY=/work/temp/summary \
@@ -131,7 +142,7 @@ run_sim() {
       cp -a /fixture/. /work/ws/
       cd /work/ws
       git init -q . && git add -A && git -c user.name=sim -c user.email=sim@example.invalid commit -qm fixture
-      export PATH=/stubs:$PATH
+      export PATH=/ci-bin:/stubs:$PATH
       for sh in /steps/*.sh; do
         base=${sh%.sh}
         echo "::group::$(cat "$base.name")"
@@ -146,6 +157,9 @@ run_sim() {
       done
       echo "sim: all steps passed"
     '
+  rc=$?
+  rm -rf "$bindir"
+  return $rc
 }
 
 simulate() {
@@ -210,7 +224,7 @@ case "${1:-}" in
   fi
   ;;
 *)
-  if [ $# -eq 0 ]; then set -- "$here/setup-devbox" "$here/recipe"; fi
+  if [ $# -eq 0 ]; then set -- "$here/setup-devbox" "$here/recipe" "$here/tagged-pins"; fi
   simulate "$@"
   ;;
 esac
