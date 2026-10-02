@@ -60,6 +60,20 @@ else
   echo "skip  go build path: go is not on PATH"
 fi
 
+# The same resolver serves every wrapper: public-runners hands its own
+# subcommand and inputs through, and names itself in the failure.
+runpr() { (cd "$work/ws" && env -i HOME="$work" RUNNER_TEMP="$work/tmp" ACTION_PATH="$here/public-runners" "$@" bash "$here/public-runners/run.sh" 2>&1); }
+log=$(runpr PATH="$work/min" CI_ACTIONS_BIN="$work/stubdir/ci-actions" RUNNERS="ubuntu-latest" STUB_EXIT=1)
+rc=$?
+[ $rc = 1 ] && has "$log" "stub ran: public-runners LIBRARIES=unset cwd=ws" \
+  && ok "public-runners runs the binary as 'public-runners' and returns its status" \
+  || bad "public-runners runs the binary as 'public-runners' and returns its status (rc=$rc): $log"
+log=$(runpr PATH="$work/min")
+rc=$?
+[ $rc = 1 ] && has "$log" "::error::public-runners needs the ci-actions binary" \
+  && ok "public-runners with no binary fails naming itself" \
+  || bad "public-runners with no binary fails naming itself (rc=$rc): $log"
+
 echo
 if [ "$fail" = 0 ]; then echo "all cases pass"; else echo "::error::tagged-pins wrapper cases failed"; fi
 exit "$fail"

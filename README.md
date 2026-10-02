@@ -212,14 +212,15 @@ end to end, outside `check` and not required.
 
 Logic that outgrows a shell script lives in one Go binary, `cmd/ci-actions`
 (standard library only), and the composite actions become thin wrappers that
-run it. `tagged-pins` is the first: the action keeps its inputs, outputs and
-messages and runs `ci-actions tagged-pins`. The wrapper (`tagged-pins/run.sh`)
-uses a `ci-actions` already on `PATH`, else the goreleaser archive of the tag
+run it. `tagged-pins` was the first and `public-runners` the second: each
+action keeps its inputs, outputs and messages and runs `ci-actions <command>`.
+The wrapper (`<action>/run.sh`, sharing `lib/ci-actions-bin.sh`) uses a `ci-actions` already on `PATH`, else the goreleaser archive of the tag
 the action is pinned at (the pinned commit resolves back to its tag; the
 archive is checked against `checksums.txt`), else builds the binary with Go.
 
 ```
 ci-actions tagged-pins                 # env LIBRARIES, as the action's `libraries` input
+ci-actions public-runners              # env RUNNERS, VISIBILITY, GITHUB_REPOSITORY, GH_TOKEN
 ci-actions fleet pins --org example-org --org other-org \
     --min-setup-devbox v1.6.1 --json pins.json
 ```
