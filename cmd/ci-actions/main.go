@@ -17,6 +17,7 @@ import (
 	"github.com/truvity/ci-actions/internal/devboxparity"
 	"github.com/truvity/ci-actions/internal/fleet"
 	"github.com/truvity/ci-actions/internal/fleetdiscover"
+	"github.com/truvity/ci-actions/internal/openbaosecrets"
 	"github.com/truvity/ci-actions/internal/publicrunners"
 	"github.com/truvity/ci-actions/internal/taggedpins"
 )
@@ -29,6 +30,9 @@ const usage = `ci-actions <command>
 Commands:
   tagged-pins          refuse a pin into a shared CI library that names no release
                        (env: LIBRARIES, whitespace- or comma-separated)
+  openbao-secrets      read one OpenBAO KV path as the job's own identity (env: ISSUER, ADDRESS,
+                       KV_PATH, BAO_NAMESPACE, MOUNT, AUTH_MOUNT, ROLE, AUDIENCE, WANTED, CA_CERT,
+                       ACCESSCTL_MODE, GITHUB_OUTPUT)
   public-runners       refuse a self-hosted runner in a public repository
                        (env: RUNNERS, VISIBILITY, GITHUB_REPOSITORY, GH_TOKEN, GITHUB_API_URL)
   caller-parity        compare each repository's shared caller workflows with the canonical kits
@@ -110,6 +114,24 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, getenv fu
 			return 1
 		default:
 			fmt.Fprintln(stderr, "devbox-parity:", err)
+			return 1
+		}
+	case "openbao-secrets":
+		err := openbaosecrets.Run(ctx, openbaosecrets.Options{
+			Issuer: getenv("ISSUER"), Address: getenv("ADDRESS"), KVPath: getenv("KV_PATH"),
+			Namespace: getenv("BAO_NAMESPACE"), Mount: getenv("MOUNT"), AuthMount: getenv("AUTH_MOUNT"),
+			Role: getenv("ROLE"), Audience: getenv("AUDIENCE"), Wanted: getenv("WANTED"),
+			CACert: getenv("CA_CERT"), AccessctlBy: getenv("ACCESSCTL_MODE"),
+			IDTokenRequestURL: getenv("ACTIONS_ID_TOKEN_REQUEST_URL"), RunnerTemp: getenv("RUNNER_TEMP"),
+			GithubOutput: getenv("GITHUB_OUTPUT"), Out: stdout, Err: stderr,
+		})
+		switch {
+		case err == nil:
+			return 0
+		case errors.Is(err, openbaosecrets.ErrReported):
+			return 1
+		default:
+			fmt.Fprintln(stderr, "openbao-secrets:", err)
 			return 1
 		}
 	case "public-runners":

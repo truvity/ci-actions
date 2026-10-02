@@ -90,6 +90,13 @@ jobs:
       # library whose pins are never looked at passes silently), the
       # `fleet pins` resolution against a fake GitHub, and the CLI's exit
       # codes. No network, no token.
+      # openbao-secrets (internal/openbaosecrets) is in here too, against a
+      # stub OpenBAO and a stub accessctl: the one action that handles
+      # secret values, so the tests assert that none is ever printed
+      # outside an `::add-mask::` command, that every value (and every
+      # line of a multi-line one) is masked before it is written anywhere,
+      # and that the login is revoked even when the read fails.
+      #
       # caller-parity's comparison (internal/callerparity) is in here too,
       # against a stub API: what counts as a DIFFERENCE between a
       # repository's shared caller workflow and the canonical copy. Too
@@ -114,7 +121,7 @@ jobs:
           args: check
 
       # The thin wrapper that finds the binary, with the binary stubbed.
-      - name: wrapper cases (tagged-pins, public-runners, fleet-discover, devbox-parity, caller-parity)
+      - name: wrapper cases (tagged-pins, public-runners, fleet-discover, devbox-parity, caller-parity, openbao-secrets)
         run: ./hack/tagged-pins-wrapper-cases.sh
 
       # policy-conformance, against fixture repositories: one that meets
@@ -171,6 +178,22 @@ jobs:
       # variables.
       - name: leak canary
         run: ./hack/leak-canary.sh
+
+  # TEMPORARY: the shell actions against their Go ports on the same
+  # fixtures; removed before merge.
+  parity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - run: git fetch origin master:refs/remotes/origin/master || true
+      - name: openbao-secrets, old against new
+        run: ./hack/parity-openbao-secrets.sh
 
   # The actions' step scripts, run as a Pod Security `restricted` runner:
   # uid 1001, no_new_privs, all capabilities dropped, read-only root. A

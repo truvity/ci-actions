@@ -39,6 +39,14 @@
 #
 # Every value is masked before it is written anywhere, line by line, so
 # a multi-line secret is masked whole.
+#
+# The logic is the `ci-actions` binary's `openbao-secrets` command
+# (internal/openbaosecrets, table-tested; no secret value is ever printed
+# except as an `::add-mask::` argument, which the tests assert); this action
+# is a thin wrapper that finds that binary (release archive of the pinned
+# tag, or built with Go) and runs it. accessctl is still the executed
+# command that does the exchange. It needs bash plus curl and tar or Go, and
+# no jq.
 name: Read secrets from OpenBAO
 description: Read one KV path as the job's own identity, through an access-roster token exchange.
 
@@ -121,145 +129,7 @@ runs:
         WANTED: ${{ inputs.keys }}
         CA_CERT: ${{ inputs.ca-cert }}
         ACCESSCTL_MODE: ${{ inputs.accessctl }}
-      run: |
-        set -euo pipefail
-
-        for name in ISSUER ADDRESS KV_PATH; do
-          [ -n "${!name}" ] || { echo "::error::$name is required"; exit 1; }
-        done
-
-        if [ -z "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" ]; then
-          echo "::error::this job has no id-token permission; the read is an exchange of the job's own identity token"
-          exit 1
-        fi
-
-        # accessctl comes from the repository's devbox, where its version
-        # is pinned beside every other tool the job uses. devbox writes
-        # "Info:" chatter to stdout, so only the last line is the token.
-        run() {
-          if [ "$ACCESSCTL_MODE" = direct ] || [ ! -f devbox.json ]; then
-            accessctl "$@"
-          else
-            devbox run -- accessctl "$@"
-          fi
-        }
-
-        # Every curl: the same CA (when given) and namespace, a short
-        # timeout, and failure on an HTTP error rather than a body that
-        # is not what the next step expects.
-        CURL=(curl --fail-with-body --silent --show-error --max-time 30)
-        if [ -n "$CA_CERT" ]; then
-          printf '%s\n' "$CA_CERT" > "$RUNNER_TEMP/openbao-ca.pem"
-          chmod 600 "$RUNNER_TEMP/openbao-ca.pem"
-          CURL+=(--cacert "$RUNNER_TEMP/openbao-ca.pem")
-        fi
-        if [ -n "$BAO_NAMESPACE" ]; then
-          CURL+=(-H "X-Vault-Namespace: $BAO_NAMESPACE")
-        fi
-
-        mask() {
-          # A mask per line: ::add-mask:: takes one line, so a multi-line
-          # secret masked as a whole would still print line by line. The
-          # explicit `return 0` is load-bearing under `set -e`: a last
-          # line too short to mask must not end the step.
-          while IFS= read -r line; do
-            if [ ${#line} -ge 4 ]; then
-              echo "::add-mask::$line"
-            fi
-          done <<< "$1"
-          return 0
-        }
-
-        echo "exchanging this job's identity for the $AUDIENCE audience"
-        if ! token=$(run token --issuer "$ISSUER" --audience "$AUDIENCE" | tail -n1 | tr -d '\r'); then
-          echo "::error::accessctl could not exchange this job's token for $AUDIENCE -- the issuer's grants decide, so check the job's matchers"
-          exit 1
-        fi
-        [ -n "$token" ] || { echo "::error::accessctl returned no token for $AUDIENCE"; exit 1; }
-        mask "$token"
-
-        # The token goes in the BODY, never in a URL or an argument: an
-        # argument is in the process list and in the shell's history.
-        # --fail-with-body hands back what the server said, so a refusal
-        # reads as OpenBAO's own sentence rather than as exit status 22.
-        if ! login=$("${CURL[@]}" -X PUT "$ADDRESS/v1/auth/$AUTH_MOUNT/login" \
-          -d "$(jq -n --arg role "$ROLE" --arg jwt "$token" '{role: $role, jwt: $jwt}')"); then
-          echo "::error::login at $AUTH_MOUNT failed: $login"
-          exit 1
-        fi
-        client_token=$(jq -r '.auth.client_token // ""' <<< "$login")
-        [ -n "$client_token" ] || { echo "::error::$AUTH_MOUNT/login returned no token"; exit 1; }
-        mask "$client_token"
-        echo "logged in at $AUTH_MOUNT as role $ROLE; policies: $(jq -r '.auth.policies | join(", ")' <<< "$login")"
-
-        # Revoked whatever happens next: a read that fails must not leave
-        # a usable login behind for the rest of the job.
-        revoke() {
-          "${CURL[@]}" -X POST -H "X-Vault-Token: $client_token" \
-            "$ADDRESS/v1/auth/token/revoke-self" >/dev/null 2>&1 || true
-        }
-        trap revoke EXIT
-
-        if ! read_body=$("${CURL[@]}" -H "X-Vault-Token: $client_token" \
-          "$ADDRESS/v1/$MOUNT/data/$KV_PATH"); then
-          echo "::error::reading $MOUNT/$KV_PATH failed: $read_body"
-          exit 1
-        fi
-        data=$(jq -c '.data.data // {}' <<< "$read_body")
-        if [ "$(jq 'length' <<< "$data")" -eq 0 ]; then
-          echo "::error::$MOUNT/$KV_PATH holds no keys"
-          exit 1
-        fi
-
-        if [ -n "${WANTED//[[:space:],]/}" ]; then
-          for key in ${WANTED//,/ }; do
-            jq -e --arg k "$key" 'has($k)' <<< "$data" >/dev/null \
-              || { echo "::error::$MOUNT/$KV_PATH has no key $key"; exit 1; }
-          done
-          # Deliberately unquoted: `keys` is a word list.
-          # shellcheck disable=SC2086
-          keys=$(printf '%s\n' ${WANTED//,/ })
-        else
-          keys=$(jq -r 'keys[]' <<< "$data")
-        fi
-
-        env_file="$RUNNER_TEMP/openbao-secrets-$(printf '%s' "$KV_PATH" | tr -c '[:alnum:]' '-').env"
-        : > "$env_file"
-        chmod 600 "$env_file"
-
-        count=0
-        single=""
-        while IFS= read -r key; do
-          [ -n "$key" ] || continue
-          value=$(jq -r --arg k "$key" '.[$k]' <<< "$data")
-          mask "$value"
-
-          name=$(printf '%s' "$key" | tr '[:lower:]' '[:upper:]' | tr -- '-' '_')
-          case "$name" in
-            [A-Z_]*) ;;
-            *) echo "::error::key $key is no environment variable name"; exit 1 ;;
-          esac
-          if [ -n "$(printf '%s' "$name" | tr -d 'A-Z0-9_')" ]; then
-            echo "::error::key $key is no environment variable name"
-            exit 1
-          fi
-
-          # Single quotes, with any quote in the value escaped: a value
-          # is data, and a file that is sourced would otherwise run it.
-          printf "%s='%s'\n" "$name" "$(printf '%s' "$value" | sed "s/'/'\\\\''/g")" >> "$env_file"
-          single="$value"
-          count=$((count + 1))
-        done <<< "$keys"
-
-        echo "read $count key(s) from $MOUNT/$KV_PATH into \$RUNNER_TEMP"
-
-        {
-          echo "env-file=$env_file"
-          if [ "$count" -eq 1 ]; then
-            # A heredoc delimiter that cannot occur in the value.
-            delimiter="openbao-$(date +%s%N)-$RANDOM"
-            echo "value<<$delimiter"
-            printf '%s\n' "$single"
-            echo "$delimiter"
-          fi
-        } >> "$GITHUB_OUTPUT"
+        ACTION_PATH: ${{ github.action_path }}
+        ACTION_REPOSITORY: ${{ github.action_repository }}
+        ACTION_REF: ${{ github.action_ref }}
+      run: bash "$ACTION_PATH/run.sh"
