@@ -210,7 +210,7 @@ end to end, outside `check` and not required.
 
 Logic that outgrows a shell script lives in one Go binary, `cmd/ci-actions`
 (standard library only), and the composite actions become thin wrappers that
-run it. `tagged-pins`, `public-runners`, `fleet-discover`, `devbox-parity` and `caller-parity` are in: each
+run it. `tagged-pins`, `public-runners`, `fleet-discover`, `devbox-parity`, `caller-parity` and `openbao-secrets` are in: each
 action keeps its inputs, outputs and messages and runs `ci-actions <command>`.
 The wrapper (`<action>/run.sh`, sharing `lib/ci-actions-bin.sh`) uses a `ci-actions` already on `PATH`, else the goreleaser archive of the tag
 the action is pinned at (the pinned commit resolves back to its tag; the
@@ -222,6 +222,7 @@ ci-actions public-runners              # env RUNNERS, VISIBILITY, GITHUB_REPOSIT
 ci-actions fleet discover              # env TOKEN, ESTATE, REQUIRE_CHECK, REQUIRE_FILE, FILTER, ENROLLED, API
 ci-actions devbox-parity               # env TOKEN, WORKDIR, BASE, LABEL, MODE, FULL_DAY, MODULE_DIRS, GIT_USER, GIT_EMAIL
 ci-actions caller-parity               # env TOKEN, REPOSITORIES, KITS, FAIL_ON_DIFF, API
+ci-actions openbao-secrets             # env ISSUER, ADDRESS, KV_PATH, ... (no value is ever printed)
 ci-actions fleet pins --org example-org --org other-org \
     --min-setup-devbox v1.6.1 --json pins.json
 ```

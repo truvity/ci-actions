@@ -80,6 +80,30 @@ an untagged commit; `tagged-pins` refuses anything else.
 - One difference: a `kits.yaml` that is not valid YAML is now an error; the
   shell version read every setting as unset and compared whole files.
 
+`openbao-secrets`:
+
+- **Now a thin wrapper around `ci-actions openbao-secrets`.** Inputs, outputs
+  (`value`, `env-file`), the env file, every log and `::error::` line and
+  every `::add-mask::` (the same lines, in the same order, before anything is
+  written) are unchanged: sixteen scenarios (a single value, several keys
+  with quotes and a multi-line secret, `keys` picking, a missing key, values
+  that are not strings, an empty path, a bad variable name, a refused login,
+  a login with no token, a refused read, accessctl failing or returning
+  nothing, no id-token, a missing input, a private CA, custom mounts) ran
+  through the old inline shell and the binary against one stub OpenBAO in
+  one CI run, and stdout, the env file and its mode, the step outputs, what
+  the server saw and the exit status were identical. The Go tests assert
+  that no secret value is printed anywhere but as an `::add-mask::`
+  argument, that the login is revoked even when the read fails, and that the
+  token goes in a request body, never in a URL.
+- `accessctl` is still the executed command that does the exchange (through
+  devbox when the repository has a `devbox.json`, else from `PATH`). The
+  HTTP calls are Go's, so the step no longer needs `curl` or `jq`; the
+  wrapper needs curl and tar or Go. A `ca-cert` is trusted alone, as
+  `curl --cacert` did, and one that holds no certificate is now named in an
+  `::error::` instead of failing inside TLS. The `value` output's heredoc
+  delimiter is random rather than time-based.
+
 ## v1.7.0
 
 `policy-conformance`:

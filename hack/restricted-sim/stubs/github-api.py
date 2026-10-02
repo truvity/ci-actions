@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """A one-repository GitHub API for restricted-sim: just enough of the
 installation, rules and contents endpoints for fleet-discover to run end to
-end offline. Serves until the container exits."""
+end offline, and a one-secret OpenBAO (login, one KV read, revoke) for
+openbao-secrets. Serves until the container exits."""
 import http.server
 import json
 import sys
@@ -19,7 +20,17 @@ class H(http.server.BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def do_PUT(self):
+        if self.path == "/v1/auth/jwt-roster/login":
+            return self.send(200, {"auth": {"client_token": "stub-client-token", "policies": ["default"]}})
+        self.send(404, {"errors": ["not found"]})
+
+    def do_POST(self):
+        self.send(204, {})
+
     def do_GET(self):
+        if self.path.startswith("/v1/kv/data/"):
+            return self.send(200, {"data": {"data": {"STUB_SECRET": "stub-secret-value"}}})
         path = self.path.split("?")[0]
         if path == "/installation/repositories":
             return self.send(200, {"repositories": [
