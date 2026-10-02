@@ -80,6 +80,28 @@ with `--user 1001:1001 --security-opt no-new-privileges --cap-drop ALL
   commits, so they get the archive. `hack/tagged-pins-cases.sh` became Go
   table tests.
 
+`devbox-parity`:
+
+- **Now a thin wrapper around `ci-actions devbox-parity`.** Inputs, outputs
+  (`changed`, `pull-request`) and log lines are unchanged: twelve scenarios
+  (full and auto modes, a raised toolchain, a language above the cap, a
+  playwright follower, several modules, an open PR, each auto-merge gate)
+  run through the old inline shell and the binary in one CI run, and the log,
+  the `gh` calls, the outputs and the resulting git branch were identical.
+  `devbox`, `git` and `gh` are still the commands that run; the logic around
+  them (mode, version comparison, `go.mod` and `package.json` reading, the
+  movement gate and the auto-merge gate) is Go, table-tested. The five steps
+  became one, with `::group::` markers, and the token is passed only to the
+  processes of the pull-request phase, not to `devbox update` or the
+  lockfile regeneration.
+- Three differences, all fixes: `gh` is downloaded only when missing, and now
+  verified against the release's checksums; the playwright pin is rewritten
+  in place in `package.json`, so a file without `dependencies` or
+  `devDependencies` no longer gains a `"dependencies": null` key and the rest
+  of the file is never reformatted; the auto-merge gate reads the branch
+  rules over the API with the token rather than through `gh api` (same
+  answer, shared with `fleet-discover` in `internal/gates`).
+
 New:
 
 - **`ci-actions fleet pins` follows repo-local composite actions.** It reads

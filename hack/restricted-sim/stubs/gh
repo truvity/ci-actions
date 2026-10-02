@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# Stand-in for the GitHub CLI: devbox-parity's first look is `gh --version`
+# (it installs gh only when it is missing), and a repository at parity never
+# reaches the pull-request commands.
+case "${1:-}" in
+  --version) echo "gh version 0.0.0 (stub)" ;;
+  *) echo "gh stub: unexpected: $*" >&2; exit 2 ;;
+esac

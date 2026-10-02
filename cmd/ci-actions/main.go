@@ -12,6 +12,7 @@ import (
 	"os/signal"
 	"strings"
 
+	"github.com/truvity/ci-actions/internal/devboxparity"
 	"github.com/truvity/ci-actions/internal/fleet"
 	"github.com/truvity/ci-actions/internal/fleetdiscover"
 	"github.com/truvity/ci-actions/internal/publicrunners"
@@ -28,6 +29,8 @@ Commands:
                        (env: LIBRARIES, whitespace- or comma-separated)
   public-runners       refuse a self-hosted runner in a public repository
                        (env: RUNNERS, VISIBILITY, GITHUB_REPOSITORY, GH_TOKEN, GITHUB_API_URL)
+  devbox-parity        refresh devbox, align the go toolchain and playwright followers, open one PR
+                       (env: TOKEN, WORKDIR, BASE, LABEL, MODE, FULL_DAY, MODULE_DIRS, GIT_USER, GIT_EMAIL)
   fleet discover       which repositories of a GitHub App installation a fleet job works on
                        (env: TOKEN, ESTATE, REQUIRE_CHECK, REQUIRE_FILE, FILTER, ENROLLED, API,
                        GITHUB_OUTPUT, GITHUB_STEP_SUMMARY)
@@ -63,6 +66,25 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, getenv fu
 			return 1
 		default:
 			fmt.Fprintln(stderr, "tagged-pins:", err)
+			return 1
+		}
+	case "devbox-parity":
+		err := devboxparity.Run(ctx, devboxparity.Options{
+			Token: getenv("TOKEN"), WorkDir: getenv("WORKDIR"), Base: getenv("BASE"), Label: getenv("LABEL"),
+			Mode: getenv("MODE"), FullDay: getenv("FULL_DAY"), ModuleDirs: getenv("MODULE_DIRS"),
+			GitUser: getenv("GIT_USER"), GitEmail: getenv("GIT_EMAIL"),
+			GoDLURL: getenv("CI_ACTIONS_GO_DL_URL"), APIURL: getenv("GITHUB_API_URL"),
+			GHBaseURL:  getenv("CI_ACTIONS_GH_DL_URL"),
+			RunnerTemp: getenv("RUNNER_TEMP"), GithubOutput: getenv("GITHUB_OUTPUT"), GithubPath: getenv("GITHUB_PATH"),
+			Environ: os.Environ(), Out: stdout, Err: stderr,
+		})
+		switch {
+		case err == nil:
+			return 0
+		case devboxparity.IsReported(err):
+			return 1
+		default:
+			fmt.Fprintln(stderr, "devbox-parity:", err)
 			return 1
 		}
 	case "public-runners":
