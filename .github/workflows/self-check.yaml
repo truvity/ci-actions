@@ -61,35 +61,26 @@ jobs:
       - name: policy kit current
         run: ./hack/policy-kit-current.sh
 
-      # What setup-devbox writes into GITHUB_ENV for each cache shape.
-      # The branches are EXECUTED against a stubbed environment rather
-      # than read, because this composite is estate-wide and reaches a
-      # repository only when its pin moves -- so a regression in the
-      # bucket path, the one every repository uses today, would be
-      # discovered one repository at a time over days.
-      - name: cache wiring cases
-        run: ./hack/cache-env-cases.sh
-
       # The no-privilege contract: nothing here may escalate. Runners
       # under the Pod Security restricted profile cannot escalate, and a
       # hosted runner that can is not the contract.
       - name: no-escalation cases
         run: ./hack/no-escalation-cases.sh
 
-      # setup-devbox's first step, one failure at a time.
-      - name: preflight cases
-        run: ./hack/preflight-cases.sh
-
-      # setup-devbox's devbox install: the release binary, checked against
-      # the release's checksums, into RUNNER_TEMP, no privilege and nothing
-      # piped into a shell. Against a local directory standing in for the
-      # release page.
-      - name: install-devbox cases
-        run: ./hack/install-devbox-cases.sh
-
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
+
+      # setup-devbox's cache seam: that the composite delegates to a
+      # SHA-pinned truvity/ci-cache/setup and passes every input that action
+      # declares (read live, at the pinned sha: a guard that cannot look
+      # fails rather than skips), that the retired input is wired to its
+      # warning, and that nothing here wires a cache any more. What each
+      # setup-devbox step does (the preflight, the devbox install, the
+      # tokens, CodeArtifact, the devbox.json guards) is in the Go tests
+      # below.
+      - name: cache seam
+        run: go run ./cmd/ci-actions repo-check cache-seam
 
       # The Go CLI behind the thin wrappers: the pin guard against local
       # git remotes (it judges a LIST of libraries, and a list is where it
@@ -134,7 +125,7 @@ jobs:
           args: check
 
       # The thin wrapper that finds the binary, with the binary stubbed.
-      - name: wrapper cases (tagged-pins, public-runners, fleet-discover, devbox-parity, caller-parity, openbao-secrets, cluster, policy-conformance)
+      - name: wrapper cases (tagged-pins, public-runners, fleet-discover, devbox-parity, caller-parity, openbao-secrets, cluster, policy-conformance, setup-devbox)
         run: ./hack/tagged-pins-wrapper-cases.sh
 
       # policy-conformance (internal/policyconformance), in the Go tests
@@ -182,6 +173,22 @@ jobs:
       # variables.
       - name: leak canary
         run: ./hack/leak-canary.sh
+
+  # TEMPORARY: the shell actions against their Go ports on the same
+  # fixtures; removed before merge.
+  parity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - run: git fetch origin master:refs/remotes/origin/master || true
+      - name: setup-devbox, old against new
+        run: ./hack/parity-setup-devbox.sh
 
   # The actions' step scripts, run as a Pod Security `restricted` runner:
   # uid 1001, no_new_privs, all capabilities dropped, read-only root. A

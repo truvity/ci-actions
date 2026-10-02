@@ -23,7 +23,9 @@ import (
 	"github.com/truvity/ci-actions/internal/publicrunners"
 	"github.com/truvity/ci-actions/internal/recipe"
 	"github.com/truvity/ci-actions/internal/remotebuilders"
+	"github.com/truvity/ci-actions/internal/repocheck"
 	"github.com/truvity/ci-actions/internal/runcmd"
+	"github.com/truvity/ci-actions/internal/setupdevbox"
 	"github.com/truvity/ci-actions/internal/taggedpins"
 )
 
@@ -38,6 +40,11 @@ Commands:
   policy-conformance   hold the checkout against the component contract's rules C1-C13
                        (env: STRICT, SKIP, REASON, RENOVATE_PRESET, DEFAULT_BRANCH, GITHUB_REPOSITORY,
                        GITHUB_STEP_SUMMARY; run it from the repository root)
+  repo-check cache-seam  this repository's own gate: setup-devbox's cache delegation holds
+                       (reads ci-cache's action at the pinned sha; env: none, run from the root)
+  setup-devbox <step>  the setup-devbox action's steps: preflight, aws-config, detect-baked, strip-tools,
+                       install-devbox, materialize, proto, expose-token, go-private, codeartifact,
+                       retired-cache-server, guard-goproxy, guard-aws (env: see setup-devbox/action.yaml)
   recipe               run one task-runner recipe in devbox and assert a clean tree (env: RECIPE, COMMAND)
   remote-builders      register BuildKit builders as one buildx builder (env: NODES, plus
                        HOME, RUNNER_TEMP, GITHUB_ENV)
@@ -147,6 +154,24 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, getenv fu
 			fmt.Fprintln(stderr, "policy-conformance:", err)
 			return 1
 		}
+	case "repo-check":
+		if len(args) >= 2 && args[1] == "cache-seam" {
+			root := "."
+			if len(args) >= 3 {
+				root = args[2]
+			}
+			if err := repocheck.CacheSeam(ctx, repocheck.CacheSeamOptions{Root: root, Out: stdout}); err != nil {
+				if !errors.Is(err, repocheck.ErrFailed) {
+					fmt.Fprintln(stderr, "repo-check:", err)
+				}
+				return 1
+			}
+			return 0
+		}
+		fmt.Fprint(stderr, usage)
+		return 2
+	case "setup-devbox":
+		return setupDevbox(ctx, args[1:], stdout, stderr, getenv)
 	case "recipe":
 		err := recipe.Run(ctx, recipe.Options{Recipe: getenv("RECIPE"), Command: getenv("COMMAND"), Out: stdout, Err: stderr})
 		switch {
@@ -385,5 +410,55 @@ func clusterCmd(ctx context.Context, args []string, stdout, stderr io.Writer, ge
 	default:
 		fmt.Fprintln(stderr, "cluster:", err)
 		return 1
+	}
+}
+
+// setupDevbox runs one step of the setup-devbox action.
+func setupDevbox(ctx context.Context, args []string, stdout, stderr io.Writer, getenv func(string) string) int {
+	if len(args) == 0 {
+		fmt.Fprint(stderr, usage)
+		return 2
+	}
+	e := setupdevbox.Env{Getenv: getenv, Lookup: os.LookupEnv, Out: stdout, Err: stderr}
+	var err error
+	switch args[0] {
+	case "preflight":
+		err = setupdevbox.Preflight(ctx, e)
+	case "aws-config":
+		err = setupdevbox.AWSConfig(e)
+	case "detect-baked":
+		err = setupdevbox.DetectBaked(e)
+	case "strip-tools":
+		err = setupdevbox.StripLocalTools(ctx, e)
+	case "install-devbox":
+		err = setupdevbox.InstallDevbox(ctx, e)
+	case "materialize":
+		err = setupdevbox.Materialize(ctx, e)
+	case "proto":
+		err = setupdevbox.Proto(ctx, e)
+	case "expose-token":
+		err = setupdevbox.ExposeToken(e)
+	case "go-private":
+		err = setupdevbox.GoPrivate(ctx, e)
+	case "codeartifact":
+		err = setupdevbox.CodeArtifact(ctx, e)
+	case "retired-cache-server":
+		err = setupdevbox.RetiredCacheServer(e)
+	case "guard-goproxy":
+		err = setupdevbox.GuardGoproxy(e)
+	case "guard-aws":
+		err = setupdevbox.GuardAWS(e)
+	default:
+		fmt.Fprintf(stderr, "ci-actions: unknown setup-devbox step %q\n\n%s", args[0], usage)
+		return 2
+	}
+	switch {
+	case err == nil:
+		return 0
+	case errors.Is(err, setupdevbox.ErrFailed):
+		return 1
+	default:
+		fmt.Fprintln(stderr, "setup-devbox:", err)
+		return runcmd.ExitCode(err)
 	}
 }
