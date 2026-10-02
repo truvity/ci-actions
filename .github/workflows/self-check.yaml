@@ -86,6 +86,16 @@ jobs:
       - name: cache wiring cases
         run: ./hack/cache-env-cases.sh
 
+      # The no-privilege contract: nothing here may escalate. Runners
+      # under the Pod Security restricted profile cannot escalate, and a
+      # hosted runner that can is not the contract.
+      - name: no-escalation cases
+        run: ./hack/no-escalation-cases.sh
+
+      # setup-devbox's first step, one failure at a time.
+      - name: preflight cases
+        run: ./hack/preflight-cases.sh
+
       # The pin guard, against local remotes. It judges a LIST of
       # libraries since the split, and a list is where it can be wrong in
       # a way the old single-library shape could not: a second library
@@ -141,6 +151,32 @@ jobs:
       # variables.
       - name: leak canary
         run: ./hack/leak-canary.sh
+
+  # The actions' step scripts, run as a Pod Security `restricted` runner:
+  # uid 1001, no_new_privs, all capabilities dropped, read-only root. A
+  # composite action cannot be run by the runner agent inside a container
+  # on a hosted job, so hack/restricted-sim.sh executes each action's
+  # `run:` bodies as written, in order, in that container (see its header).
+  # The control proves the image DOES escalate without the flag, so a red
+  # run is attributable to the contract and not to the image; the
+  # self-test proves the job goes red on the pre-v1.6.1 escalating step. NOT part
+  # of `check`: it needs docker and builds an image.
+  restricted-sim:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 1
+
+      - name: control, the image escalates only without the flag
+        run: ./hack/restricted-sim.sh --control
+
+      - name: self-test, a privileged step is rejected
+        run: ./hack/restricted-sim.sh --self-test
+
+      - name: setup-devbox and recipe under the restricted profile
+        run: ./hack/restricted-sim.sh
 
   # cluster's mode: kind, proved end to end rather than read: a real
   # release tarball, a real kind cluster, the tools this action installs

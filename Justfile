@@ -42,6 +42,20 @@ pins-cases:
 fork-guard:
     @./hack/fork-guard-cases.sh
 
+# Fail if any action file or script escalates privilege
+no-escalation:
+    @./hack/no-escalation-cases.sh
+
+# Test setup-devbox's preflight, one failure at a time
+preflight-cases:
+    @./hack/preflight-cases.sh
+
+# Run the step scripts as a restricted runner (needs docker and yq)
+restricted-sim:
+    @./hack/restricted-sim.sh --control
+    @./hack/restricted-sim.sh --self-test
+    @./hack/restricted-sim.sh
+
 # Verify all pins point to release tags
 pins:
     #!/usr/bin/env bash
@@ -147,5 +161,5 @@ leak-canary:
     @./hack/leak-canary.sh
 
 # Run all checks (the merge gate)
-check: lint discover parity kit cache-env pins-cases conformance-cases fork-guard pins runners conformance leak-canary
+check: lint discover parity kit cache-env pins-cases conformance-cases no-escalation preflight-cases fork-guard pins runners conformance leak-canary
     @echo "✓ All checks passed"

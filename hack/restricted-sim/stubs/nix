@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# Stand-in for a baked nix: answers the preflight's `nix store ping`.
+[ "${1:-} ${2:-}" = "store ping" ] && { echo "Store URL: daemon (stub)"; exit 0; }
+echo "nix stub: unsupported: $*" >&2
+exit 2
