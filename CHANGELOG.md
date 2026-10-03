@@ -6,6 +6,8 @@ an untagged commit; `tagged-pins` refuses anything else.
 
 ## Unreleased
 
+## v1.11.0
+
 - **New action `require-green-checks`** (and `ci-actions release-gate`): the
   102-line "Require green checks on the tagged commit" step of ci-workflows'
   `release-private.yaml` (the gate that refuses a release built from a commit
