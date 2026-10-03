@@ -6,6 +6,21 @@ an untagged commit; `tagged-pins` refuses anything else.
 
 ## Unreleased
 
+- **New action `auto-release`** (and `ci-actions auto-release gate|tag`): the two
+  shell blocks of ci-workflows' `auto-release.yaml`, each written twice (once
+  per token source), as Go. `gate` decides whether a push to the default branch
+  releases now (a security-labelled merge, a `fix:` PR title, a `fix:` commit
+  in an unconventionally titled merge or pushed directly) or waits for the
+  weekly batch (`skip=true`); `tag` cuts the next patch tag, writing the
+  CHANGELOG heading through a pull request first when the release needs one
+  (renaming `## Unreleased`, or adding a dependency-updates heading), running
+  the caller's `version-bump-command` in that commit, and waiting for the merge
+  so the tag names the commit that carries its own heading. The same cases
+  `hack/auto-release-cases.sh` ran against the shell run against the binary and
+  pass unchanged; they are now Go tests too (a real git repository and a bare
+  origin, with a fake `gh` and `devbox`). Nothing in ci-workflows changes until
+  it adopts the action after a release.
+
 ## v1.10.0
 
 Two checks the fleet workflows of ci-workflows carry as inline shell, as Go:
