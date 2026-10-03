@@ -6,6 +6,22 @@ an untagged commit; `tagged-pins` refuses anything else.
 
 ## Unreleased
 
+Two checks the fleet workflows of ci-workflows carry as inline shell, as Go:
+
+- **`token-inputs`** (action and `ci-actions token-inputs`): the check that a
+  caller's token inputs agree with its `token-source`, written four times in
+  `parity-fleet`, `renovate-fleet`, `pkl-fleet` and `auto-release`. Same
+  `::error::` and `::warning::` lines, same order, every fault reported, exit 1
+  on any. The id input's name, the secret's name, the extra App key pairs and
+  the two warnings are inputs, so one command serves all four shapes.
+- **`enrolment-list`** (action and `ci-actions enrolment-list`): reads a
+  dotted-path list from the repositories file and writes `names=<compact JSON>`
+  to `GITHUB_OUTPUT`, as the `yq`/`jq` block did, but without needing either
+  on the runner. Absent file, absent or empty list: the same errors.
+  Difference: only a plain dotted path is read (no yq expression syntax).
+
+Nothing in ci-workflows changes until it adopts them after a release.
+
 ## v1.9.0
 
 - **New action `token-exchange`**, moved from the root `action.yml` of
