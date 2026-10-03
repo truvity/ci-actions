@@ -59,7 +59,7 @@ jobs:
           REPO: ${{ github.repository }}
         run: echo "name=${REPO#*/}" >> "$GITHUB_OUTPUT"
 
-      - uses: truvity/access-roster@ee6588973567a514663b5ad559141c2313621fc3 # v1.39.1
+      - uses: truvity/ci-actions/token-exchange@de28ab4e61adb8b217c0838886cc6e4b2c71b398 # v1.9.0
         id: token
         with:
           issuer: ${{ vars.ACCESS_ROSTER_ISSUER }}
