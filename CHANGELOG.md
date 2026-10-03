@@ -6,6 +6,16 @@ an untagged commit; `tagged-pins` refuses anything else.
 
 ## Unreleased
 
+- **New action `publish-nix-flakes`** (and `ci-actions publish-nix-flakes`): the
+  149-line "Publish Nix flakes" step of ci-workflows' `release-public.yaml`
+  (a Python generator and the nix, tar and gh loop), as Go. The generated
+  `flake.nix` is byte-identical to the Python generator's on the same
+  `dist/artifacts.json` and `devbox.lock` (the tests compare against output
+  that generator produced), the archive is the same deterministic
+  `tar | gzip -n` pipeline, and the same refusals print the same `::error::`
+  lines. `python3` is no longer needed on the runner for it. Nothing in
+  ci-workflows changes until it adopts the action after a release.
+
 - **New action `auto-release`** (and `ci-actions auto-release gate|tag`): the two
   shell blocks of ci-workflows' `auto-release.yaml`, each written twice (once
   per token source), as Go. `gate` decides whether a push to the default branch

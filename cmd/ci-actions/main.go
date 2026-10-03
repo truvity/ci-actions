@@ -23,6 +23,7 @@ import (
 	"github.com/truvity/ci-actions/internal/policyconformance"
 	"github.com/truvity/ci-actions/internal/publicrunners"
 	"github.com/truvity/ci-actions/internal/recipe"
+	"github.com/truvity/ci-actions/internal/releasepublic"
 	"github.com/truvity/ci-actions/internal/remotebuilders"
 	"github.com/truvity/ci-actions/internal/repocheck"
 	"github.com/truvity/ci-actions/internal/runcmd"
@@ -72,6 +73,9 @@ Commands:
   auto-release <step>  the auto-release workflow's steps: gate (security and fix pushes release now) and
                        tag (cut the next patch tag, behind a CHANGELOG heading PR when needed)
                        (env: see auto-release/action.yaml)
+  publish-nix-flakes   generate, check and upload a Nix flake per GoReleaser archive id
+                       (env: FLAKES, FLAKE_DIR, GITHUB_REPOSITORY, GITHUB_REF_NAME; run from the
+                       checkout GoReleaser built in; nix, gh, tar and gzip on PATH)
   token-inputs         check a fleet caller's token inputs against its token-source
                        (env: SOURCE, ISSUER, APP, ID, ID_NAME, SECRET, HAS_KEY, EXTRA_KEYS,
                        WARN_APP_KEY_IF, WARN_APP_KEY, WARN_ROSTER_IF, WARN_ROSTER)
@@ -243,6 +247,20 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, getenv fu
 			return 1
 		default:
 			fmt.Fprintln(stderr, "auto-release:", err)
+			return runcmd.ExitCode(err)
+		}
+	case "publish-nix-flakes":
+		err := releasepublic.PublishFlakes(ctx, releasepublic.NixOptions{
+			Repo: getenv("GITHUB_REPOSITORY"), Tag: getenv("GITHUB_REF_NAME"), Flakes: getenv("FLAKES"),
+			FlakeDir: getenv("FLAKE_DIR"), Out: stdout, Err: stderr,
+		})
+		switch {
+		case err == nil:
+			return 0
+		case errors.Is(err, releasepublic.ErrFailed):
+			return 1
+		default:
+			fmt.Fprintln(stderr, "publish-nix-flakes:", err)
 			return runcmd.ExitCode(err)
 		}
 	case "token-inputs":

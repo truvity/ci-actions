@@ -1,0 +1,34 @@
+name: publish-nix-flakes
+description: >-
+  Publish a Nix flake for each GoReleaser archive id: generate a flake.nix
+  from dist/artifacts.json (the linux and darwin/arm64 archives, hashed as
+  built), lock it, check it, build it, pack it deterministically and upload
+  it to the release the job runs for. Run it from the checkout GoReleaser
+  built in, after GoReleaser, with nix and gh on PATH. The rules are the
+  `ci-actions` binary's `publish-nix-flakes` command; this action is a thin
+  wrapper that finds that binary (release archive of the pinned tag, or built
+  with Go) and runs it.
+
+inputs:
+  flakes:
+    description: JSON array of GoReleaser archive ids, one flake each.
+    required: true
+  flake-dir:
+    description: Where the flakes are generated and packed.
+    required: true
+  token:
+    description: A token that may upload release assets (`gh release upload`).
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        FLAKES: ${{ inputs.flakes }}
+        FLAKE_DIR: ${{ inputs.flake-dir }}
+        GITHUB_TOKEN: ${{ inputs.token }}
+        ACTION_PATH: ${{ github.action_path }}
+        ACTION_REPOSITORY: ${{ github.action_repository }}
+        ACTION_REF: ${{ github.action_ref }}
+      run: bash "$ACTION_PATH/run.sh"

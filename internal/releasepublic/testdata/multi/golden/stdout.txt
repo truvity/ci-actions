@@ -1,0 +1,2 @@
+$FLAKE_DIR/tool_1.2.3_nix-flake: aarch64-darwin, aarch64-linux, x86_64-linux with github:NixOS/nixpkgs/0123456789abcdef0123456789abcdef01234567
+$FLAKE_DIR/other_1.2.3_nix-flake: x86_64-linux with github:NixOS/nixpkgs/0123456789abcdef0123456789abcdef01234567
