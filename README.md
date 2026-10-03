@@ -22,6 +22,8 @@ contract.
 | [`fleet-discover`](fleet-discover/action.yaml) | Decides which repositories a fleet job touches, and whether each default branch is gated | `token` (required), `estate`, `require-check`, `repositories` | `renovate-fleet`, `parity-fleet` |
 | [`caller-parity`](caller-parity/action.yaml) | Compares each repository's shared caller workflows (and the depguard block) against the kits in [`caller-parity/kits/`](caller-parity/kits/), and reports | `token`, `repositories` (required), `fail-on-diff` (`false`) | `parity-fleet` |
 | [`devbox-parity`](devbox-parity/action.yaml) | Refreshes devbox packages and aligns a Go repository's toolchain triple, opening a pull request | `token` (required), `mode`, `module-dirs` | `parity-fleet` |
+| [`token-inputs`](token-inputs/action.yaml) | Checks a fleet caller's token inputs against its `token-source`, reporting every fault at once | `source`, `secret-name` (required), `has-key`, `id`, `extra-keys` | `parity-fleet`, `renovate-fleet`, `pkl-fleet`, `auto-release` (once released and adopted) |
+| [`enrolment-list`](enrolment-list/action.yaml) | Reads a dotted-path list of repository names from the caller's repositories file, as JSON for `fleet-discover` | `file`, `list` (required) | `parity-fleet`, `renovate-fleet`, `pkl-fleet` (once released and adopted) |
 
 Every input is described in full in its `action.yaml`.
 
@@ -227,7 +229,7 @@ end to end, outside `check` and not required.
 
 Logic that outgrows a shell script lives in one Go binary, `cmd/ci-actions`
 (standard library only), and the composite actions become thin wrappers that
-run it. `tagged-pins`, `public-runners`, `fleet-discover`, `devbox-parity`, `caller-parity`, `openbao-secrets` and `cluster` are in: each
+run it. `tagged-pins`, `public-runners`, `fleet-discover`, `devbox-parity`, `caller-parity`, `openbao-secrets`, `cluster`, `token-inputs` and `enrolment-list` are in: each
 action keeps its inputs, outputs and messages and runs `ci-actions <command>`.
 The wrapper (`<action>/run.sh`, sharing `lib/ci-actions-bin.sh`) uses a `ci-actions` already on `PATH`, else the goreleaser archive of the tag
 the action is pinned at (the pinned commit resolves back to its tag; the
@@ -240,6 +242,8 @@ ci-actions fleet discover              # env TOKEN, ESTATE, REQUIRE_CHECK, REQUI
 ci-actions devbox-parity               # env TOKEN, WORKDIR, BASE, LABEL, MODE, FULL_DAY, MODULE_DIRS, GIT_USER, GIT_EMAIL
 ci-actions caller-parity               # env TOKEN, REPOSITORIES, KITS, FAIL_ON_DIFF, API
 ci-actions openbao-secrets             # env ISSUER, ADDRESS, KV_PATH, ... (no value is ever printed)
+ci-actions token-inputs                # env SOURCE, ISSUER, APP, ID, ID_NAME, SECRET, HAS_KEY, EXTRA_KEYS, WARN_*
+ci-actions enrolment-list              # env FILE, LIST, GITHUB_OUTPUT
 ci-actions cluster kind                # also: fork-guard, wait, shared-connect, shared-finish
 ci-actions fleet pins --org example-org --org other-org \
     --min-setup-devbox v1.6.1 --json pins.json

@@ -1,0 +1,35 @@
+name: enrolment-list
+description: >-
+  Read a list of repository names out of the caller's repositories file, by
+  dotted path (`renovate.public`), as compact JSON for fleet-discover's
+  `repositories` input. An absent or empty list fails: an enrolment that names
+  nothing would silently process nothing. The rule is the `ci-actions`
+  binary's `enrolment-list` command; this action is a thin wrapper that finds
+  that binary (release archive of the pinned tag, or built with Go) and runs
+  it. Needs bash, plus curl and tar or Go.
+
+inputs:
+  file:
+    description: The YAML file, relative to the workspace.
+    required: true
+  list:
+    description: Dotted path of the list inside the file, e.g. `renovate.public`.
+    required: true
+
+outputs:
+  names:
+    description: The list as compact JSON.
+    value: ${{ steps.read.outputs.names }}
+
+runs:
+  using: composite
+  steps:
+    - id: read
+      shell: bash
+      env:
+        FILE: ${{ inputs.file }}
+        LIST: ${{ inputs.list }}
+        ACTION_PATH: ${{ github.action_path }}
+        ACTION_REPOSITORY: ${{ github.action_repository }}
+        ACTION_REF: ${{ github.action_ref }}
+      run: bash "$ACTION_PATH/run.sh"

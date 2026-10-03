@@ -27,6 +27,7 @@ import (
 	"github.com/truvity/ci-actions/internal/runcmd"
 	"github.com/truvity/ci-actions/internal/setupdevbox"
 	"github.com/truvity/ci-actions/internal/taggedpins"
+	"github.com/truvity/ci-actions/internal/workflowinputs"
 )
 
 // version is stamped by goreleaser.
@@ -67,6 +68,11 @@ Commands:
                        GITHUB_OUTPUT, GITHUB_STEP_SUMMARY)
   fleet pins           which ci-workflows, ci-actions and setup-devbox versions each
                        repository pins, transitively (token from GITHUB_TOKEN or GH_TOKEN)
+  token-inputs         check a fleet caller's token inputs against its token-source
+                       (env: SOURCE, ISSUER, APP, ID, ID_NAME, SECRET, HAS_KEY, EXTRA_KEYS,
+                       WARN_APP_KEY_IF, WARN_APP_KEY, WARN_ROSTER_IF, WARN_ROSTER)
+  enrolment-list       read a dotted-path list out of the caller's repositories file
+                       (env: FILE, LIST, GITHUB_OUTPUT)
   version              print the version
 `
 
@@ -203,6 +209,30 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, getenv fu
 			fmt.Fprintln(stderr, "openbao-secrets:", err)
 			return 1
 		}
+	case "token-inputs":
+		extras, err := workflowinputs.ParseExtras(getenv("EXTRA_KEYS"))
+		if err != nil {
+			fmt.Fprintln(stderr, "token-inputs:", err)
+			return 1
+		}
+		err = workflowinputs.CheckTokens(workflowinputs.Tokens{
+			Source: getenv("SOURCE"), Issuer: getenv("ISSUER"), App: getenv("APP"), ID: getenv("ID"),
+			IDName: getenv("ID_NAME"), Secret: getenv("SECRET"), HasKey: getenv("HAS_KEY") == "true", Extras: extras,
+			WarnAppKeyIf: getenv("WARN_APP_KEY_IF"), WarnAppKey: getenv("WARN_APP_KEY"),
+			WarnRosterIf: getenv("WARN_ROSTER_IF"), WarnRoster: getenv("WARN_ROSTER"),
+		}, stdout)
+		if err != nil {
+			return 1
+		}
+		return 0
+	case "enrolment-list":
+		if err := workflowinputs.Enrolment(getenv("FILE"), getenv("LIST"), getenv("GITHUB_OUTPUT"), stdout); err != nil {
+			if !errors.Is(err, workflowinputs.ErrInvalid) {
+				fmt.Fprintln(stderr, "enrolment-list:", err)
+			}
+			return 1
+		}
+		return 0
 	case "public-runners":
 		token := getenv("GH_TOKEN")
 		if token == "" {

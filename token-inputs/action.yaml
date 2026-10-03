@@ -1,0 +1,79 @@
+name: token-inputs
+description: >-
+  Check a fleet caller's token inputs against its token-source (app-key or
+  access-roster), reporting every fault at once. The rule is the
+  `ci-actions` binary's `token-inputs` command; this action is a thin
+  wrapper that finds that binary (release archive of the pinned tag, or built
+  with Go) and runs it. Needs bash, plus curl and tar or Go.
+
+inputs:
+  source:
+    description: The caller's token-source input, `app-key` or `access-roster`.
+    required: true
+  access-roster-issuer:
+    description: The caller's access-roster-issuer input.
+    required: false
+    default: ""
+  github-app:
+    description: The caller's github-app input.
+    required: false
+    default: ""
+  id:
+    description: The App's client id (or app id) input, as the caller was given it.
+    required: false
+    default: ""
+  id-name:
+    description: The name of that input, for the message (`client-id` or `app-id`).
+    required: false
+    default: client-id
+  secret-name:
+    description: The name of the secret that holds the App's private key, for the message.
+    required: true
+  has-key:
+    description: "`true` when that secret is set (pass `${{ secrets.NAME != '' }}`; the secret itself never reaches the action)."
+    required: false
+    default: "false"
+  extra-keys:
+    description: >-
+      Further Apps whose id and key come as a pair, one per line:
+      `id-input|SECRET_NAME|has-key|id`. Checked with `app-key` only.
+    required: false
+    default: ""
+  warn-app-key-if:
+    description: With `app-key`, print `warn-app-key` as a warning when this is not empty (pass the inputs that only `access-roster` reads, concatenated).
+    required: false
+    default: ""
+  warn-app-key:
+    description: The warning text for `warn-app-key-if`.
+    required: false
+    default: ""
+  warn-access-roster-if:
+    description: With `access-roster`, print `warn-access-roster` as a warning when this is not empty.
+    required: false
+    default: ""
+  warn-access-roster:
+    description: The warning text for `warn-access-roster-if`.
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        SOURCE: ${{ inputs.source }}
+        ISSUER: ${{ inputs.access-roster-issuer }}
+        APP: ${{ inputs.github-app }}
+        ID: ${{ inputs.id }}
+        ID_NAME: ${{ inputs.id-name }}
+        SECRET: ${{ inputs.secret-name }}
+        HAS_KEY: ${{ inputs.has-key }}
+        EXTRA_KEYS: ${{ inputs.extra-keys }}
+        WARN_APP_KEY_IF: ${{ inputs.warn-app-key-if }}
+        WARN_APP_KEY: ${{ inputs.warn-app-key }}
+        WARN_ROSTER_IF: ${{ inputs.warn-access-roster-if }}
+        WARN_ROSTER: ${{ inputs.warn-access-roster }}
+        ACTION_PATH: ${{ github.action_path }}
+        ACTION_REPOSITORY: ${{ github.action_repository }}
+        ACTION_REF: ${{ github.action_ref }}
+      run: bash "$ACTION_PATH/run.sh"

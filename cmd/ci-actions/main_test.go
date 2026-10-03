@@ -132,3 +132,31 @@ func TestVersionAndUsage(t *testing.T) {
 		t.Errorf("usage: %d %q", code, errb)
 	}
 }
+
+func TestTokenInputsAndEnrolmentCLI(t *testing.T) {
+	code, out, _ := runCLI(t, map[string]string{"SOURCE": "app-key", "SECRET": "K", "ID_NAME": "app-id"}, "token-inputs")
+	if code != 1 || out != "::error::token-source app-key needs app-id\n::error::token-source app-key needs the K secret\n" {
+		t.Errorf("token-inputs: code %d out %q", code, out)
+	}
+	code, out, _ = runCLI(t, map[string]string{"SOURCE": "access-roster", "ISSUER": "i", "APP": "a"}, "token-inputs")
+	if code != 0 || out != "" {
+		t.Errorf("token-inputs ok: code %d out %q", code, out)
+	}
+	if code, _, errb := runCLI(t, map[string]string{"SOURCE": "app-key", "EXTRA_KEYS": "bad"}, "token-inputs"); code != 1 || !strings.Contains(errb, "extra-keys") {
+		t.Errorf("token-inputs bad extras: code %d err %q", code, errb)
+	}
+
+	dir := t.TempDir()
+	file, gh := filepath.Join(dir, "fleet.yaml"), filepath.Join(dir, "out")
+	if err := os.WriteFile(file, []byte("a:\n  b: [x, y]\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	code, out, _ = runCLI(t, map[string]string{"FILE": file, "LIST": "a.b", "GITHUB_OUTPUT": gh}, "enrolment-list")
+	got, _ := os.ReadFile(gh)
+	if code != 0 || out != "a.b: x, y\n" || string(got) != "names=[\"x\",\"y\"]\n" {
+		t.Errorf("enrolment-list: code %d out %q output %q", code, out, got)
+	}
+	if code, _, _ := runCLI(t, map[string]string{"FILE": file, "LIST": "a.c"}, "enrolment-list"); code != 1 {
+		t.Errorf("enrolment-list on an absent list: code %d", code)
+	}
+}
