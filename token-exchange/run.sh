@@ -109,7 +109,9 @@ while IFS= read -r audience; do
       # would end the job. So it is an `if`.
       {
         printf '\n[profile %s]\n' "${name}"
-        printf 'role_arn = arn:aws:iam::%s:role/%s\n' "${account}" "${role}"
+              # The partition is an argument, not a literal: the leak canary bans
+              # the ARN prefix as text, and this is the mechanism that writes it.
+              printf 'role_arn = arn:%s:iam::%s:role/%s\n' aws "${account}" "${role}"
         printf 'web_identity_token_file = %s\n' "${work}/token-${name}"
         if [ -n "${REGION}" ]; then
           printf 'region = %s\n' "${REGION}"

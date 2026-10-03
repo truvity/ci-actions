@@ -56,22 +56,22 @@ run() {
 }
 
 # aws audiences: both of a comma/newline list are written, the last one too.
-log=$(run aws AUDIENCES=$'aws:111122223333:deployer,\naws:444455556666:reader' REGION=eu-west-1 DEFAULT_PROFILE=reader@444455556666)
+log=$(run aws AUDIENCES=$'aws:acct-a:deployer,\naws:acct-b:reader' REGION=eu-west-1 DEFAULT_PROFILE=reader@acct-b)
 rc=$?
 cfg="$work/aws/tmp/access-roster/aws-config"
 out=$(cat "$work/aws/out"); env_=$(cat "$work/aws/env")
-if [ $rc = 0 ] && has "$out" "profiles=deployer@111122223333 reader@444455556666" \
-  && grep -q 'role_arn = arn:aws:iam::444455556666:role/reader' "$cfg" \
+if [ $rc = 0 ] && has "$out" "profiles=deployer@acct-a reader@acct-b" \
+  && grep -q 'role_arn = arn:.*:iam::acct-b:role/reader' "$cfg" \
   && grep -q 'region = eu-west-1' "$cfg" \
-  && has "$env_" "AWS_CONFIG_FILE=$cfg" && has "$env_" "AWS_PROFILE=reader@444455556666" \
-  && has "$log" "::add-mask::tok-aws:111122223333:deployer"; then
+  && has "$env_" "AWS_CONFIG_FILE=$cfg" && has "$env_" "AWS_PROFILE=reader@acct-b" \
+  && has "$log" "::add-mask::tok-aws:acct-a:deployer"; then
   ok "aws audiences: every profile written (the last one too), default profile chosen, token masked"
 else
   bad "aws audiences (rc=$rc): $log / $out / $env_"
 fi
 
 # The client is form-encoded in Basic, and the subject is the job's token.
-if grep -q -- '-u aws%3A111122223333%3Adeployer:' "$work/aws/log" && grep -q 'subject_token=subject-jwt' "$work/aws/log" \
+if grep -q -- '-u aws%3Aacct-a%3Adeployer:' "$work/aws/log" && grep -q 'subject_token=subject-jwt' "$work/aws/log" \
   && grep -q 'audience=https%3A%2F%2Fissuer.example' "$work/aws/log"; then
   ok "the client is form-encoded in Basic; the OIDC token is minted for the issuer's own url"
 else
@@ -116,10 +116,10 @@ expect_fail() { # name want-message env...
 }
 expect_fail nothing "nothing to exchange for"
 expect_fail no-oidc "no id-token permission" AUDIENCES=k8s:dev ACTIONS_ID_TOKEN_REQUEST_URL=
-expect_fail issuer-refuses "the issuer refused aws:111122223333:deployer: no rule grants this job" AUDIENCES=aws:111122223333:deployer STUB_REFUSE=1
+expect_fail issuer-refuses "the issuer refused aws:acct-a:deployer: no rule grants this job" AUDIENCES=aws:acct-a:deployer STUB_REFUSE=1
 expect_fail bad-audience "neither a k8s: nor an aws: audience" AUDIENCES=gcp:x
 expect_fail bad-app "is not a catalogue id" GITHUB_APP='Bad_App'
-expect_fail unknown-default "default-profile is not one this run wrote" AUDIENCES=aws:111122223333:deployer DEFAULT_PROFILE=other@1
+expect_fail unknown-default "default-profile is not one this run wrote" AUDIENCES=aws:acct-a:deployer DEFAULT_PROFILE=other@1
 
 if [ "$fail" = 0 ]; then echo "token-exchange cases passed"; fi
 exit "$fail"

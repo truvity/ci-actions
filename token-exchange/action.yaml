@@ -29,7 +29,7 @@ inputs:
     required: false
     default: "false"
   default-profile:
-    description: A profile name to export as AWS_PROFILE, e.g. deployer@111122223333.
+    description: A profile name to export as AWS_PROFILE, e.g. deployer@<account-id>.
     required: false
     default: ""
   region:
