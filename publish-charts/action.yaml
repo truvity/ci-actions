@@ -1,0 +1,58 @@
+name: publish-charts
+description: >-
+  Package and push the Helm charts a release publishes. The charts input is
+  checked first and refused whole on any wrong name (a chart published under
+  the wrong name cannot be taken back); then helmctl is downloaded from its
+  release and each chart is packaged (inside devbox) and pushed to an OCI
+  registry. Run it from the checkout GoReleaser built in, with gh and devbox
+  on PATH. The rules are the `ci-actions` binary's `publish-charts` command;
+  this action is a thin wrapper that finds that binary (release archive of the
+  pinned tag, or built with Go) and runs it.
+
+inputs:
+  charts:
+    description: >-
+      JSON array of charts: a plain name is under `chart-root`, an entry with a
+      `/` is a path from the repository root; the name is the last element.
+    required: true
+  chart-root:
+    description: Directory plain chart names are under.
+    required: true
+  registry:
+    description: The registry, one `oci://host/path` URL.
+    required: true
+  app-version-mode:
+    description: "`release` stamps the release version as appVersion, `chart` leaves the chart's own."
+    required: true
+  images:
+    description: "`goreleaser` packages from a manifest of the image digests GoReleaser just pushed; empty packages from the tag."
+    required: false
+    default: ""
+  require-image-digests:
+    description: "`true` makes helmctl refuse a chart whose images carry no digest."
+    required: false
+    default: "false"
+  helmctl-version:
+    description: The helmctl release to download, without the `v`.
+    required: true
+  token:
+    description: A token that may read helmctl's releases (`gh release download`).
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        CHARTS: ${{ inputs.charts }}
+        CHART_ROOT: ${{ inputs.chart-root }}
+        REGISTRY: ${{ inputs.registry }}
+        APP_VERSION_MODE: ${{ inputs.app-version-mode }}
+        CHART_IMAGES: ${{ inputs.images }}
+        REQUIRE_IMAGE_DIGESTS: ${{ inputs.require-image-digests }}
+        HELMCTL_VERSION: ${{ inputs.helmctl-version }}
+        GITHUB_TOKEN: ${{ inputs.token }}
+        ACTION_PATH: ${{ github.action_path }}
+        ACTION_REPOSITORY: ${{ github.action_repository }}
+        ACTION_REF: ${{ github.action_ref }}
+      run: bash "$ACTION_PATH/run.sh"

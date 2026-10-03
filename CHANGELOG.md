@@ -6,6 +6,18 @@ an untagged commit; `tagged-pins` refuses anything else.
 
 ## Unreleased
 
+- **New action `publish-charts`** (and `ci-actions publish-charts`): the 109-line
+  "Package and push charts" step of ci-workflows' `release-public.yaml` (an
+  embedded Python resolver and the helmctl download, package and push loop),
+  as Go. The `charts` input resolves to the same directories and names, and
+  every refusal prints the same `::error::charts: ...` text (Python's `repr`
+  quoting included) and exits 1 before anything is built or pushed; the
+  `hack/chart-paths-cases.sh` cases are Go tests. helmctl is invoked with the
+  same arguments in the same order, in the same three modes (release
+  appVersion, chart appVersion, goreleaser manifest). `python3` is no longer
+  needed on the runner for it. Nothing in ci-workflows changes until it adopts
+  the action after a release.
+
 - **New action `publish-nix-flakes`** (and `ci-actions publish-nix-flakes`): the
   149-line "Publish Nix flakes" step of ci-workflows' `release-public.yaml`
   (a Python generator and the nix, tar and gh loop), as Go. The generated

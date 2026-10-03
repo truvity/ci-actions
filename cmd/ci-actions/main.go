@@ -22,6 +22,7 @@ import (
 	"github.com/truvity/ci-actions/internal/openbaosecrets"
 	"github.com/truvity/ci-actions/internal/policyconformance"
 	"github.com/truvity/ci-actions/internal/publicrunners"
+	"github.com/truvity/ci-actions/internal/publishcharts"
 	"github.com/truvity/ci-actions/internal/recipe"
 	"github.com/truvity/ci-actions/internal/releasepublic"
 	"github.com/truvity/ci-actions/internal/remotebuilders"
@@ -76,6 +77,10 @@ Commands:
   publish-nix-flakes   generate, check and upload a Nix flake per GoReleaser archive id
                        (env: FLAKES, FLAKE_DIR, GITHUB_REPOSITORY, GITHUB_REF_NAME; run from the
                        checkout GoReleaser built in; nix, gh, tar and gzip on PATH)
+  publish-charts       resolve the charts a release publishes (refusing a wrong name before anything is
+                       pushed), then helmctl package and push each
+                       (env: CHARTS, CHART_ROOT, REGISTRY, APP_VERSION_MODE, CHART_IMAGES,
+                       REQUIRE_IMAGE_DIGESTS, HELMCTL_VERSION, GITHUB_REF_NAME, RUNNER_TEMP)
   token-inputs         check a fleet caller's token inputs against its token-source
                        (env: SOURCE, ISSUER, APP, ID, ID_NAME, SECRET, HAS_KEY, EXTRA_KEYS,
                        WARN_APP_KEY_IF, WARN_APP_KEY, WARN_ROSTER_IF, WARN_ROSTER)
@@ -261,6 +266,22 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, getenv fu
 			return 1
 		default:
 			fmt.Fprintln(stderr, "publish-nix-flakes:", err)
+			return runcmd.ExitCode(err)
+		}
+	case "publish-charts":
+		err := publishcharts.Run(ctx, publishcharts.Options{
+			Charts: getenv("CHARTS"), ChartRoot: getenv("CHART_ROOT"), Registry: getenv("REGISTRY"),
+			AppVersionMode: getenv("APP_VERSION_MODE"), ChartImages: getenv("CHART_IMAGES"),
+			RequireDigests: getenv("REQUIRE_IMAGE_DIGESTS"), HelmctlVersion: getenv("HELMCTL_VERSION"),
+			Tag: getenv("GITHUB_REF_NAME"), RunnerTemp: getenv("RUNNER_TEMP"), Out: stdout, Err: stderr,
+		})
+		switch {
+		case err == nil:
+			return 0
+		case errors.Is(err, publishcharts.ErrFailed):
+			return 1
+		default:
+			fmt.Fprintln(stderr, "publish-charts:", err)
 			return runcmd.ExitCode(err)
 		}
 	case "token-inputs":
