@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/truvity/ci-actions/internal/autorelease"
 	"github.com/truvity/ci-actions/internal/callerparity"
 	"github.com/truvity/ci-actions/internal/cluster"
 	"github.com/truvity/ci-actions/internal/devboxparity"
@@ -68,6 +69,9 @@ Commands:
                        GITHUB_OUTPUT, GITHUB_STEP_SUMMARY)
   fleet pins           which ci-workflows, ci-actions and setup-devbox versions each
                        repository pins, transitively (token from GITHUB_TOKEN or GH_TOKEN)
+  auto-release <step>  the auto-release workflow's steps: gate (security and fix pushes release now) and
+                       tag (cut the next patch tag, behind a CHANGELOG heading PR when needed)
+                       (env: see auto-release/action.yaml)
   token-inputs         check a fleet caller's token inputs against its token-source
                        (env: SOURCE, ISSUER, APP, ID, ID_NAME, SECRET, HAS_KEY, EXTRA_KEYS,
                        WARN_APP_KEY_IF, WARN_APP_KEY, WARN_ROSTER_IF, WARN_ROSTER)
@@ -208,6 +212,38 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, getenv fu
 		default:
 			fmt.Fprintln(stderr, "openbao-secrets:", err)
 			return 1
+		}
+	case "auto-release":
+		if len(args) < 2 {
+			fmt.Fprint(stderr, usage)
+			return 2
+		}
+		var err error
+		switch args[1] {
+		case "gate":
+			err = autorelease.Gate(ctx, autorelease.GateOptions{
+				Repo: getenv("REPO"), SHA: getenv("SHA"), Summary: getenv("GITHUB_STEP_SUMMARY"),
+				Output: getenv("GITHUB_OUTPUT"), Out: stdout, Err: stderr,
+			})
+		case "tag":
+			err = autorelease.Tag(ctx, autorelease.TagOptions{
+				Prefix: getenv("PREFIX"), Bot: getenv("BOT"), Repo: getenv("REPO"), Base: getenv("BASE"),
+				HeadingMode: getenv("HEADING_MODE"), Changelog: getenv("CHANGELOG"), WaitMinutes: getenv("WAIT_MINUTES"),
+				VersionBumpCommand: getenv("VERSION_BUMP_COMMAND"), PollSeconds: getenv("POLL_SECONDS"),
+				Summary: getenv("GITHUB_STEP_SUMMARY"), Out: stdout, Err: stderr,
+			})
+		default:
+			fmt.Fprint(stderr, usage)
+			return 2
+		}
+		switch {
+		case err == nil:
+			return 0
+		case errors.Is(err, autorelease.ErrReported):
+			return 1
+		default:
+			fmt.Fprintln(stderr, "auto-release:", err)
+			return runcmd.ExitCode(err)
 		}
 	case "token-inputs":
 		extras, err := workflowinputs.ParseExtras(getenv("EXTRA_KEYS"))

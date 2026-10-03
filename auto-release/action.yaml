@@ -1,0 +1,82 @@
+name: auto-release
+description: >-
+  The steps of the shared auto-release workflow. `gate` decides whether a push
+  to the default branch releases now (a security-labelled merge, or a
+  hand-written fix) or waits for the weekly batch, and sets `skip=true` when it
+  waits. `tag` cuts the next patch tag when the default branch moved past the
+  newest one, behind a pull request that writes the CHANGELOG heading (and runs
+  the caller's version-bump-command) when the release needs one. The rules are
+  the `ci-actions` binary's `auto-release` command; this action is a thin
+  wrapper that finds that binary (release archive of the pinned tag, or built
+  with Go) and runs it. Needs bash, git and gh, plus curl and tar or Go; `tag`
+  needs devbox on PATH when version-bump-command is set.
+
+inputs:
+  step:
+    description: "`gate` or `tag`."
+    required: true
+  token:
+    description: The GitHub token gh and git push use (an App installation token).
+    required: true
+  repository:
+    description: "`owner/name` of the repository."
+    required: true
+  sha:
+    description: "The pushed commit (`gate` only)."
+    required: false
+    default: ""
+  tag-prefix:
+    description: "Tag prefix, e.g. `v` (`tag` only)."
+    required: false
+    default: ""
+  bot:
+    description: "The App's slug, for the committer identity `<bot>[bot]` (`tag` only)."
+    required: false
+    default: ""
+  base:
+    description: "The default branch (`tag` only)."
+    required: false
+    default: master
+  changelog-heading:
+    description: "`auto`, `always` or `never` (`tag` only)."
+    required: false
+    default: auto
+  changelog-path:
+    description: "The changelog file (`tag` only)."
+    required: false
+    default: CHANGELOG.md
+  changelog-wait-minutes:
+    description: "How long to wait for the heading pull request to merge (`tag` only)."
+    required: false
+    default: "20"
+  version-bump-command:
+    description: "A command run in devbox in the heading commit (`tag` only). Empty means none."
+    required: false
+    default: ""
+
+outputs:
+  skip:
+    description: "`true` when `gate` decided the push waits for the weekly batch; empty otherwise."
+    value: ${{ steps.run.outputs.skip }}
+
+runs:
+  using: composite
+  steps:
+    - id: run
+      shell: bash
+      env:
+        STEP: ${{ inputs.step }}
+        GH_TOKEN: ${{ inputs.token }}
+        REPO: ${{ inputs.repository }}
+        SHA: ${{ inputs.sha }}
+        PREFIX: ${{ inputs.tag-prefix }}
+        BOT: ${{ inputs.bot }}
+        BASE: ${{ inputs.base }}
+        HEADING_MODE: ${{ inputs.changelog-heading }}
+        CHANGELOG: ${{ inputs.changelog-path }}
+        WAIT_MINUTES: ${{ inputs.changelog-wait-minutes }}
+        VERSION_BUMP_COMMAND: ${{ inputs.version-bump-command }}
+        ACTION_PATH: ${{ github.action_path }}
+        ACTION_REPOSITORY: ${{ github.action_repository }}
+        ACTION_REF: ${{ github.action_ref }}
+      run: bash "$ACTION_PATH/run.sh" "$STEP"
