@@ -6,6 +6,15 @@ an untagged commit; `tagged-pins` refuses anything else.
 
 ## Unreleased
 
+- **New action `token-exchange`**, moved from the root `action.yml` of
+  truvity/access-roster so that nothing needs to name that repository. The
+  inputs, outputs and behaviour are unchanged (a caller changes only its
+  `uses:` line): the job's GitHub identity token is exchanged at the issuer
+  with `curl` and `jq`, and the profiles, kubeconfig and GitHub App token are
+  written as before. The step body is `token-exchange/run.sh`, run as written
+  by `hack/token-exchange-cases.sh` in `just check`. The action downloads no
+  binary, so there is no release URL or checksum to configure.
+
 ## v1.8.0
 
 This repository's own gate:

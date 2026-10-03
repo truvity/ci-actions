@@ -1,0 +1,87 @@
+# The token exchange, as a job step (a roster issuer's `/token` endpoint).
+#
+# It prepares exactly what is ours to prepare and stops. A job's exchange
+# is one call to the token endpoint, which is why this is `curl` and `jq`
+# rather than a binary: nothing of ours is downloaded into the job, and
+# there is no version of ours to bump when Amazon's tooling moves.
+#
+# Everything downstream of an AWS credential is AWS's own tooling running
+# on top of the profiles below — ECR login, CodeArtifact tokens, anything
+# else. This does not wrap them, on purpose: many registries and many
+# artifact domains are many profiles and many `--profile` flags.
+name: token-exchange
+description: Exchange this job's identity token for the clusters, cloud roles and GitHub App tokens its rules grant.
+
+inputs:
+  issuer:
+    description: The roster issuer, e.g. https://access.example.
+    required: true
+  audiences:
+    description: >-
+      What to exchange for, comma or newline separated. Each is a client
+      id in the policy — `k8s:<cluster>` or `aws:<account>:<role>` — and
+      that client's `requires` decides whether this job gets it. May be
+      empty when the job asks only for a `github-app` token.
+    required: false
+    default: ""
+  kubeconfig:
+    description: Write a kubeconfig with a context per `k8s:` audience.
+    required: false
+    default: "false"
+  default-profile:
+    description: A profile name to export as AWS_PROFILE, e.g. deployer@111122223333.
+    required: false
+    default: ""
+  region:
+    description: The region written into every profile.
+    required: false
+    default: ""
+  github-app:
+    description: >-
+      A catalogue App to mint an installation token of, by its catalogue
+      id. The catalogue's grants for the groups this job holds decide
+      whether it gets one, for which repositories and with what.
+    required: false
+    default: ""
+  repositories:
+    description: >-
+      Repositories of the App's organisation to narrow the token to, by
+      name without the owner, comma, space or newline separated. Empty
+      asks for a token that is not narrowed, which only a grant of every
+      repository allows.
+    required: false
+    default: ""
+  permissions:
+    description: >-
+      Permissions to narrow the token to, as name:level (or name=level),
+      comma, space or newline separated, e.g. `contents:read`. Empty asks
+      for exactly what the grant allows.
+    required: false
+    default: ""
+
+outputs:
+  profiles:
+    description: The AWS profile names written, space separated.
+    value: ${{ steps.exchange.outputs.profiles }}
+  kubeconfig:
+    description: The kubeconfig path, when one was written.
+    value: ${{ steps.exchange.outputs.kubeconfig }}
+  github-token:
+    description: The installation token, masked, when `github-app` was given.
+    value: ${{ steps.exchange.outputs.github-token }}
+
+runs:
+  using: composite
+  steps:
+    - id: exchange
+      shell: bash
+      env:
+        ISSUER: ${{ inputs.issuer }}
+        AUDIENCES: ${{ inputs.audiences }}
+        WANT_KUBECONFIG: ${{ inputs.kubeconfig }}
+        DEFAULT_PROFILE: ${{ inputs.default-profile }}
+        REGION: ${{ inputs.region }}
+        GITHUB_APP: ${{ inputs.github-app }}
+        REPOSITORIES: ${{ inputs.repositories }}
+        PERMISSIONS: ${{ inputs.permissions }}
+      run: bash "${{ github.action_path }}/run.sh"

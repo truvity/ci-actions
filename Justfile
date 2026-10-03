@@ -35,6 +35,10 @@ go-test:
 pins-wrapper:
     @./hack/tagged-pins-wrapper-cases.sh
 
+# token-exchange's step body, run as written against a stub curl and kubectl
+token-exchange:
+    @./hack/token-exchange-cases.sh
+
 # Fail if any action file or script escalates privilege
 no-escalation:
     go run ./cmd/ci-actions repo-check no-escalation
@@ -148,5 +152,5 @@ leak-canary:
     @./hack/leak-canary.sh
 
 # Run all checks (the merge gate)
-check: lint kit cache-env go-test pins-wrapper no-escalation pins runners conformance leak-canary
+check: lint kit cache-env go-test pins-wrapper token-exchange no-escalation pins runners conformance leak-canary
     @echo "✓ All checks passed"

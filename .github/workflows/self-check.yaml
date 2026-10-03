@@ -129,6 +129,12 @@ jobs:
       - name: wrapper cases (tagged-pins, public-runners, fleet-discover, devbox-parity, caller-parity, openbao-secrets, cluster, policy-conformance, setup-devbox)
         run: ./hack/tagged-pins-wrapper-cases.sh
 
+      # token-exchange: the step body as written, against a stub curl and
+      # kubectl. It carries credentials, so the cases assert the masking
+      # order and every refusal, not only the happy path.
+      - name: token-exchange cases
+        run: ./hack/token-exchange-cases.sh
+
       # policy-conformance (internal/policyconformance), in the Go tests
       # above: against fixture repositories, one that meets every rule, then
       # one rule broken at a time. A conformance check that says PASS
