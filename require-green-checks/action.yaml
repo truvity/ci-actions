@@ -1,0 +1,27 @@
+name: require-green-checks
+description: >-
+  Refuse a release unless the tagged commit is check-green: it must have a
+  successful `check` run, and no other check on it may be red, cancelled or
+  still pending. The newest run of each check counts; this run's own checks,
+  every release-shaped check (a sibling project releasing the same commit) and
+  dependency-bot checks are not prerequisites. Reads the commit's check runs
+  from the GitHub API with the token, so it needs neither gh nor jq. The rules
+  are the `ci-actions` binary's `release-gate` command; this action is a thin
+  wrapper that finds that binary (release archive of the pinned tag, or built
+  with Go) and runs it.
+
+inputs:
+  token:
+    description: A token that can read the repository's checks (the job's own token does).
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.token }}
+        ACTION_PATH: ${{ github.action_path }}
+        ACTION_REPOSITORY: ${{ github.action_repository }}
+        ACTION_REF: ${{ github.action_ref }}
+      run: bash "$ACTION_PATH/run.sh"

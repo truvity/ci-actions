@@ -24,6 +24,7 @@ import (
 	"github.com/truvity/ci-actions/internal/publicrunners"
 	"github.com/truvity/ci-actions/internal/publishcharts"
 	"github.com/truvity/ci-actions/internal/recipe"
+	"github.com/truvity/ci-actions/internal/releasegate"
 	"github.com/truvity/ci-actions/internal/releasepublic"
 	"github.com/truvity/ci-actions/internal/remotebuilders"
 	"github.com/truvity/ci-actions/internal/repocheck"
@@ -81,6 +82,8 @@ Commands:
                        pushed), then helmctl package and push each
                        (env: CHARTS, CHART_ROOT, REGISTRY, APP_VERSION_MODE, CHART_IMAGES,
                        REQUIRE_IMAGE_DIGESTS, HELMCTL_VERSION, GITHUB_REF_NAME, RUNNER_TEMP)
+  release-gate         refuse a release unless every check on the tagged commit is green
+                       (env: GH_TOKEN, GITHUB_REPOSITORY, GITHUB_SHA, GITHUB_RUN_ID, GITHUB_API_URL)
   token-inputs         check a fleet caller's token inputs against its token-source
                        (env: SOURCE, ISSUER, APP, ID, ID_NAME, SECRET, HAS_KEY, EXTRA_KEYS,
                        WARN_APP_KEY_IF, WARN_APP_KEY, WARN_ROSTER_IF, WARN_ROSTER)
@@ -283,6 +286,20 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, getenv fu
 		default:
 			fmt.Fprintln(stderr, "publish-charts:", err)
 			return runcmd.ExitCode(err)
+		}
+	case "release-gate":
+		err := releasegate.Run(ctx, releasegate.Options{
+			Token: getenv("GH_TOKEN"), Repo: getenv("GITHUB_REPOSITORY"), SHA: getenv("GITHUB_SHA"),
+			RunID: getenv("GITHUB_RUN_ID"), API: getenv("GITHUB_API_URL"), Out: stdout,
+		})
+		switch {
+		case err == nil:
+			return 0
+		case errors.Is(err, releasegate.ErrNotGreen):
+			return 1
+		default:
+			fmt.Fprintln(stderr, "release-gate:", err)
+			return 1
 		}
 	case "token-inputs":
 		extras, err := workflowinputs.ParseExtras(getenv("EXTRA_KEYS"))

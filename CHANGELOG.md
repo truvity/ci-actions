@@ -6,6 +6,17 @@ an untagged commit; `tagged-pins` refuses anything else.
 
 ## Unreleased
 
+- **New action `require-green-checks`** (and `ci-actions release-gate`): the
+  102-line "Require green checks on the tagged commit" step of ci-workflows'
+  `release-private.yaml` (the gate that refuses a release built from a commit
+  whose CI has not finished), as Go. It reads the commit's check runs from the
+  API itself (the shell used curl and jq). The filter (newest run of each
+  check by id, never by start time; this run's own checks by run id; sibling
+  release jobs and dependency-bot checks by name) gives the same lines as the
+  original jq program on 300 randomised inputs, and the same log lines, error
+  text and exit status; the step's embedded self-test is now the Go tests.
+  Nothing in ci-workflows changes until it adopts the action after a release.
+
 - **New action `publish-charts`** (and `ci-actions publish-charts`): the 109-line
   "Package and push charts" step of ci-workflows' `release-public.yaml` (an
   embedded Python resolver and the helmctl download, package and push loop),
