@@ -1,0 +1,203 @@
+#!/usr/bin/env bash
+# Exchange this job's GitHub identity token at the issuer. See action.yaml.
+set -euo pipefail
+
+if [ -z "$(printf '%s' "${AUDIENCES}" | tr -d '[:space:],')" ] && [ -z "${GITHUB_APP}" ]; then
+  echo "::error::nothing to exchange for: give audiences, github-app, or both." >&2
+  exit 1
+fi
+
+if [ -z "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" ]; then
+  echo "::error::this job has no id-token permission. Add 'permissions: { id-token: write }' to the job." >&2
+  exit 1
+fi
+
+# The issuer's OWN url is the audience GitHub must mint for.
+# A token minted for anything else is a valid GitHub token, and
+# accepting it would let whoever holds it exchange here — so the
+# issuer requires this exact value and refuses the rest.
+subject=$(curl --fail --silent --show-error \
+  -H "Authorization: Bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
+  "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=$(printf '%s' "${ISSUER}" | jq -sRr @uri)" \
+  | jq -r '.value')
+
+if [ -z "${subject}" ] || [ "${subject}" = "null" ]; then
+  echo "::error::GitHub returned no identity token for this job." >&2
+  exit 1
+fi
+
+work="${RUNNER_TEMP}/access-roster"
+mkdir -p "${work}"
+chmod 700 "${work}"
+
+profiles=""
+kubeconfig=""
+aws_config="${work}/aws-config"
+: > "${work}/wanted"
+
+# Audiences may be comma OR newline separated, because a YAML
+# list folded into a string arrives as either and a person should
+# not have to know which.
+#
+# The trailing newline matters: `read` drops a final line that is
+# not terminated, so `printf '%s'` here would silently discard
+# the LAST audience of every job — the failure being a missing
+# profile rather than an error.
+printf '%s\n' "${AUDIENCES}" | tr ',' '\n' | while IFS= read -r audience; do
+  audience=$(printf '%s' "${audience}" | tr -d '[:space:]')
+  [ -n "${audience}" ] || continue
+  printf '%s\n' "${audience}" >> "${work}/wanted"
+done
+
+while IFS= read -r audience; do
+  # The exchange. The client is presented in HTTP BASIC and never
+  # as a posted client_id: the issuer reads it from Basic alone,
+  # and a posted one is refused with an error naming the client
+  # rather than the mistake.
+  #
+  # Form-encoded first, as RFC 6749 §2.3.1 requires and as the
+  # issuer decodes. Every audience here holds a colon, and Basic
+  # splits the id from the secret at the FIRST colon: sent raw,
+  # `k8s:dev:` arrived as client `k8s` and was refused with
+  # "invalid client_id / client_secret".
+  client=$(printf '%s' "${audience}" | jq -sRr @uri)
+  response=$(curl --fail-with-body --silent --show-error \
+    -u "${client}:" \
+    -d "grant_type=urn:ietf:params:oauth:grant-type:token-exchange" \
+    -d "subject_token=${subject}" \
+    -d "subject_token_type=urn:ietf:params:oauth:token-type:jwt" \
+    -d "audience=${audience}" \
+    -d "scope=openid" \
+    "${ISSUER}/token") || {
+      echo "::error::the issuer refused ${audience}: $(printf '%s' "${response}" | jq -r '.error_description // .error // .')" >&2
+      exit 1
+    }
+
+  token=$(printf '%s' "${response}" | jq -r '.access_token')
+  # Masked before it is written anywhere: a token in a build log
+  # is a credential anybody who can read the log now holds.
+  echo "::add-mask::${token}"
+
+  case "${audience}" in
+    k8s:*)
+      [ "${WANT_KUBECONFIG}" = "true" ] || continue
+      cluster="${audience#k8s:}"
+      kubeconfig="${work}/kubeconfig"
+      # The cluster's address and CA are NOT ours to write: they
+      # come from the platform's own kubeconfig or from
+      # `aws eks update-kubeconfig`, and inventing one would be
+      # inventing an address to trust. This writes the credential
+      # and the context that uses it.
+      kubectl config --kubeconfig="${kubeconfig}" \
+        set-credentials "${cluster}" --token="${token}" >/dev/null
+      kubectl config --kubeconfig="${kubeconfig}" \
+        set-context "${cluster}" --user="${cluster}" --cluster="${cluster}" >/dev/null
+      ;;
+    aws:*:*)
+      rest="${audience#aws:}"
+      account="${rest%%:*}"
+      role="${rest#*:}"
+      name="${role}@${account}"
+      # web_identity_token_file rather than a credential process:
+      # inside a job the token is already in hand and lives as
+      # long as the job does, so the SDK reads it directly and
+      # nothing of ours has to stay running.
+      printf '%s\n' "${token}" > "${work}/token-${name}"
+      chmod 600 "${work}/token-${name}"
+      # An `&&` as the last command of this group would be the
+      # group's exit status, and with `set -e` an empty region
+      # would end the job. So it is an `if`.
+      {
+        printf '\n[profile %s]\n' "${name}"
+        printf 'role_arn = arn:aws:iam::%s:role/%s\n' "${account}" "${role}"
+        printf 'web_identity_token_file = %s\n' "${work}/token-${name}"
+        if [ -n "${REGION}" ]; then
+          printf 'region = %s\n' "${REGION}"
+        fi
+      } >> "${aws_config}"
+      profiles="${profiles}${profiles:+ }${name}"
+      ;;
+    *)
+      echo "::error::${audience} is neither a k8s: nor an aws: audience, so there is nothing to write for it." >&2
+      exit 1
+      ;;
+  esac
+done < "${work}/wanted"
+
+if [ -n "${GITHUB_APP}" ]; then
+  app="${GITHUB_APP#github-app:}"
+  # The id goes into the audience and the Basic client, so it is
+  # held to what a catalogue id can be before it goes anywhere.
+  case "${app}" in
+    ""|*[!a-z0-9-]*)
+      echo "::error::github-app ${app} is not a catalogue id: lower-case letters, digits and dashes." >&2
+      exit 1
+      ;;
+  esac
+  # Comma, space or newline separated in, space separated out: the
+  # form the issuer reads. `name=level` is accepted as `name:level`.
+  repositories=$(printf '%s\n' "${REPOSITORIES}" | tr ',\n\t' '   ' | xargs)
+  scope=$(printf '%s\n' "${PERMISSIONS}" | tr ',\n\t=' '   :' | xargs)
+  # The App's audience is the client, as for every exchange a job
+  # makes; the requested token type is what makes this GitHub's
+  # token rather than one the issuer signs.
+  client=$(printf '%s' "github-app:${app}" | jq -sRr @uri)
+  response=$(curl --fail-with-body --silent --show-error \
+    -u "${client}:" \
+    --data-urlencode "grant_type=urn:ietf:params:oauth:grant-type:token-exchange" \
+    --data-urlencode "subject_token=${subject}" \
+    --data-urlencode "subject_token_type=urn:ietf:params:oauth:token-type:jwt" \
+    --data-urlencode "requested_token_type=urn:access-roster:params:oauth:token-type:github-installation-token" \
+    --data-urlencode "audience=github-app:${app}" \
+    --data-urlencode "repositories=${repositories}" \
+    --data-urlencode "scope=${scope}" \
+    "${ISSUER}/token") || {
+      echo "::error::the issuer refused github-app:${app}: $(printf '%s' "${response}" | jq -r '.error_description // .error // .')" >&2
+      exit 1
+    }
+  github_token=$(printf '%s' "${response}" | jq -r '.access_token')
+  if [ -z "${github_token}" ] || [ "${github_token}" = "null" ]; then
+    echo "::error::the issuer returned no token for github-app:${app}." >&2
+    exit 1
+  fi
+  # Masked before it is written anywhere, as every token here is.
+  echo "::add-mask::${github_token}"
+  echo "github-token=${github_token}" >> "${GITHUB_OUTPUT}"
+fi
+
+if [ -f "${aws_config}" ]; then
+  echo "AWS_CONFIG_FILE=${aws_config}" >> "${GITHUB_ENV}"
+fi
+if [ -n "${DEFAULT_PROFILE}" ]; then
+  # What reaches GITHUB_ENV is the name THIS RUN WROTE, not the
+  # input that selected it. That closes two things at once.
+  #
+  # GITHUB_ENV is line-oriented, so a newline in a value declares
+  # arbitrary environment variables for every later step of the
+  # job. The input is trusted only as far as whoever wrote the
+  # workflow, and a workflow that interpolates an event field
+  # into it is not trusted at all. A name built here cannot carry
+  # a newline: it is role@account, from an audience whose
+  # whitespace was stripped before it was used.
+  #
+  # And a name that is not one of ours is a mistake worth
+  # catching here rather than as an AWS error three steps later
+  # about a profile that does not exist.
+  chosen=""
+  for written in ${profiles}; do
+    if [ "${written}" = "${DEFAULT_PROFILE}" ]; then
+      chosen="${written}"
+    fi
+  done
+  if [ -z "${chosen}" ]; then
+    echo "::error::default-profile is not one this run wrote. Written: ${profiles:-none}" >&2
+    exit 1
+  fi
+  echo "AWS_PROFILE=${chosen}" >> "${GITHUB_ENV}"
+fi
+if [ -n "${kubeconfig}" ]; then
+  echo "KUBECONFIG=${kubeconfig}" >> "${GITHUB_ENV}"
+fi
+
+echo "profiles=${profiles}" >> "${GITHUB_OUTPUT}"
+echo "kubeconfig=${kubeconfig}" >> "${GITHUB_OUTPUT}"
