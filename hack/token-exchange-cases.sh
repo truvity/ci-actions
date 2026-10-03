@@ -40,6 +40,8 @@ for t in bash jq tr xargs printf mkdir chmod cat dirname env sed head; do
   command -v "$t" >/dev/null && [ ! -e "$work/bin/$t" ] && ln -s "$(command -v "$t")" "$work/bin/$t"
 done
 
+ln -s "$(command -v /bin/echo || command -v /usr/bin/echo)" "$work/bin/echo"  # xargs execs echo
+
 # run <case> VAR=value...: a fresh job each time. Prints the log; the
 # outputs, GITHUB_ENV and GITHUB_OUTPUT land under $work/<case>.
 run() {
