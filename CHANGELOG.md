@@ -6,6 +6,8 @@ an untagged commit; `tagged-pins` refuses anything else.
 
 ## Unreleased
 
+## v1.10.0
+
 Two checks the fleet workflows of ci-workflows carry as inline shell, as Go:
 
 - **`token-inputs`** (action and `ci-actions token-inputs`): the check that a
