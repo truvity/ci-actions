@@ -1,0 +1,35 @@
+[
+ {
+  "name": "t_amd64.tar.xz",
+  "path": "dist/t_amd64.tar.xz",
+  "type": "Archive",
+  "goos": "linux",
+  "goarch": "amd64",
+  "extra": {
+   "ID": "t\"\u00fc",
+   "Format": "tar.xz",
+   "Binaries": [
+    "t\"\u00fc",
+    "x"
+   ],
+   "WrappedIn": ""
+  },
+  "goamd64": "v1"
+ },
+ {
+  "name": "t_arm64.tar.xz",
+  "path": "dist/t_arm64.tar.xz",
+  "type": "Archive",
+  "goos": "linux",
+  "goarch": "arm64",
+  "extra": {
+   "ID": "t\"\u00fc",
+   "Format": "tar.xz",
+   "Binaries": [
+    "t\"\u00fc",
+    "x"
+   ],
+   "WrappedIn": ""
+  }
+ }
+]

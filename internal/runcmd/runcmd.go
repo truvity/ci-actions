@@ -17,6 +17,7 @@ type Cmd struct {
 	Env    []string // extra KEY=VALUE entries added to the inherited environment
 	Name   string
 	Args   []string
+	Stdin  io.Reader // nil is no input
 	Stdout io.Writer
 	Stderr io.Writer
 }
@@ -29,6 +30,7 @@ func OS(ctx context.Context, c Cmd) error {
 	cmd := exec.CommandContext(ctx, c.Name, c.Args...)
 	cmd.Dir = c.Dir
 	cmd.Env = append(os.Environ(), c.Env...)
+	cmd.Stdin = c.Stdin
 	cmd.Stdout = c.Stdout
 	cmd.Stderr = c.Stderr
 	return cmd.Run()

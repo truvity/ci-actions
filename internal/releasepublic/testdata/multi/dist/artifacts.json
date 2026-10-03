@@ -1,0 +1,135 @@
+[
+ {
+  "name": "tool_1.2.3_linux_amd64.tar.gz",
+  "path": "dist/tool_1.2.3_linux_amd64.tar.gz",
+  "type": "Archive",
+  "goos": "linux",
+  "goarch": "amd64",
+  "extra": {
+   "ID": "tool",
+   "Format": "tar.gz",
+   "Binaries": [
+    "tool",
+    "tool-helper"
+   ],
+   "WrappedIn": "tool_1.2.3"
+  },
+  "goamd64": "v1"
+ },
+ {
+  "name": "tool_1.2.3_linux_arm64.tar.gz",
+  "path": "dist/tool_1.2.3_linux_arm64.tar.gz",
+  "type": "Archive",
+  "goos": "linux",
+  "goarch": "arm64",
+  "extra": {
+   "ID": "tool",
+   "Format": "tar.gz",
+   "Binaries": [
+    "tool",
+    "tool-helper"
+   ],
+   "WrappedIn": "tool_1.2.3"
+  }
+ },
+ {
+  "name": "tool_1.2.3_darwin_arm64.tar.gz",
+  "path": "dist/tool_1.2.3_darwin_arm64.tar.gz",
+  "type": "Archive",
+  "goos": "darwin",
+  "goarch": "arm64",
+  "extra": {
+   "ID": "tool",
+   "Format": "tar.gz",
+   "Binaries": [
+    "tool",
+    "tool-helper"
+   ],
+   "WrappedIn": "tool_1.2.3"
+  }
+ },
+ {
+  "name": "tool_1.2.3_darwin_amd64.tar.gz",
+  "path": "dist/tool_1.2.3_darwin_amd64.tar.gz",
+  "type": "Archive",
+  "goos": "darwin",
+  "goarch": "amd64",
+  "extra": {
+   "ID": "tool",
+   "Format": "tar.gz",
+   "Binaries": [
+    "tool",
+    "tool-helper"
+   ],
+   "WrappedIn": "tool_1.2.3"
+  },
+  "goamd64": "v1"
+ },
+ {
+  "name": "tool_1.2.3_windows_amd64.tar.gz",
+  "path": "dist/tool_1.2.3_windows_amd64.tar.gz",
+  "type": "Archive",
+  "goos": "windows",
+  "goarch": "amd64",
+  "extra": {
+   "ID": "tool",
+   "Format": "tar.gz",
+   "Binaries": [
+    "tool",
+    "tool-helper"
+   ],
+   "WrappedIn": "tool_1.2.3"
+  },
+  "goamd64": "v1"
+ },
+ {
+  "name": "tool_1.2.3_linux_amd64_v3.tar.gz",
+  "path": "dist/tool_1.2.3_linux_amd64_v3.tar.gz",
+  "type": "Archive",
+  "goos": "linux",
+  "goarch": "amd64",
+  "extra": {
+   "ID": "tool",
+   "Format": "tar.gz",
+   "Binaries": [
+    "tool",
+    "tool-helper"
+   ],
+   "WrappedIn": "tool_1.2.3"
+  },
+  "goamd64": "v3"
+ },
+ {
+  "name": "tool_1.2.3_checksums.txt",
+  "path": "dist/tool_1.2.3_checksums.txt",
+  "type": "Checksum",
+  "goos": "linux",
+  "goarch": "amd64",
+  "extra": {
+   "ID": "tool",
+   "Format": "tar.gz",
+   "Binaries": [
+    "tool"
+   ],
+   "WrappedIn": ""
+  },
+  "goamd64": "v1"
+ },
+ {
+  "name": "other_1.2.3_linux_amd64.zip",
+  "path": "dist/other_1.2.3_linux_amd64.zip",
+  "type": "Archive",
+  "goos": "linux",
+  "goarch": "amd64",
+  "extra": {
+   "ID": "other",
+   "Format": "zip",
+   "Binaries": [
+    "a",
+    "b"
+   ],
+   "WrappedIn": ""
+  },
+  "goamd64": "v1"
+ }
+]

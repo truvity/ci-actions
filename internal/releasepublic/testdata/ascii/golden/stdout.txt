@@ -1,0 +1,1 @@
+$FLAKE_DIR/t"ü_1.0_nix-flake: aarch64-linux, x86_64-linux with github:NixOS/nixpkgs/nixpkgs-unstable

@@ -23,6 +23,7 @@ contract.
 | [`caller-parity`](caller-parity/action.yaml) | Compares each repository's shared caller workflows (and the depguard block) against the kits in [`caller-parity/kits/`](caller-parity/kits/), and reports | `token`, `repositories` (required), `fail-on-diff` (`false`) | `parity-fleet` |
 | [`devbox-parity`](devbox-parity/action.yaml) | Refreshes devbox packages and aligns a Go repository's toolchain triple, opening a pull request | `token` (required), `mode`, `module-dirs` | `parity-fleet` |
 | [`auto-release`](auto-release/action.yaml) | The steps of the shared auto-release workflow: `gate` (a security-labelled merge or a hand-written fix releases now, the rest waits for the batch) and `tag` (cuts the next patch tag, behind a CHANGELOG heading pull request when the release needs one) | `step`, `token`, `repository` (required), `sha`, `tag-prefix`, `bot`, `changelog-heading`, `version-bump-command` | `auto-release` (once released and adopted) |
+| [`publish-nix-flakes`](publish-nix-flakes/action.yaml) | Generates, checks and uploads a Nix flake per GoReleaser archive id, deterministically packed | `flakes`, `flake-dir`, `token` (required) | `release-public` (once released and adopted) |
 | [`token-inputs`](token-inputs/action.yaml) | Checks a fleet caller's token inputs against its `token-source`, reporting every fault at once | `source`, `secret-name` (required), `has-key`, `id`, `extra-keys` | `parity-fleet`, `renovate-fleet`, `pkl-fleet`, `auto-release` (once released and adopted) |
 | [`enrolment-list`](enrolment-list/action.yaml) | Reads a dotted-path list of repository names from the caller's repositories file, as JSON for `fleet-discover` | `file`, `list` (required) | `parity-fleet`, `renovate-fleet`, `pkl-fleet` (once released and adopted) |
 
@@ -245,6 +246,7 @@ ci-actions caller-parity               # env TOKEN, REPOSITORIES, KITS, FAIL_ON_
 ci-actions openbao-secrets             # env ISSUER, ADDRESS, KV_PATH, ... (no value is ever printed)
 ci-actions token-inputs                # env SOURCE, ISSUER, APP, ID, ID_NAME, SECRET, HAS_KEY, EXTRA_KEYS, WARN_*
 ci-actions enrolment-list              # env FILE, LIST, GITHUB_OUTPUT
+ci-actions publish-nix-flakes          # env FLAKES, FLAKE_DIR, GITHUB_REPOSITORY, GITHUB_REF_NAME
 ci-actions auto-release gate           # env REPO, SHA, GITHUB_OUTPUT, GITHUB_STEP_SUMMARY
 ci-actions auto-release tag            # env PREFIX, BOT, REPO, BASE, HEADING_MODE, CHANGELOG, WAIT_MINUTES, VERSION_BUMP_COMMAND
 ci-actions cluster kind                # also: fork-guard, wait, shared-connect, shared-finish

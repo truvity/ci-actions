@@ -1,0 +1,17 @@
+{
+ "lockfile_version": "1",
+ "packages": {
+  "go@latest": {
+   "resolved": "github:NixOS/nixpkgs/aaaa?lastModified=1"
+  },
+  "github:NixOS/nixpkgs/bad": {
+   "resolved": "github:NixOS/nixpkgs/notasha"
+  },
+  "github:NixOS/nixpkgs/nixpkgs-unstable": {
+   "resolved": "github:NixOS/nixpkgs/0123456789abcdef0123456789abcdef01234567?lastModified=1&narHash=sha256-x"
+  },
+  "github:NixOS/nixpkgs/other": {
+   "resolved": "github:NixOS/nixpkgs/ffffffffffffffffffffffffffffffffffffffff"
+  }
+ }
+}
