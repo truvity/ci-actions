@@ -6,6 +6,8 @@ an untagged commit; `tagged-pins` refuses anything else.
 
 ## Unreleased
 
+## v1.9.0
+
 - **New action `token-exchange`**, moved from the root `action.yml` of
   truvity/access-roster so that nothing needs to name that repository. The
   inputs, outputs and behaviour are unchanged (a caller changes only its
