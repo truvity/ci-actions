@@ -6,6 +6,16 @@ an untagged commit; `tagged-pins` refuses anything else.
 
 ## Unreleased
 
+- **`pkl-fleet` gains `target` and `consumers`**: the last two shell blocks of
+  ci-workflows' `pkl-fleet.yaml` (the discover job's "Resolve the target
+  version" and "Find the consumers that need a bump", about 80 lines of curl
+  and jq), as Go. Compared with the shell on a local API double over 23
+  scenarios (every case of `hack/pkl-fleet-cases.sh` for them, plus
+  unreadable files, repositories and bad API answers): the same stdout,
+  `GITHUB_OUTPUT`, API calls and headers. New outputs `version`,
+  `repositories`, `count`. Nothing in ci-workflows changes until it adopts them
+  after a release.
+
 ## v1.12.0
 
 - **New action `fleet-step`** (and `ci-actions fleet-step <step>`): five small

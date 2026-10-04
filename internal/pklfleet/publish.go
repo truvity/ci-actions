@@ -34,8 +34,9 @@ type PublishOptions struct {
 }
 
 type api struct {
-	o    *PublishOptions
-	http *http.Client
+	o      *PublishOptions
+	http   *http.Client
+	accept string // the Accept header; empty is application/vnd.github+json
 }
 
 // do is the curl -fsS call: an HTTP error status is an error.
@@ -55,7 +56,11 @@ func (a api) do(ctx context.Context, method, url string, body any) ([]byte, erro
 		return nil, err
 	}
 	req.Header.Set("Authorization", "Bearer "+a.o.Token)
-	req.Header.Set("Accept", "application/vnd.github+json")
+	accept := a.accept
+	if accept == "" {
+		accept = "application/vnd.github+json"
+	}
+	req.Header.Set("Accept", accept)
 	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
 	resp, err := a.http.Do(req)
 	if err != nil {

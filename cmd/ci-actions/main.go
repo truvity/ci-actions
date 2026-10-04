@@ -92,7 +92,8 @@ Commands:
   release-pkl <step>   the release-pkl workflow's steps: declared, checks, assets, publish, smoke
                        (env: see release-pkl/action.yaml)
   pkl-fleet <step>     the pkl-fleet workflow's per-repository steps: rewrite (dependency URIs),
-                       resolve (and regenerate), publish (the branch and pull request)
+                       resolve (and regenerate), publish (the branch and pull request), and the discover job's
+                       target (the version to move to) and consumers (the repositories to bump)
                        (env: see pkl-fleet/action.yaml)
   fleet-step <step>    small steps of the fleet workflows: oidc-claims, commit-author, parity-settings,
                        approve-renovate, available-majors (env: see fleet-step/action.yaml)
@@ -343,6 +344,10 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, getenv fu
 			err = pklfleet.Rewrite(ctx, pklfleet.RewriteOptions{Common: common, Target: getenv("TARGET"), Source: getenv("SOURCE"), DirsFile: getenv("DIRS_FILE")})
 		case "resolve":
 			err = pklfleet.Resolve(ctx, pklfleet.ResolveOptions{Common: common, DirsFile: getenv("DIRS_FILE"), PklCommand: getenv("PKL_COMMAND")})
+		case "target":
+			err = pklfleet.Target(ctx, pklfleet.DiscoverOptions{Common: common, Token: getenv("TOKEN"), API: getenv("API"), Source: getenv("SOURCE"), Version: getenv("VERSION")})
+		case "consumers":
+			err = pklfleet.Consumers(ctx, pklfleet.DiscoverOptions{Common: common, Token: getenv("TOKEN"), API: getenv("API"), Source: getenv("SOURCE"), Version: getenv("VERSION"), Repos: getenv("REPOS")})
 		case "publish":
 			err = pklfleet.Publish(ctx, pklfleet.PublishOptions{Common: common, Token: getenv("TOKEN"), Repo: getenv("REPO"), Base: getenv("BASE"),
 				API: getenv("API"), Source: getenv("SOURCE"), Version: getenv("VERSION"), From: getenv("FROM"), Breaking: getenv("BREAKING"),
