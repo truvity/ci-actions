@@ -6,6 +6,19 @@ an untagged commit; `tagged-pins` refuses anything else.
 
 ## Unreleased
 
+- **New action `fleet-step`** (and `ci-actions fleet-step <step>`): five small
+  shell steps of the fleet workflows (about 150 lines, curl and jq): printing
+  the job's OIDC claims (two copies), resolving the commit author (two
+  copies), reading a repository's parity settings, approving the non-major
+  renovate pull requests whose review is required, and the table of majors
+  available across an estate. They read the API themselves. Compared with the
+  shell on a local API double: the same stdout, `GITHUB_OUTPUT`, summary, API
+  calls and headers in 84 scenarios, 60 of them randomised renovate reports for
+  the majors table (against jq). Nothing in ci-workflows changes until it adopts
+  the action after a release. One difference: the shell split the approve loop's
+  rows on whitespace, so a label containing a space broke it; the Go step does
+  not.
+
 - **New action `pkl-fleet`** (and `ci-actions pkl-fleet rewrite|resolve|publish`):
   the three per-repository shell blocks of ci-workflows' `pkl-fleet.yaml`
   (about 235 lines: rewriting the dependency URIs, resolving and regenerating,

@@ -1,0 +1,210 @@
+{
+ "repositories": {
+  "o/r1": {
+   "packageFiles": {
+    "npm": [
+     {
+      "packageFile": "f",
+      "deps": [
+       {
+        "depName": "go.mod/z",
+        "currentVersion": "v10.1",
+        "updates": [
+         {
+          "updateType": "minor",
+          "newValue": "v10.1"
+         },
+         {
+          "updateType": "minor",
+          "newVersion": "9.9.9"
+         },
+         {
+          "updateType": "minor",
+          "newValue": "v10.1"
+         }
+        ]
+       }
+      ]
+     }
+    ]
+   }
+  },
+  "o/zz": {
+   "packageFiles": {
+    "npm": [
+     {
+      "packageFile": "f",
+      "deps": [
+       {
+        "depName": "npm-p",
+        "currentVersion": "2.0.0",
+        "updates": []
+       },
+       {
+        "depName": "@scope/pkg",
+        "currentValue": "4",
+        "updates": [
+         {
+          "updateType": "minor",
+          "newValue": "2.0.0"
+         },
+         {
+          "updateType": "minor",
+          "newVersion": "2.0.0"
+         }
+        ]
+       },
+       {
+        "packageName": "a/x",
+        "currentVersion": "3.0.0-rc.1"
+       },
+       {
+        "depName": "@scope/pkg",
+        "currentVersion": "v10.1"
+       }
+      ]
+     }
+    ],
+    "github-actions": [
+     {
+      "packageFile": "f",
+      "deps": [
+       {
+        "currentValue": "2.0.0"
+       },
+       {
+        "depName": "@scope/pkg",
+        "currentVersion": "v2.0.0"
+       },
+       {
+        "depName": "\u00fcn\u00ef",
+        "currentVersion": "3.0.0-rc.1",
+        "updates": []
+       },
+       {
+        "depName": "@scope/pkg",
+        "currentVersion": "1",
+        "updates": [
+         {
+          "updateType": "patch",
+          "newVersion": "4"
+         },
+         {
+          "updateType": "major",
+          "newVersion": "2.0.0"
+         },
+         {
+          "updateType": "major",
+          "newVersion": "2.0.0"
+         }
+        ]
+       }
+      ]
+     }
+    ],
+    "dockerfile": [
+     {
+      "packageFile": "f",
+      "deps": [
+       {
+        "packageName": "\u00fcn\u00ef",
+        "currentVersion": "4",
+        "updates": [
+         {
+          "updateType": "major",
+          "newVersion": "v10.1"
+         },
+         {
+          "updateType": "minor",
+          "newVersion": "v2.0.0"
+         }
+        ]
+       },
+       {
+        "depName": "b/y",
+        "currentVersion": "1"
+       }
+      ]
+     }
+    ]
+   }
+  },
+  "o/r3": {
+   "packageFiles": {
+    "npm": [
+     {
+      "packageFile": "f",
+      "deps": [
+       {
+        "depName": "b/y",
+        "currentVersion": "v1.0.0"
+       },
+       {
+        "depName": "b/y",
+        "currentVersion": "4",
+        "updates": [
+         {
+          "updateType": "minor",
+          "newValue": "3.0.0-rc.1"
+         },
+         {
+          "updateType": "major",
+          "newVersion": "4"
+         }
+        ]
+       },
+       {
+        "depName": "go.mod/z",
+        "currentValue": "1",
+        "updates": [
+         {
+          "updateType": "patch",
+          "newVersion": "v1.0.0"
+         },
+         {
+          "updateType": "minor",
+          "newVersion": "9.9.9"
+         }
+        ]
+       }
+      ]
+     }
+    ],
+    "github-actions": [
+     {
+      "packageFile": "f",
+      "deps": [
+       {
+        "depName": "b/y",
+        "updates": []
+       },
+       {
+        "depName": "@scope/pkg",
+        "currentVersion": "v2.0.0",
+        "updates": []
+       },
+       {
+        "depName": "npm-p",
+        "currentVersion": "v1.0.0",
+        "updates": [
+         {
+          "updateType": "major",
+          "newVersion": "1"
+         },
+         {
+          "updateType": "patch",
+          "newVersion": "v10.1"
+         },
+         {
+          "updateType": "major",
+          "newValue": "9.9.9"
+         }
+        ]
+       }
+      ]
+     }
+    ]
+   }
+  }
+ }
+}

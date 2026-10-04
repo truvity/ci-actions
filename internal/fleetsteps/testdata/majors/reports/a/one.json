@@ -1,0 +1,107 @@
+{
+ "repositories": {
+  "o/zz": {
+   "packageFiles": {
+    "dockerfile": [
+     {
+      "packageFile": "f",
+      "deps": [
+       {
+        "depName": "go.mod/z",
+        "currentVersion": "v1.0.0",
+        "updates": [
+         {
+          "updateType": "major",
+          "newVersion": "v10.1"
+         },
+         {
+          "updateType": "major",
+          "newValue": "2.0.0"
+         },
+         {
+          "updateType": "major",
+          "newVersion": "9.9.9"
+         }
+        ]
+       },
+       {
+        "depName": "go.mod/z",
+        "currentVersion": "9.9.9",
+        "updates": [
+         {
+          "updateType": "patch",
+          "newVersion": "2.0.0"
+         }
+        ]
+       }
+      ]
+     }
+    ]
+   }
+  },
+  "o/r2": {
+   "packageFiles": {
+    "dockerfile": [
+     {
+      "packageFile": "f",
+      "deps": [
+       {
+        "depName": "go.mod/z",
+        "updates": []
+       }
+      ]
+     }
+    ],
+    "github-actions": [
+     {
+      "packageFile": "f",
+      "deps": [
+       {
+        "depName": "go.mod/z",
+        "currentVersion": "v1.0.0",
+        "updates": []
+       }
+      ]
+     }
+    ]
+   }
+  },
+  "o/r1": {
+   "packageFiles": {
+    "dockerfile": [
+     {
+      "packageFile": "f",
+      "deps": [
+       {
+        "packageName": "a/x",
+        "currentVersion": "9.9.9",
+        "updates": [
+         {
+          "updateType": "patch",
+          "newVersion": "v2.0.0"
+         },
+         {
+          "updateType": "major",
+          "newValue": "2.0.0"
+         }
+        ]
+       },
+       {
+        "depName": "a/x",
+        "currentVersion": "4"
+       },
+       {
+        "depName": "npm-p",
+        "currentVersion": "2.0.0"
+       },
+       {
+        "depName": "\u00fcn\u00ef",
+        "currentVersion": "v10.1"
+       }
+      ]
+     }
+    ]
+   }
+  }
+ }
+}

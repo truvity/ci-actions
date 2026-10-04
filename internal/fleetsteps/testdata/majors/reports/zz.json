@@ -1,0 +1,249 @@
+{
+ "repositories": {
+  "o/zz": {
+   "packageFiles": {
+    "gomod": [
+     {
+      "packageFile": "f",
+      "deps": [
+       {
+        "depName": "@scope/pkg",
+        "updates": [
+         {
+          "updateType": "major",
+          "newVersion": "9.9.9"
+         },
+         {
+          "updateType": "major",
+          "newValue": "2.0.0"
+         }
+        ]
+       },
+       {
+        "depName": "a/x",
+        "updates": [
+         {
+          "updateType": "patch",
+          "newValue": "v1.0.0"
+         },
+         {
+          "updateType": "patch",
+          "newVersion": "v1.0.0"
+         }
+        ]
+       },
+       {
+        "depName": "go.mod/z",
+        "currentVersion": "v1.0.0",
+        "updates": [
+         {
+          "updateType": "major",
+          "newVersion": "v1.0.0"
+         }
+        ]
+       },
+       {
+        "depName": "b/y",
+        "currentVersion": "4"
+       }
+      ]
+     }
+    ]
+   }
+  },
+  "o/r1": {
+   "packageFiles": {
+    "npm": [
+     {
+      "packageFile": "f",
+      "deps": [
+       {
+        "depName": "b/y",
+        "currentVersion": "2.0.0",
+        "updates": []
+       },
+       {
+        "depName": "a/x",
+        "currentVersion": "3.0.0-rc.1",
+        "updates": []
+       },
+       {
+        "depName": "a/x",
+        "currentValue": "3.0.0-rc.1",
+        "updates": [
+         {
+          "updateType": "minor",
+          "newVersion": "v10.1"
+         },
+         {
+          "updateType": "patch",
+          "newVersion": "4"
+         }
+        ]
+       }
+      ]
+     }
+    ],
+    "dockerfile": [
+     {
+      "packageFile": "f",
+      "deps": [
+       {
+        "depName": "\u00fcn\u00ef",
+        "currentVersion": "1",
+        "updates": [
+         {
+          "updateType": "major",
+          "newVersion": "v10.1"
+         }
+        ]
+       }
+      ]
+     }
+    ],
+    "gomod": [
+     {
+      "packageFile": "f",
+      "deps": [
+       {
+        "depName": "go.mod/z",
+        "currentVersion": "4",
+        "updates": []
+       },
+       {
+        "depName": "\u00fcn\u00ef",
+        "currentVersion": "9.9.9",
+        "updates": [
+         {
+          "updateType": "major",
+          "newVersion": "3.0.0-rc.1"
+         },
+         {
+          "updateType": "minor",
+          "newVersion": "9.9.9"
+         },
+         {
+          "updateType": "minor",
+          "newValue": "v10.1"
+         }
+        ]
+       },
+       {
+        "depName": "go.mod/z",
+        "currentValue": "v2.0.0"
+       }
+      ]
+     }
+    ]
+   }
+  },
+  "o/r2": {
+   "packageFiles": {
+    "npm": [
+     {
+      "packageFile": "f",
+      "deps": [
+       {
+        "depName": "go.mod/z",
+        "currentVersion": "3.0.0-rc.1",
+        "updates": [
+         {
+          "updateType": "minor",
+          "newVersion": "v1.0.0"
+         },
+         {
+          "updateType": "major",
+          "newVersion": "v2.0.0"
+         },
+         {
+          "updateType": "patch",
+          "newVersion": "v2.0.0"
+         }
+        ]
+       },
+       {
+        "depName": "b/y",
+        "currentValue": "v1.0.0",
+        "updates": []
+       }
+      ]
+     }
+    ]
+   }
+  },
+  "o/r3": {
+   "packageFiles": {
+    "dockerfile": [
+     {
+      "packageFile": "f",
+      "deps": [
+       {
+        "depName": "b/y",
+        "updates": []
+       },
+       {
+        "depName": "@scope/pkg",
+        "currentVersion": "2.0.0",
+        "updates": [
+         {
+          "updateType": "major",
+          "newVersion": "v2.0.0"
+         },
+         {
+          "updateType": "major",
+          "newVersion": "v2.0.0"
+         }
+        ]
+       }
+      ]
+     }
+    ],
+    "gomod": [
+     {
+      "packageFile": "f",
+      "deps": [
+       {
+        "depName": "b/y",
+        "currentVersion": "v2.0.0",
+        "updates": [
+         {
+          "updateType": "major",
+          "newValue": "v10.1"
+         },
+         {
+          "updateType": "major",
+          "newVersion": "v1.0.0"
+         }
+        ]
+       }
+      ]
+     }
+    ],
+    "github-actions": [
+     {
+      "packageFile": "f",
+      "deps": [
+       {
+        "depName": "@scope/pkg",
+        "updates": [
+         {
+          "updateType": "minor",
+          "newVersion": "v2.0.0"
+         },
+         {
+          "updateType": "patch",
+          "newVersion": "2.0.0"
+         },
+         {
+          "updateType": "minor",
+          "newValue": "3.0.0-rc.1"
+         }
+        ]
+       }
+      ]
+     }
+    ]
+   }
+  }
+ }
+}
