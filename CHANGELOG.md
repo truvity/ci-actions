@@ -6,6 +6,8 @@ an untagged commit; `tagged-pins` refuses anything else.
 
 ## Unreleased
 
+## v1.13.0
+
 - **`pkl-fleet` gains `target` and `consumers`**: the last two shell blocks of
   ci-workflows' `pkl-fleet.yaml` (the discover job's "Resolve the target
   version" and "Find the consumers that need a bump", about 80 lines of curl
