@@ -26,7 +26,7 @@ func newAPI(t *testing.T) *fakeAPI {
 	f := &fakeAPI{t: t, resp: map[string]string{}}
 	f.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		b, _ := io.ReadAll(r.Body)
-		if r.Header.Get("Authorization") != "Bearer secret-token" || r.Header.Get("Accept") != "application/vnd.github+json" || r.Header.Get("X-GitHub-Api-Version") != "2022-11-28" {
+		if r.Header.Get("Authorization") != "Bearer secret-token" || (r.Header.Get("Accept") != "application/vnd.github+json" && r.Header.Get("Accept") != "application/vnd.github.raw+json") || r.Header.Get("X-GitHub-Api-Version") != "2022-11-28" {
 			http.Error(w, "headers", 401)
 			return
 		}

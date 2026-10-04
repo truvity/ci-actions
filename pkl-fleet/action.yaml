@@ -1,7 +1,11 @@
 name: pkl-fleet
 description: >-
-  The per-repository steps of the shared pkl-fleet workflow, one per call
-  (`step`), run in a checkout of the consumer. `rewrite` moves every
+  The steps of the shared pkl-fleet workflow, one per call (`step`). The discover
+  job's `target` resolves the version to move to (the input, or the latest
+  release of the library; it must be a version and a published release) and
+  `consumers` narrows the discovered repositories to those whose `PklProject`
+  files depend on the library at another version and have a devbox.json. The
+  rest run in a checkout of the consumer. `rewrite` moves every
   dependency on a Pkl contracts library in every tracked `PklProject` and
   `PklProject.deps.json` to a target release, refusing before it writes on a
   URI it cannot say what to do with (a floating version, a tag and package
@@ -19,14 +23,14 @@ description: >-
 
 inputs:
   step:
-    description: "`rewrite`, `resolve` or `publish`."
+    description: "`target`, `consumers`, `rewrite`, `resolve` or `publish`."
     required: true
   target:
     description: "`rewrite`: the release to move to, X.Y.Z or X.Y.Z-prerelease, without the `v`."
     required: false
     default: ""
   source:
-    description: "`rewrite`, `publish`: `owner/name` of the contracts library."
+    description: "`target`, `consumers`, `rewrite`, `publish`: `owner/name` of the contracts library."
     required: false
     default: ""
   dirs-file:
@@ -37,8 +41,12 @@ inputs:
     description: "`resolve`: the command that runs pkl, used when the repository has no `resolve` recipe."
     required: false
     default: pkl
+  repositories:
+    description: "`consumers`: JSON array of `owner/name` to narrow (the output of fleet-discover)."
+    required: false
+    default: ""
   token:
-    description: "`publish`: a token that may push branches and open pull requests in the repository."
+    description: "`target`, `consumers`: a read token; `publish`: a token that may push branches and open pull requests in the repository."
     required: false
     default: ""
   repository:
@@ -50,11 +58,11 @@ inputs:
     required: false
     default: ""
   api-url:
-    description: "`publish`: the REST API base."
+    description: "`target`, `consumers`, `publish`: the REST API base."
     required: false
     default: https://api.github.com
   version:
-    description: "`publish`: the release moved to, without the `v`."
+    description: "`target`: the version asked for (empty: the latest release; a leading `v` is allowed). `consumers`, `publish`: the release moved to, without the `v`."
     required: false
     default: ""
   from:
@@ -87,6 +95,15 @@ inputs:
     default: ""
 
 outputs:
+  version:
+    description: "`target`: the version consumers move to."
+    value: ${{ steps.run.outputs.version }}
+  repositories:
+    description: "`consumers`: JSON array of the repositories that need a bump."
+    value: ${{ steps.run.outputs.repositories }}
+  count:
+    description: "`consumers`: how many."
+    value: ${{ steps.run.outputs.count }}
   changed:
     description: "`rewrite`: `true` when any dependency moved."
     value: ${{ steps.run.outputs.changed }}
@@ -109,6 +126,7 @@ runs:
         STEP: ${{ inputs.step }}
         TARGET: ${{ inputs.target }}
         SOURCE: ${{ inputs.source }}
+        REPOS: ${{ inputs.repositories }}
         DIRS_FILE: ${{ inputs.dirs-file }}
         PKL_COMMAND: ${{ inputs.pkl-command }}
         TOKEN: ${{ inputs.token }}
