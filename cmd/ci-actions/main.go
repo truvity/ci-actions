@@ -22,6 +22,7 @@ import (
 	"github.com/truvity/ci-actions/internal/fleet"
 	"github.com/truvity/ci-actions/internal/fleetdiscover"
 	"github.com/truvity/ci-actions/internal/openbaosecrets"
+	"github.com/truvity/ci-actions/internal/pklfleet"
 	"github.com/truvity/ci-actions/internal/policyconformance"
 	"github.com/truvity/ci-actions/internal/publicrunners"
 	"github.com/truvity/ci-actions/internal/publishcharts"
@@ -89,6 +90,9 @@ Commands:
                        (env: GH_TOKEN, GITHUB_REPOSITORY, GITHUB_SHA, GITHUB_RUN_ID, GITHUB_API_URL)
   release-pkl <step>   the release-pkl workflow's steps: declared, checks, assets, publish, smoke
                        (env: see release-pkl/action.yaml)
+  pkl-fleet <step>     the pkl-fleet workflow's per-repository steps: rewrite (dependency URIs),
+                       resolve (and regenerate), publish (the branch and pull request)
+                       (env: see pkl-fleet/action.yaml)
   token-inputs         check a fleet caller's token inputs against its token-source
                        (env: SOURCE, ISSUER, APP, ID, ID_NAME, SECRET, HAS_KEY, EXTRA_KEYS,
                        WARN_APP_KEY_IF, WARN_APP_KEY, WARN_ROSTER_IF, WARN_ROSTER)
@@ -322,6 +326,36 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, getenv fu
 			return 2
 		default:
 			fmt.Fprintln(stderr, "release-pkl:", err)
+			return runcmd.ExitCode(err)
+		}
+	case "pkl-fleet":
+		if len(args) < 2 {
+			fmt.Fprint(stderr, usage)
+			return 2
+		}
+		common := pklfleet.Common{Out: stdout, Err: stderr, Output: getenv("GITHUB_OUTPUT"), Summary: getenv("GITHUB_STEP_SUMMARY")}
+		var err error
+		switch args[1] {
+		case "rewrite":
+			err = pklfleet.Rewrite(ctx, pklfleet.RewriteOptions{Common: common, Target: getenv("TARGET"), Source: getenv("SOURCE"), DirsFile: getenv("DIRS_FILE")})
+		case "resolve":
+			err = pklfleet.Resolve(ctx, pklfleet.ResolveOptions{Common: common, DirsFile: getenv("DIRS_FILE"), PklCommand: getenv("PKL_COMMAND")})
+		case "publish":
+			err = pklfleet.Publish(ctx, pklfleet.PublishOptions{Common: common, Token: getenv("TOKEN"), Repo: getenv("REPO"), Base: getenv("BASE"),
+				API: getenv("API"), Source: getenv("SOURCE"), Version: getenv("VERSION"), From: getenv("FROM"), Breaking: getenv("BREAKING"),
+				DirsFile: getenv("DIRS_FILE"), BranchPrefix: getenv("BRANCH_PREFIX"), DryRun: getenv("DRY_RUN"), AutoMerge: getenv("AUTO_MERGE"),
+				GitUser: getenv("GIT_USER"), GitEmail: getenv("GIT_EMAIL")})
+		default:
+			fmt.Fprint(stderr, usage)
+			return 2
+		}
+		switch {
+		case err == nil:
+			return 0
+		case errors.Is(err, pklfleet.ErrFailed):
+			return 1
+		default:
+			fmt.Fprintln(stderr, "pkl-fleet:", err)
 			return runcmd.ExitCode(err)
 		}
 	case "token-inputs":

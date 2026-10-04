@@ -1,0 +1,129 @@
+name: pkl-fleet
+description: >-
+  The per-repository steps of the shared pkl-fleet workflow, one per call
+  (`step`), run in a checkout of the consumer. `rewrite` moves every
+  dependency on a Pkl contracts library in every tracked `PklProject` and
+  `PklProject.deps.json` to a target release, refusing before it writes on a
+  URI it cannot say what to do with (a floating version, a tag and package
+  version that disagree, a downgrade), and classifies the bump (breaking: a new
+  major, a new minor below 1.0, or a prerelease). `resolve` resolves the
+  rewritten projects with the repository's own `resolve` recipe or `pkl project
+  resolve`, then runs its `generate` recipe, all in devbox. `publish` commits
+  the tree to one branch per version, pushes it only when the content differs
+  from the branch already there, opens or updates the pull request, arms
+  auto-merge for a bump that is not breaking, and closes older versions' pull
+  requests as superseded. The rules are the `ci-actions` binary's `pkl-fleet`
+  command; this action is a thin wrapper that finds that binary (release
+  archive of the pinned tag, or built with Go) and runs it. Needs bash and
+  git, and devbox, just and pkl on PATH for `resolve`.
+
+inputs:
+  step:
+    description: "`rewrite`, `resolve` or `publish`."
+    required: true
+  target:
+    description: "`rewrite`: the release to move to, X.Y.Z or X.Y.Z-prerelease, without the `v`."
+    required: false
+    default: ""
+  source:
+    description: "`rewrite`, `publish`: `owner/name` of the contracts library."
+    required: false
+    default: ""
+  dirs-file:
+    description: "`rewrite` writes, `resolve` and `publish` read: the project directories moved, one per line."
+    required: false
+    default: ""
+  pkl-command:
+    description: "`resolve`: the command that runs pkl, used when the repository has no `resolve` recipe."
+    required: false
+    default: pkl
+  token:
+    description: "`publish`: a token that may push branches and open pull requests in the repository."
+    required: false
+    default: ""
+  repository:
+    description: "`publish`: `owner/name` of the consumer."
+    required: false
+    default: ""
+  base:
+    description: "`publish`: the consumer's default branch."
+    required: false
+    default: ""
+  api-url:
+    description: "`publish`: the REST API base."
+    required: false
+    default: https://api.github.com
+  version:
+    description: "`publish`: the release moved to, without the `v`."
+    required: false
+    default: ""
+  from:
+    description: "`publish`: the `from` output of `rewrite`."
+    required: false
+    default: ""
+  breaking:
+    description: "`publish`: the `breaking` output of `rewrite`."
+    required: false
+    default: "false"
+  branch-prefix:
+    description: "`publish`: branches are `<prefix><version>`."
+    required: false
+    default: pkl-contracts-
+  dry-run:
+    description: "`publish`: `true` pushes nothing and opens nothing, and reports what it would."
+    required: false
+    default: "false"
+  auto-merge:
+    description: "`publish`: `true` arms auto-merge for a bump that is not breaking."
+    required: false
+    default: "false"
+  git-user:
+    description: "`publish`: the commit author's name."
+    required: false
+    default: ""
+  git-email:
+    description: "`publish`: the commit author's email."
+    required: false
+    default: ""
+
+outputs:
+  changed:
+    description: "`rewrite`: `true` when any dependency moved."
+    value: ${{ steps.run.outputs.changed }}
+  breaking:
+    description: "`rewrite`: `true` for a new major, a new minor below 1.0 or a prerelease target."
+    value: ${{ steps.run.outputs.breaking }}
+  from:
+    description: "`rewrite`: the versions moved from, comma separated, oldest first."
+    value: ${{ steps.run.outputs.from }}
+  url:
+    description: "`publish`: the pull request URL."
+    value: ${{ steps.run.outputs.url }}
+
+runs:
+  using: composite
+  steps:
+    - id: run
+      shell: bash
+      env:
+        STEP: ${{ inputs.step }}
+        TARGET: ${{ inputs.target }}
+        SOURCE: ${{ inputs.source }}
+        DIRS_FILE: ${{ inputs.dirs-file }}
+        PKL_COMMAND: ${{ inputs.pkl-command }}
+        TOKEN: ${{ inputs.token }}
+        REPO: ${{ inputs.repository }}
+        BASE: ${{ inputs.base }}
+        API: ${{ inputs.api-url }}
+        VERSION: ${{ inputs.version }}
+        FROM: ${{ inputs.from }}
+        BREAKING: ${{ inputs.breaking }}
+        BRANCH_PREFIX: ${{ inputs.branch-prefix }}
+        DRY_RUN: ${{ inputs.dry-run }}
+        AUTO_MERGE: ${{ inputs.auto-merge }}
+        GIT_USER: ${{ inputs.git-user }}
+        GIT_EMAIL: ${{ inputs.git-email }}
+        ACTION_PATH: ${{ github.action_path }}
+        ACTION_REPOSITORY: ${{ github.action_repository }}
+        ACTION_REF: ${{ github.action_ref }}
+      run: bash "$ACTION_PATH/run.sh" "$STEP"

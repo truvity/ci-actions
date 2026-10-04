@@ -6,6 +6,19 @@ an untagged commit; `tagged-pins` refuses anything else.
 
 ## Unreleased
 
+- **New action `pkl-fleet`** (and `ci-actions pkl-fleet rewrite|resolve|publish`):
+  the three per-repository shell blocks of ci-workflows' `pkl-fleet.yaml`
+  (about 235 lines: rewriting the dependency URIs, resolving and regenerating,
+  and opening or updating the pull request), as Go. The URI rewrite refuses
+  before it writes on anything it cannot classify and reports every refusal; a
+  bump is breaking for a new major, a new minor below 1.0 or a prerelease. The
+  pull request step reads and writes the API itself (the shell used curl and
+  jq) and pushes only when the branch's content differs. The cases of
+  `hack/pkl-fleet-cases.sh` for these blocks run unchanged against the binary
+  and are now Go tests, with the API calls and request bodies compared with
+  what the shell sent. Nothing in ci-workflows changes until it adopts the
+  action after a release.
+
 - **New action `release-pkl`** (and `ci-actions release-pkl <step>`): the five
   shell steps of ci-workflows' `release-pkl.yaml` (about 190 lines: the
   declared version, the tag and changelog refusals, the asset and checksum
