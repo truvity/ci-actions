@@ -11,7 +11,9 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/truvity/ci-actions/internal/autorelease"
 	"github.com/truvity/ci-actions/internal/callerparity"
@@ -25,6 +27,7 @@ import (
 	"github.com/truvity/ci-actions/internal/publishcharts"
 	"github.com/truvity/ci-actions/internal/recipe"
 	"github.com/truvity/ci-actions/internal/releasegate"
+	"github.com/truvity/ci-actions/internal/releasepkl"
 	"github.com/truvity/ci-actions/internal/releasepublic"
 	"github.com/truvity/ci-actions/internal/remotebuilders"
 	"github.com/truvity/ci-actions/internal/repocheck"
@@ -84,6 +87,8 @@ Commands:
                        REQUIRE_IMAGE_DIGESTS, HELMCTL_VERSION, GITHUB_REF_NAME, RUNNER_TEMP)
   release-gate         refuse a release unless every check on the tagged commit is green
                        (env: GH_TOKEN, GITHUB_REPOSITORY, GITHUB_SHA, GITHUB_RUN_ID, GITHUB_API_URL)
+  release-pkl <step>   the release-pkl workflow's steps: declared, checks, assets, publish, smoke
+                       (env: see release-pkl/action.yaml)
   token-inputs         check a fleet caller's token inputs against its token-source
                        (env: SOURCE, ISSUER, APP, ID, ID_NAME, SECRET, HAS_KEY, EXTRA_KEYS,
                        WARN_APP_KEY_IF, WARN_APP_KEY, WARN_ROSTER_IF, WARN_ROSTER)
@@ -300,6 +305,24 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, getenv fu
 		default:
 			fmt.Fprintln(stderr, "release-gate:", err)
 			return 1
+		}
+	case "release-pkl":
+		if len(args) < 2 {
+			fmt.Fprint(stderr, usage)
+			return 2
+		}
+		err := releasePkl(ctx, args[1], stdout, stderr, getenv)
+		switch {
+		case err == nil:
+			return 0
+		case errors.Is(err, releasepkl.ErrFailed):
+			return 1
+		case errors.Is(err, errUsage):
+			fmt.Fprint(stderr, usage)
+			return 2
+		default:
+			fmt.Fprintln(stderr, "release-pkl:", err)
+			return runcmd.ExitCode(err)
 		}
 	case "token-inputs":
 		extras, err := workflowinputs.ParseExtras(getenv("EXTRA_KEYS"))
@@ -604,4 +627,46 @@ func repoCheck(ctx context.Context, args []string, stdout, stderr io.Writer) int
 		fmt.Fprintln(stderr, "repo-check:", err)
 		return 1
 	}
+}
+
+var errUsage = errors.New("usage")
+
+// releasePkl runs one step of the release-pkl workflow. SMOKE_SLEEPS is the
+// whitespace-separated seconds between smoke attempts; empty means none (the
+// action supplies the default backoff).
+func releasePkl(ctx context.Context, step string, stdout, stderr io.Writer, getenv func(string) string) error {
+	common := releasepkl.Common{Out: stdout, Err: stderr, Output: getenv("GITHUB_OUTPUT")}
+	switch step {
+	case "declared":
+		return releasepkl.Declared(ctx, releasepkl.DeclaredOptions{Common: common, VersionCommand: getenv("VERSION_COMMAND")})
+	case "checks":
+		return releasepkl.Checks(ctx, releasepkl.ChecksOptions{Common: common, RefType: getenv("REF_TYPE"), Tag: getenv("TAG"),
+			Declared: getenv("DECLARED"), Changelog: getenv("CHANGELOG"), NotesFile: getenv("NOTES_FILE")})
+	case "assets":
+		return releasepkl.Assets(ctx, releasepkl.AssetsOptions{Common: common, OutputDir: getenv("OUTPUT_DIR"), Version: getenv("VERSION"), Manifest: getenv("MANIFEST")})
+	case "publish":
+		return releasepkl.Publish(ctx, releasepkl.PublishOptions{Common: common, Repo: getenv("REPO"), Tag: getenv("TAG"), Version: getenv("VERSION"),
+			Manifest: getenv("MANIFEST"), NotesFile: getenv("NOTES_FILE"), Work: getenv("WORK")})
+	case "smoke":
+		attempts := 8
+		if v := getenv("SMOKE_ATTEMPTS"); v != "" {
+			n, err := strconv.Atoi(v)
+			if err != nil {
+				return fmt.Errorf("SMOKE_ATTEMPTS %q: %w", v, err)
+			}
+			attempts = n
+		}
+		var sleeps []time.Duration
+		for _, f := range strings.Fields(getenv("SMOKE_SLEEPS")) {
+			n, err := strconv.Atoi(f)
+			if err != nil {
+				return fmt.Errorf("SMOKE_SLEEPS %q: %w", f, err)
+			}
+			sleeps = append(sleeps, time.Duration(n)*time.Second)
+		}
+		return releasepkl.Smoke(ctx, releasepkl.SmokeOptions{Common: common, PklCommand: getenv("PKL_CMD"), Repo: getenv("REPO"), Tag: getenv("TAG"),
+			Version: getenv("VERSION"), Manifest: getenv("MANIFEST"), SmokeImport: getenv("SMOKE_IMPORT"), SmokeDir: getenv("SMOKE_DIR"),
+			Attempts: attempts, Sleeps: sleeps})
+	}
+	return errUsage
 }

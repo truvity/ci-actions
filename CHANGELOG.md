@@ -6,6 +6,16 @@ an untagged commit; `tagged-pins` refuses anything else.
 
 ## Unreleased
 
+- **New action `release-pkl`** (and `ci-actions release-pkl <step>`): the five
+  shell steps of ci-workflows' `release-pkl.yaml` (about 190 lines: the
+  declared version, the tag and changelog refusals, the asset and checksum
+  check, the re-runnable publish, and the smoke test with its retry backoff),
+  as Go. The original `hack/release-pkl-cases.sh` passes unchanged against the
+  binary (every assertion: refusal texts, the notes section, the manifest,
+  create, resume and refuse-on-different-bytes behaviour, the PklProject and
+  smoke module written, retries); those cases are now Go tests too. Nothing in
+  ci-workflows changes until it adopts the action after a release.
+
 ## v1.11.0
 
 - **New action `require-green-checks`** (and `ci-actions release-gate`): the
