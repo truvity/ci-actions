@@ -26,6 +26,7 @@ contract.
 | [`publish-nix-flakes`](publish-nix-flakes/action.yaml) | Generates, checks and uploads a Nix flake per GoReleaser archive id, deterministically packed | `flakes`, `flake-dir`, `token` (required) | `release-public` (once released and adopted) |
 | [`publish-charts`](publish-charts/action.yaml) | Refuses a wrong chart name before anything is pushed, then packages and pushes each chart with helmctl | `charts`, `chart-root`, `registry`, `app-version-mode`, `helmctl-version`, `token` (required), `images`, `require-image-digests` | `release-public` (once released and adopted) |
 | [`require-green-checks`](require-green-checks/action.yaml) | Refuses a release unless the tagged commit has a successful `check` and nothing else on it is red or pending | `token` (required) | `release-private` (once released and adopted) |
+| [`release-pkl`](release-pkl/action.yaml) | The steps of the shared Pkl-package release: read the declared version, refuse a tag that is not it or has no changelog heading, check the assets and their checksums, publish (safe to re-run), smoke-test the published packages | `step` (required), then per step: `tag`, `version`, `manifest`, `repository`, `token`, `pkl-command`, `smoke-import` | `release-pkl` (once released and adopted) |
 | [`token-inputs`](token-inputs/action.yaml) | Checks a fleet caller's token inputs against its `token-source`, reporting every fault at once | `source`, `secret-name` (required), `has-key`, `id`, `extra-keys` | `parity-fleet`, `renovate-fleet`, `pkl-fleet`, `auto-release` (once released and adopted) |
 | [`enrolment-list`](enrolment-list/action.yaml) | Reads a dotted-path list of repository names from the caller's repositories file, as JSON for `fleet-discover` | `file`, `list` (required) | `parity-fleet`, `renovate-fleet`, `pkl-fleet` (once released and adopted) |
 
@@ -248,6 +249,7 @@ ci-actions caller-parity               # env TOKEN, REPOSITORIES, KITS, FAIL_ON_
 ci-actions openbao-secrets             # env ISSUER, ADDRESS, KV_PATH, ... (no value is ever printed)
 ci-actions token-inputs                # env SOURCE, ISSUER, APP, ID, ID_NAME, SECRET, HAS_KEY, EXTRA_KEYS, WARN_*
 ci-actions enrolment-list              # env FILE, LIST, GITHUB_OUTPUT
+ci-actions release-pkl declared        # also: checks, assets, publish, smoke (env: see release-pkl/action.yaml)
 ci-actions release-gate                # env GH_TOKEN, GITHUB_REPOSITORY, GITHUB_SHA, GITHUB_RUN_ID
 ci-actions publish-charts              # env CHARTS, CHART_ROOT, REGISTRY, APP_VERSION_MODE, CHART_IMAGES, REQUIRE_IMAGE_DIGESTS, HELMCTL_VERSION
 ci-actions publish-nix-flakes          # env FLAKES, FLAKE_DIR, GITHUB_REPOSITORY, GITHUB_REF_NAME

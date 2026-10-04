@@ -1,0 +1,123 @@
+name: release-pkl
+description: >-
+  The steps of the shared release-pkl workflow, one per call (`step`).
+  `declared` reads the version the project declares (its version command's
+  last line, in devbox). `checks` refuses a tag that is not v plus that version,
+  or whose changelog has no `## <tag>` heading, and writes that section as the
+  release notes. `assets` lists the built files and checks each is named for
+  the version and carries a matching `.sha256`. `publish` creates the release,
+  or checks and completes the one a failed run left (assets already there must
+  hold the same bytes; nothing else may be there). `smoke` resolves the
+  published packages as a consumer would, and optionally evaluates a module
+  importing some of them, retrying while the CDN catches up. The rules are the
+  `ci-actions` binary's `release-pkl` command; this action is a thin wrapper
+  that finds that binary (release archive of the pinned tag, or built with Go)
+  and runs it. Needs bash, and gh, devbox and pkl on PATH where the step uses
+  them.
+
+inputs:
+  step:
+    description: "`declared`, `checks`, `assets`, `publish` or `smoke`."
+    required: true
+  version-command:
+    description: "`declared`: a command that prints the declared version last; empty declares nothing."
+    required: false
+    default: ""
+  ref-type:
+    description: "`checks`: the ref type of the run (`github.ref_type`)."
+    required: false
+    default: ""
+  tag:
+    description: "`checks`, `publish`, `smoke`: the tag (`github.ref_name`)."
+    required: false
+    default: ""
+  declared:
+    description: "`checks`: the output of the `declared` step."
+    required: false
+    default: ""
+  changelog:
+    description: "`checks`: the changelog file."
+    required: false
+    default: CHANGELOG.md
+  notes-file:
+    description: "`checks` writes, `publish` reads: the release notes file."
+    required: false
+    default: ""
+  output-dir:
+    description: "`assets`: the directory the package recipe wrote to."
+    required: false
+    default: ""
+  version:
+    description: "`assets`, `publish`, `smoke`: the version the `checks` step resolved."
+    required: false
+    default: ""
+  manifest:
+    description: "`assets` writes, `publish` and `smoke` read: the list of files."
+    required: false
+    default: ""
+  repository:
+    description: "`publish`, `smoke`: `owner/name` of the repository."
+    required: false
+    default: ""
+  token:
+    description: "`publish`: a token that may create releases and upload assets."
+    required: false
+    default: ""
+  work:
+    description: "`publish`: scratch directory for the assets of an existing release."
+    required: false
+    default: ""
+  pkl-command:
+    description: "`smoke`: the command that runs pkl, e.g. `devbox run -- pkl`."
+    required: false
+    default: ""
+  smoke-import:
+    description: "`smoke`: `<package name>#/<module path>` entries, one per line, to evaluate; empty resolves only."
+    required: false
+    default: ""
+  smoke-dir:
+    description: "`smoke`: scratch directory."
+    required: false
+    default: ""
+  smoke-attempts:
+    description: "`smoke`: attempts before giving up."
+    required: false
+    default: "8"
+  smoke-sleeps:
+    description: "`smoke`: seconds to wait after each failed attempt, whitespace separated (empty: no waiting)."
+    required: false
+    default: "10 15 20 30 45 60 60 60"
+
+outputs:
+  version:
+    description: "`declared`: the declared version (empty when none); `checks`: the version being released."
+    value: ${{ steps.run.outputs.version }}
+
+runs:
+  using: composite
+  steps:
+    - id: run
+      shell: bash
+      env:
+        STEP: ${{ inputs.step }}
+        VERSION_COMMAND: ${{ inputs.version-command }}
+        REF_TYPE: ${{ inputs.ref-type }}
+        TAG: ${{ inputs.tag }}
+        DECLARED: ${{ inputs.declared }}
+        CHANGELOG: ${{ inputs.changelog }}
+        NOTES_FILE: ${{ inputs.notes-file }}
+        OUTPUT_DIR: ${{ inputs.output-dir }}
+        VERSION: ${{ inputs.version }}
+        MANIFEST: ${{ inputs.manifest }}
+        REPO: ${{ inputs.repository }}
+        GH_TOKEN: ${{ inputs.token }}
+        WORK: ${{ inputs.work }}
+        PKL_CMD: ${{ inputs.pkl-command }}
+        SMOKE_IMPORT: ${{ inputs.smoke-import }}
+        SMOKE_DIR: ${{ inputs.smoke-dir }}
+        SMOKE_ATTEMPTS: ${{ inputs.smoke-attempts }}
+        SMOKE_SLEEPS: ${{ inputs.smoke-sleeps }}
+        ACTION_PATH: ${{ github.action_path }}
+        ACTION_REPOSITORY: ${{ github.action_repository }}
+        ACTION_REF: ${{ github.action_ref }}
+      run: bash "$ACTION_PATH/run.sh" "$STEP"
