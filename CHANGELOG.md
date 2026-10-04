@@ -6,6 +6,8 @@ an untagged commit; `tagged-pins` refuses anything else.
 
 ## Unreleased
 
+## v1.12.0
+
 - **New action `fleet-step`** (and `ci-actions fleet-step <step>`): five small
   shell steps of the fleet workflows (about 150 lines, curl and jq): printing
   the job's OIDC claims (two copies), resolving the commit author (two
