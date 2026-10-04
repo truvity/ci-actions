@@ -21,6 +21,7 @@ import (
 	"github.com/truvity/ci-actions/internal/devboxparity"
 	"github.com/truvity/ci-actions/internal/fleet"
 	"github.com/truvity/ci-actions/internal/fleetdiscover"
+	"github.com/truvity/ci-actions/internal/fleetsteps"
 	"github.com/truvity/ci-actions/internal/openbaosecrets"
 	"github.com/truvity/ci-actions/internal/pklfleet"
 	"github.com/truvity/ci-actions/internal/policyconformance"
@@ -93,6 +94,8 @@ Commands:
   pkl-fleet <step>     the pkl-fleet workflow's per-repository steps: rewrite (dependency URIs),
                        resolve (and regenerate), publish (the branch and pull request)
                        (env: see pkl-fleet/action.yaml)
+  fleet-step <step>    small steps of the fleet workflows: oidc-claims, commit-author, parity-settings,
+                       approve-renovate, available-majors (env: see fleet-step/action.yaml)
   token-inputs         check a fleet caller's token inputs against its token-source
                        (env: SOURCE, ISSUER, APP, ID, ID_NAME, SECRET, HAS_KEY, EXTRA_KEYS,
                        WARN_APP_KEY_IF, WARN_APP_KEY, WARN_ROSTER_IF, WARN_ROSTER)
@@ -358,6 +361,33 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, getenv fu
 			fmt.Fprintln(stderr, "pkl-fleet:", err)
 			return runcmd.ExitCode(err)
 		}
+	case "fleet-step":
+		if len(args) < 2 {
+			fmt.Fprint(stderr, usage)
+			return 2
+		}
+		common := fleetsteps.Common{Out: stdout, Output: getenv("GITHUB_OUTPUT"), Summary: getenv("GITHUB_STEP_SUMMARY")}
+		var err error
+		switch args[1] {
+		case "oidc-claims":
+			err = fleetsteps.OIDCClaims(ctx, fleetsteps.ClaimsOptions{Common: common, RequestURL: getenv("ACTIONS_ID_TOKEN_REQUEST_URL"), RequestToken: getenv("ACTIONS_ID_TOKEN_REQUEST_TOKEN")})
+		case "commit-author":
+			err = fleetsteps.CommitAuthor(ctx, fleetsteps.AuthorOptions{Common: common, Token: getenv("TOKEN"), UserLogin: getenv("USER_LOGIN"), Email: getenv("EMAIL"), API: getenv("API")})
+		case "parity-settings":
+			err = fleetsteps.ParitySettings(ctx, fleetsteps.SettingsOptions{Common: common, Token: getenv("TOKEN"), Repo: getenv("REPO"), API: getenv("API"), RunMode: getenv("RUN_MODE")})
+		case "approve-renovate":
+			err = fleetsteps.ApproveRenovate(ctx, fleetsteps.ApproveOptions{Common: common, Token: getenv("TOKEN"), Repo: getenv("REPO"), API: getenv("API")})
+		case "available-majors":
+			err = fleetsteps.AvailableMajors(ctx, fleetsteps.MajorsOptions{Common: common})
+		default:
+			fmt.Fprint(stderr, usage)
+			return 2
+		}
+		if err != nil {
+			fmt.Fprintln(stderr, "fleet-step:", err)
+			return 1
+		}
+		return 0
 	case "token-inputs":
 		extras, err := workflowinputs.ParseExtras(getenv("EXTRA_KEYS"))
 		if err != nil {

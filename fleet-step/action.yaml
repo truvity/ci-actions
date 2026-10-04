@@ -1,0 +1,76 @@
+name: fleet-step
+description: >-
+  Small steps of the shared fleet workflows, one per call (`step`).
+  `oidc-claims` prints the claims of the job's identity token that an issuer's
+  matchers compare (the token is minted for a throwaway audience; only the
+  claims are printed). `commit-author` resolves the commit author's noreply
+  email from the App's bot login when the caller gives none. `parity-settings`
+  reads a repository's default branch and its optional `.devbox-parity.json`.
+  `approve-renovate` approves the non-major renovate pull requests whose review
+  is required and that no bot has approved. `available-majors` summarises the
+  majors renovate reports across an estate (`reports/**/*.json` in the working
+  directory) as one markdown table. They read the GitHub API themselves, so
+  they need neither curl nor jq. The rules are the `ci-actions` binary's
+  `fleet-step` command; this action is a thin wrapper that finds that binary
+  (release archive of the pinned tag, or built with Go) and runs it.
+
+inputs:
+  step:
+    description: "`oidc-claims`, `commit-author`, `parity-settings`, `approve-renovate` or `available-majors`."
+    required: true
+  token:
+    description: "`commit-author`, `parity-settings`, `approve-renovate`: the API token."
+    required: false
+    default: ""
+  api-url:
+    description: "The REST API base (`github.api_url`)."
+    required: false
+    default: https://api.github.com
+  repository:
+    description: "`parity-settings`, `approve-renovate`: `owner/name` of the repository."
+    required: false
+    default: ""
+  user-login:
+    description: "`commit-author`: the commit author's login."
+    required: false
+    default: ""
+  email:
+    description: "`commit-author`: the author's email; empty looks it up."
+    required: false
+    default: ""
+  run-mode:
+    description: "`parity-settings`: the run-wide mode a repository's settings may not override with anything but `auto` or `align`."
+    required: false
+    default: ""
+
+outputs:
+  git-email:
+    description: "`commit-author`: the author's email."
+    value: ${{ steps.run.outputs.git-email }}
+  base:
+    description: "`parity-settings`: the default branch."
+    value: ${{ steps.run.outputs.base }}
+  module-dirs:
+    description: "`parity-settings`: further go.mod directories, as compact JSON."
+    value: ${{ steps.run.outputs.module-dirs }}
+  mode:
+    description: "`parity-settings`: the mode this repository needs."
+    value: ${{ steps.run.outputs.mode }}
+
+runs:
+  using: composite
+  steps:
+    - id: run
+      shell: bash
+      env:
+        STEP: ${{ inputs.step }}
+        TOKEN: ${{ inputs.token }}
+        API: ${{ inputs.api-url }}
+        REPO: ${{ inputs.repository }}
+        USER_LOGIN: ${{ inputs.user-login }}
+        EMAIL: ${{ inputs.email }}
+        RUN_MODE: ${{ inputs.run-mode }}
+        ACTION_PATH: ${{ github.action_path }}
+        ACTION_REPOSITORY: ${{ github.action_repository }}
+        ACTION_REF: ${{ github.action_ref }}
+      run: bash "$ACTION_PATH/run.sh" "$STEP"
