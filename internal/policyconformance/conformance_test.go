@@ -225,6 +225,12 @@ var rulecases = []rcase{
 	{"C5", "no heading for the latest tag", func(f *fx) { f.tag("v1.2.0") }, "FAIL", "no heading for v1.2.0"},
 	{"C5", "no heading for the higher of two tags on one commit", func(f *fx) { f.tagOnly("v1.2.0") }, "FAIL", "no heading for v1.2.0"},
 	{"C5", "headings oldest first", func(f *fx) { f.write("CHANGELOG.md", "## v1.0.0\n\n## v1.1.0\n") }, "FAIL", "newest first"},
+	{"C5", "a pre-release above its release is newest first in semver order", func(f *fx) {
+		f.write("CHANGELOG.md", "## v1.1.0\n\n## v1.1.0-rc.2\n\n## v1.1.0-rc.1\n\n## v1.0.0\n")
+	}, "PASS", ""},
+	{"C5", "a pre-release placed above its release", func(f *fx) {
+		f.write("CHANGELOG.md", "## v1.1.0-rc.1\n\n## v1.1.0\n\n## v1.0.0\n")
+	}, "FAIL", "newest first"},
 	{"C5", "a Keep-a-Changelog style heading", func(f *fx) { f.write("CHANGELOG.md", "## [1.1.0] - 2026-09-29\n") }, "FAIL", "not in the form"},
 	{"C5", "two Unreleased headings", func(f *fx) { f.write("CHANGELOG.md", "## Unreleased\n\n## Unreleased\n\n## v1.1.0\n") }, "FAIL", "at most one"},
 	{"C5", "a patch of a line no heading carries is hand-cut and needs its heading", func(f *fx) { f.tag("v1.2.1") }, "FAIL", "not an automatic patch"},
