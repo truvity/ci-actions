@@ -55,7 +55,7 @@ if command -v go >/dev/null 2>&1; then
   # module and build caches rather than a fresh pair in the scratch dir.
   log=$(run PATH="$gobin:$work/min" GOFLAGS=-mod=mod GOCACHE="$(go env GOCACHE)" GOPATH="$(go env GOPATH)")
   rc=$?
-  [ $rc = 0 ] && has "$log" "tagged-pins: 0 of 3 libraries had pins in this checkout, all naming releases" \
+  [ $rc = 0 ] && has "$log" "tagged-pins: 0 of 2 libraries had pins in this checkout, all naming releases" \
     && ok "without a binary or a release, Go builds it from the checkout and it runs" \
     || bad "without a binary or a release, Go builds it from the checkout (rc=$rc): $log"
 else
