@@ -6,6 +6,15 @@ an untagged commit; `tagged-pins` refuses anything else.
 
 ## Unreleased
 
+### Added
+
+- **New action `setup-cache`**: the `setup` composite action of truvity/ci-cache
+  (v0.3.1), moved here with its `gocacheprog` and `credential-guard` wrappers and
+  its step-body cases (`hack/setup-cases.sh`, `just setup-cache`). Unchanged in
+  behaviour; `setup-devbox` still calls `truvity/ci-cache/setup` until the next
+  release repoints it here. truvity/ci-cache keeps releasing the go-cache-plugin
+  client binaries that `client-version` downloads.
+
 ### Fixed
 
 - **`policy-conformance` C5 orders pre-releases by semver**: `## v1.64.0` above

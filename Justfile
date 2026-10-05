@@ -39,6 +39,10 @@ pins-wrapper:
 token-exchange:
     @./hack/token-exchange-cases.sh
 
+# setup-cache's step bodies, run as written against a stubbed environment (needs yq)
+setup-cache:
+    @./hack/setup-cases.sh
+
 # Fail if any action file or script escalates privilege
 no-escalation:
     go run ./cmd/ci-actions repo-check no-escalation
@@ -152,5 +156,5 @@ leak-canary:
     @./hack/leak-canary.sh
 
 # Run all checks (the merge gate)
-check: lint kit cache-env go-test pins-wrapper token-exchange no-escalation pins runners conformance leak-canary
+check: lint kit cache-env setup-cache go-test pins-wrapper token-exchange no-escalation pins runners conformance leak-canary
     @echo "✓ All checks passed"
