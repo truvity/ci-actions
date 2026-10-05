@@ -117,7 +117,7 @@ func (r *run) c5() {
 	}
 	if len(versions) > 1 {
 		sorted := append([]string(nil), versions...)
-		sort.SliceStable(sorted, func(i, j int) bool { return verscmp.Compare(sorted[i], sorted[j]) > 0 })
+		sort.SliceStable(sorted, func(i, j int) bool { return headingCompare(sorted[i], sorted[j]) > 0 })
 		if strings.Join(sorted, "\n") != strings.Join(versions, "\n") {
 			probs = append(probs, "version headings are not newest first")
 		}
@@ -139,7 +139,7 @@ func (r *run) c5() {
 	newest, xy := "", ""
 	if len(versions) != 0 {
 		sorted := append([]string(nil), versions...)
-		sort.SliceStable(sorted, func(i, j int) bool { return verscmp.Compare(sorted[i], sorted[j]) > 0 })
+		sort.SliceStable(sorted, func(i, j int) bool { return headingCompare(sorted[i], sorted[j]) > 0 })
 		newest = sorted[0]
 	}
 	if tag, ok := r.latestTag(); ok && tag != "" {

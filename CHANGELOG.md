@@ -6,6 +6,13 @@ an untagged commit; `tagged-pins` refuses anything else.
 
 ## Unreleased
 
+### Fixed
+
+- **`policy-conformance` C5 orders pre-releases by semver**: `## v1.64.0` above
+  `## v1.64.0-rc.1` is newest first, as semver says; the check had used `sort -V`
+  order, which puts a pre-release after its release. Headings that are not valid
+  semver keep the old comparison.
+
 ## v1.13.0
 
 - **`pkl-fleet` gains `target` and `consumers`**: the last two shell blocks of
