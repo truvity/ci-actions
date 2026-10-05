@@ -73,7 +73,7 @@ jobs:
         run: go run ./cmd/ci-actions repo-check no-escalation
 
       # setup-devbox's cache seam: that the composite delegates to a
-      # SHA-pinned truvity/ci-cache/setup and passes every input that action
+      # SHA-pinned truvity/ci-actions/setup-cache and passes every input that action
       # declares (read live, at the pinned sha: a guard that cannot look
       # fails rather than skips), that the retired input is wired to its
       # warning, and that nothing here wires a cache any more. What each
@@ -150,7 +150,7 @@ jobs:
       # tags of the libraries it judges, not of this checkout, so there is
       # nothing to fetch first. Since ci-cache joined the default list
       # (2026-09-29) this DOES find a pin of its own -- setup-devbox's
-      # nested `truvity/ci-cache/setup` -- which is exactly why the search
+      # nested `truvity/ci-actions/setup-cache` -- which is exactly why the search
       # covers the whole checkout and not just .github: that pin lives in
       # setup-devbox/action.yaml, not under it.
       - uses: ./tagged-pins

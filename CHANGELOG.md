@@ -4,6 +4,16 @@ Every release of truvity/ci-actions, newest first. Pin the commit of a
 tag (`git rev-parse vX.Y.Z^{commit}`), never the tag object and never
 an untagged commit; `tagged-pins` refuses anything else.
 
+## v1.15.0
+
+### Changed
+
+- **`setup-devbox` calls `truvity/ci-actions/setup-cache`** (pinned to v1.14.0)
+  instead of `truvity/ci-cache/setup@v0.2.0`. The cache-seam check follows: it
+  reads `setup-cache/action.yaml` at the pinned sha from this repository. The
+  action itself is unchanged apart from the move; v0.2.0 to v0.3.1 of the
+  ci-cache action is picked up by this repoint.
+
 ## v1.14.0
 
 ### Added

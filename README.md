@@ -10,8 +10,8 @@ contract.
 
 | action | what it does | key inputs | used by (ci-workflows) |
 | -- | -- | -- | -- |
-| [`setup-devbox`](setup-devbox/action.yaml) | Installs devbox, proto and the toolchain, logs into CodeArtifact, mints a GitHub App token for private-module reads, and wires the caches by delegating to [`truvity/ci-cache/setup`](https://github.com/truvity/ci-cache) | `go-cache-bucket`, `go-cache-region`, `goproxy`, `go-private`, `module-app-client-id`, `aws-config-file`, `codeartifact-domain` | `check`, `integration`, `release-public`, `release-private`, `parity-fleet` |
-| [`setup-cache`](setup-cache/action.yaml) | Detects the build systems a repository uses and wires each to the estate's cache (Go build cache through go-cache-plugin to the bucket; checks the Yarn and moon settings). Nested: only `setup-devbox` calls it, moved here from `truvity/ci-cache`'s `setup` | `bucket`, `region`, `endpoint`, `path-style`, `goproxy`, `languages`, `client-version` | none directly (through `setup-devbox`) |
+| [`setup-devbox`](setup-devbox/action.yaml) | Installs devbox, proto and the toolchain, logs into CodeArtifact, mints a GitHub App token for private-module reads, and wires the caches by delegating to [`setup-cache`](setup-cache/action.yaml) | `go-cache-bucket`, `go-cache-region`, `goproxy`, `go-private`, `module-app-client-id`, `aws-config-file`, `codeartifact-domain` | `check`, `integration`, `release-public`, `release-private`, `parity-fleet` |
+| [`setup-cache`](setup-cache/action.yaml) | Detects the build systems a repository uses and wires each to the estate's cache (Go build cache through go-cache-plugin to the bucket; checks the Yarn and moon settings). Nested: only `setup-devbox` calls it, moved here from `truvity/ci-cache` | `bucket`, `region`, `endpoint`, `path-style`, `goproxy`, `languages`, `client-version` | none directly (through `setup-devbox`) |
 | [`recipe`](recipe/action.yaml) | Runs one task-runner recipe inside devbox, then fails if the working tree changed | `recipe` (required), `command` (`just`) | `check` |
 | [`public-runners`](public-runners/action.yaml) | Refuses a public repository that asks for self-hosted runners | `runners` (required), `visibility` | `check`, `integration`, `release-public` |
 | [`tagged-pins`](tagged-pins/action.yaml) | Refuses a pin into the shared CI libraries that is not the commit of a tag | `libraries` (ci-workflows, ci-actions, ci-cache) | `check` |
@@ -147,8 +147,8 @@ container with `--user 1001:1001 --security-opt no-new-privileges
 - **ci-workflows → ci-actions → ci-cache; ci-plane hosts the runners.**
   [ci-workflows](https://github.com/truvity/ci-workflows) is the only
   thing a caller pins; this repository holds the composite steps;
-  [ci-cache](https://github.com/truvity/ci-cache) owns cache wiring (its
-  `setup` action, which `setup-devbox` calls) and the cache server;
+  [ci-cache](https://github.com/truvity/ci-cache) (archived) held the cache
+  engine and the go-cache-plugin client releases that `setup-cache` downloads;
   [ci-plane](https://github.com/truvity/ci-plane) is where work executes
   (runner and nix-worker images, `arc-runners`, `ci-builders`).
 - **[policy](https://github.com/truvity/policy)**: the component contract
@@ -209,7 +209,7 @@ each:
 
 - `just lint` — actionlint over every workflow and composite.
 - `just kit` — the golangci-depguard kit against truvity/policy.
-- `just cache-env` — setup-devbox's cache delegation holds, read live at the pinned ci-cache sha.
+- `just cache-env` — setup-devbox's cache delegation holds, read live at the pinned setup-cache sha.
 - `just go-test` — `go vet` and the table tests of the Go CLI: the pin guard against local git remotes, `fleet pins` against a fake GitHub.
 - `just pins-wrapper` — the thin `tagged-pins` wrapper that finds the binary, with the binary stubbed.
 - `just no-escalation` — fail if any action file or script calls `sudo`.
