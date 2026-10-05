@@ -28,10 +28,9 @@ import (
 	"github.com/truvity/ci-actions/internal/semver"
 )
 
-// DefaultLibraries is the shared CI library: the workflows, the actions
-// they are built from, and ci-cache, which every Go build reaches through
-// setup-devbox's own nested pin.
-const DefaultLibraries = "truvity/ci-workflows truvity/ci-actions truvity/ci-cache"
+// DefaultLibraries is the shared CI library: the workflows and the actions
+// they are built from.
+const DefaultLibraries = "truvity/ci-workflows truvity/ci-actions"
 
 // ErrUntagged is returned when at least one pin names no release.
 var ErrUntagged = fmt.Errorf("a pinned commit is not a release")

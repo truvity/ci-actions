@@ -4,6 +4,14 @@ Every release of truvity/ci-actions, newest first. Pin the commit of a
 tag (`git rev-parse vX.Y.Z^{commit}`), never the tag object and never
 an untagged commit; `tagged-pins` refuses anything else.
 
+## Unreleased
+
+### Changed
+
+- **`tagged-pins` no longer lists truvity/ci-cache by default**: the repository
+  is archived and `setup-devbox` calls `setup-cache` from this repository.
+  Pass `libraries` to judge it anyway.
+
 ## v1.15.0
 
 ### Changed
