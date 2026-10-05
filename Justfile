@@ -103,7 +103,7 @@ pins:
       exit 1
     fi
     
-    echo "tagged-pins: ${seen} of 3 libraries had pins in this checkout, all naming releases"
+    echo "tagged-pins: ${seen} of 2 libraries had pins in this checkout, all naming releases"
 
 # Verify public runners are used
 runners:
