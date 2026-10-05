@@ -336,7 +336,7 @@ runs:
         ACTION_REPOSITORY: ${{ github.action_repository }}
         ACTION_REF: ${{ github.action_ref }}
       run: bash "$ACTION_PATH/run.sh" codeartifact
-    # The caches are wired by truvity/ci-cache, not here.
+    # The caches are wired by the nested setup-cache action, not here.
     #
     # The chart that runs them, the clients that talk to them and the
     # configuration that points one at the other only agree if they are
@@ -346,10 +346,10 @@ runs:
     # preview job lost its module cache for days with nothing failing.
     #
     # This action keeps the WHEN -- which jobs get a cache at all -- and
-    # ci-cache owns the HOW. Callers keep one pin, to this workflow, and
+    # setup-cache owns the HOW. Callers keep one pin, to this workflow, and
     # never name the cache action themselves.
     - name: Wire the fleet caches
-      uses: truvity/ci-cache/setup@59d0647c5f9f635e26cf1bbb787f910197976310 # v0.2.0
+      uses: truvity/ci-actions/setup-cache@0598d48b2a92e0e003e74cb7cca7fc533f7df5a3 # v1.14.0
       with:
         bucket: ${{ inputs.go-cache-bucket }}
         region: ${{ inputs.go-cache-region }}

@@ -22,7 +22,7 @@ import (
 // CacheSeamOptions configures the check.
 type CacheSeamOptions struct {
 	Root    string // the repository root
-	BaseURL string // where ci-cache's raw files are served; empty is raw.githubusercontent.com/truvity/ci-cache
+	BaseURL string // where ci-actions raw files are served; empty is raw.githubusercontent.com/truvity/ci-actions
 	HTTP    *http.Client
 	Out     io.Writer
 }
@@ -32,7 +32,7 @@ var ErrFailed = fmt.Errorf("repocheck: failed")
 
 // What `setup-devbox` does about caches, now that it does not do the caching.
 //
-// The wiring moved to truvity/ci-cache's own `setup` action, which is tested
+// The wiring lives in this repository's own `setup-cache` action, which is tested
 // there. What stays here is the SEAM: that this composite delegates, that it
 // hands over every input the cache needs, that the retired input is not
 // silently ignored, and that nothing here wires a cache any more.
@@ -49,7 +49,7 @@ func CacheSeam(ctx context.Context, o CacheSeamOptions) error {
 		o.HTTP = &http.Client{Timeout: 30 * time.Second}
 	}
 	if o.BaseURL == "" {
-		o.BaseURL = "https://raw.githubusercontent.com/truvity/ci-cache"
+		o.BaseURL = "https://raw.githubusercontent.com/truvity/ci-actions"
 	}
 	action := filepath.Join(o.Root, "setup-devbox", "action.yaml")
 	b, err := os.ReadFile(action)
@@ -95,13 +95,13 @@ func CacheSeam(ctx context.Context, o CacheSeamOptions) error {
 	if s := step(wire); s != nil {
 		uses = str(s, "uses")
 	}
-	if m := regexp.MustCompile(`^truvity/ci-cache/setup@[0-9a-f]`).FindString(uses); m != "" {
+	if m := regexp.MustCompile(`^truvity/ci-actions/setup-cache@[0-9a-f]`).FindString(uses); m != "" {
 		if sha := uses[strings.LastIndex(uses, "@")+1:]; len(sha) != 40 {
-			say("FAIL [pin]: ci-cache/setup is pinned to \"%s\", which is not a full 40-character SHA", sha)
+			say("FAIL [pin]: ci-actions/setup-cache is pinned to \"%s\", which is not a full 40-character SHA", sha)
 			fail++
 		}
 	} else {
-		say("FAIL [pin]: the cache step does not use a SHA-pinned truvity/ci-cache/setup; it uses \"%s\"", uses)
+		say("FAIL [pin]: the cache step does not use a SHA-pinned truvity/ci-actions/setup-cache; it uses \"%s\"", uses)
 		fail++
 	}
 
@@ -110,12 +110,12 @@ func CacheSeam(ctx context.Context, o CacheSeamOptions) error {
 	// DERIVED from the downstream action at the SHA this one pins, not from a
 	// list kept here: a list kept here cannot notice when the action
 	// downstream grows an input this one does not pass. It cost something to
-	// learn: ci-cache/setup declared nine inputs and this action passed five,
+	// learn: ci-actions/setup-cache declared nine inputs and this action passed five,
 	// so the moon and yarn checks could not fire in any job in the estate,
 	// silently, because an unset value makes those branches no-ops.
 	//
 	// Fetched at the PINNED sha, so this asks about the version actually in
-	// use rather than whatever ci-cache's master says today.
+	// use rather than whatever this repository's master says today.
 	checked++
 	sha := ""
 	if i := strings.LastIndex(uses, "@"); i >= 0 {
@@ -127,7 +127,7 @@ func CacheSeam(ctx context.Context, o CacheSeamOptions) error {
 		sha = ""
 	}
 	if sha != "" {
-		url := o.BaseURL + "/" + sha + "/setup/action.yaml"
+		url := o.BaseURL + "/" + sha + "/setup-cache/action.yaml"
 		// A guard that passes when it could not look is the failure mode this
 		// whole check exists to prevent, so a fetch failure is a FAILURE and
 		// not a skip.
@@ -169,7 +169,7 @@ func CacheSeam(ctx context.Context, o CacheSeamOptions) error {
 					got = fmt.Sprint(v)
 				}
 				if !strings.Contains(got, "inputs.") {
-					say("FAIL [inputs]: ci-cache/setup declares \"%s\" and this action does not pass it", to)
+					say("FAIL [inputs]: ci-actions/setup-cache declares \"%s\" and this action does not pass it", to)
 					say("               (wired to \"%s\"); pass it, or exempt it with a reason", got)
 					fail++
 				}
@@ -204,7 +204,7 @@ func CacheSeam(ctx context.Context, o CacheSeamOptions) error {
 	checked++
 	for _, s := range doc.Runs.Steps {
 		if strings.Contains(str(s, "run"), "GOCACHEPROG") {
-			say("FAIL [ownership]: a run: step in setup-devbox writes GOCACHEPROG; that belongs to ci-cache/setup now")
+			say("FAIL [ownership]: a run: step in setup-devbox writes GOCACHEPROG; that belongs to ci-actions/setup-cache now")
 			fail++
 			break
 		}
@@ -215,7 +215,7 @@ func CacheSeam(ctx context.Context, o CacheSeamOptions) error {
 				continue
 			}
 			if data, _ := os.ReadFile(f); strings.Contains(string(data), "GOCACHEPROG") {
-				say("FAIL [ownership]: %s writes GOCACHEPROG; that belongs to ci-cache/setup now", filepath.Base(f))
+				say("FAIL [ownership]: %s writes GOCACHEPROG; that belongs to ci-actions/setup-cache now", filepath.Base(f))
 				fail++
 			}
 		}
