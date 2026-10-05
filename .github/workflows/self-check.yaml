@@ -129,6 +129,11 @@ jobs:
       - name: wrapper cases (tagged-pins, public-runners, fleet-discover, devbox-parity, caller-parity, openbao-secrets, cluster, policy-conformance, setup-devbox)
         run: ./hack/tagged-pins-wrapper-cases.sh
 
+      # setup-cache: the step bodies as written, against a stubbed
+      # environment (moved here from truvity/ci-cache's `setup`).
+      - name: setup-cache cases
+        run: ./hack/setup-cases.sh
+
       # token-exchange: the step body as written, against a stub curl and
       # kubectl. It carries credentials, so the cases assert the masking
       # order and every refusal, not only the happy path.

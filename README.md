@@ -11,6 +11,7 @@ contract.
 | action | what it does | key inputs | used by (ci-workflows) |
 | -- | -- | -- | -- |
 | [`setup-devbox`](setup-devbox/action.yaml) | Installs devbox, proto and the toolchain, logs into CodeArtifact, mints a GitHub App token for private-module reads, and wires the caches by delegating to [`truvity/ci-cache/setup`](https://github.com/truvity/ci-cache) | `go-cache-bucket`, `go-cache-region`, `goproxy`, `go-private`, `module-app-client-id`, `aws-config-file`, `codeartifact-domain` | `check`, `integration`, `release-public`, `release-private`, `parity-fleet` |
+| [`setup-cache`](setup-cache/action.yaml) | Detects the build systems a repository uses and wires each to the estate's cache (Go build cache through go-cache-plugin to the bucket; checks the Yarn and moon settings). Nested: only `setup-devbox` calls it, moved here from `truvity/ci-cache`'s `setup` | `bucket`, `region`, `endpoint`, `path-style`, `goproxy`, `languages`, `client-version` | none directly (through `setup-devbox`) |
 | [`recipe`](recipe/action.yaml) | Runs one task-runner recipe inside devbox, then fails if the working tree changed | `recipe` (required), `command` (`just`) | `check` |
 | [`public-runners`](public-runners/action.yaml) | Refuses a public repository that asks for self-hosted runners | `runners` (required), `visibility` | `check`, `integration`, `release-public` |
 | [`tagged-pins`](tagged-pins/action.yaml) | Refuses a pin into the shared CI libraries that is not the commit of a tag | `libraries` (ci-workflows, ci-actions, ci-cache) | `check` |
