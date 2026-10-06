@@ -30,7 +30,7 @@ inputs:
     description: The name of the secret that holds the App's private key, for the message.
     required: true
   has-key:
-    description: "`true` when that secret is set (pass `${{ secrets.NAME != '' }}`; the secret itself never reaches the action)."
+    description: "`true` when that secret is set (the caller passes the comparison of its secret with the empty string; the secret itself never reaches the action)."
     required: false
     default: "false"
   extra-keys:

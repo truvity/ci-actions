@@ -12,6 +12,15 @@ an untagged commit; `tagged-pins` refuses anything else.
   is archived and `setup-devbox` calls `setup-cache` from this repository.
   Pass `libraries` to judge it anyway.
 
+## v1.15.1
+
+### Changed
+
+- **`token-inputs`**: the `has-key` input description no longer spells out a
+  `${{ secrets... }}` expression. The runner evaluates expressions in action
+  metadata, and a composite action has no `secrets` context, so every caller
+  failed with "Unrecognized named-value: 'secrets'". Behaviour is unchanged.
+
 ## v1.15.0
 
 ### Changed
