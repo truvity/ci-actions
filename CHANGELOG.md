@@ -12,6 +12,15 @@ an untagged commit; `tagged-pins` refuses anything else.
   a release ranks above its pre-releases, so the latest-tag lookup in
   `policy-conformance` picks `v1.74.0` over `v1.74.0-rc.4`. Other strings keep
   the natural `sort -V` ordering.
+- **`openbao-secrets` runs `sluisctl`**, the renamed access-roster CLI, for
+  the token exchange, with the same arguments (`token --issuer <issuer>
+  --audience <audience>`). A job whose PATH (its devbox's, in `auto` mode)
+  has no `sluisctl` but has `accessctl`, the deprecated name of the same
+  binary, runs that instead and logs a warning, so no consumer breaks before
+  its devbox moves. The fallback goes in a later release.
+- **`openbao-secrets` input `sluisctl`** (`auto` or `direct`, empty is
+  `auto`) replaces `accessctl`, which is still read when `sluisctl` is empty.
+  Error lines name `sluisctl`.
 - **`tagged-pins` no longer lists truvity/ci-cache by default**: the repository
   is archived and `setup-devbox` calls `setup-cache` from this repository.
   Pass `libraries` to judge it anyway.

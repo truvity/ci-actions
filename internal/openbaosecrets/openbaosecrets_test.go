@@ -1,6 +1,7 @@
 package openbaosecrets
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"encoding/pem"
@@ -325,7 +326,7 @@ func TestRefusals(t *testing.T) {
 	})
 }
 
-func TestInputsAndAccessctl(t *testing.T) {
+func TestInputsAndSluisctl(t *testing.T) {
 	v := newVault(t, false, `{"k":"secret-value-1"}`)
 	for _, tc := range []struct {
 		mut  func(o *Options)
@@ -337,11 +338,11 @@ func TestInputsAndAccessctl(t *testing.T) {
 		{func(o *Options) { o.IDTokenRequestURL = "" }, "::error::this job has no id-token permission; the read is an exchange of the job's own identity token\n"},
 		{func(o *Options) {
 			o.Token = func(context.Context, []string) (string, error) { return "", errors.New("exit 1") }
-		}, "exchanging this job's identity for the openbao audience\n::error::accessctl could not exchange this job's token for openbao -- the issuer's grants decide, so check the job's matchers\n"},
+		}, "exchanging this job's identity for the openbao audience\n::error::sluisctl could not exchange this job's token for openbao -- the issuer's grants decide, so check the job's matchers\n"},
 		{func(o *Options) {
 			o.Token = func(context.Context, []string) (string, error) { return "chatter\n\n", nil }
 		},
-			"exchanging this job's identity for the openbao audience\n::error::accessctl returned no token for openbao\n"},
+			"exchanging this job's identity for the openbao audience\n::error::sluisctl returned no token for openbao\n"},
 		{func(o *Options) { o.CACert = "not a certificate" }, "::error::ca-cert holds no PEM certificate\n"},
 	} {
 		e := newEnv(t, v)
@@ -360,7 +361,7 @@ func TestInputsAndAccessctl(t *testing.T) {
 		t.Fatal(err)
 	}
 	if strings.Join(got, " ") != "token --issuer https://issuer.example --audience other" {
-		t.Errorf("accessctl args %v", got)
+		t.Errorf("sluisctl args %v", got)
 	}
 	var login map[string]string
 	_ = json.Unmarshal([]byte(v.reqs[len(v.reqs)-3].body), &login)
@@ -369,30 +370,56 @@ func TestInputsAndAccessctl(t *testing.T) {
 	}
 }
 
-func TestAccessctlCommand(t *testing.T) {
-	bin := t.TempDir()
-	write := func(name, body string) {
-		if err := os.WriteFile(filepath.Join(bin, name), []byte("#!/bin/sh\n"+body), 0o755); err != nil {
-			t.Fatal(err)
+func TestSluisctlCommand(t *testing.T) {
+	// One directory per PATH a job might have: sluisctl only, both names,
+	// the deprecated name only, neither. devbox's stub answers `printenv
+	// PATH` with $DEVBOX_PATH, so the devbox environment is a PATH of its
+	// own, as it is for real.
+	mk := func(names ...string) string {
+		dir := t.TempDir()
+		for _, name := range names {
+			if err := os.WriteFile(filepath.Join(dir, name), []byte("#!/bin/sh\necho "+name+" \"$@\"\n"), 0o755); err != nil {
+				t.Fatal(err)
+			}
 		}
+		return dir
 	}
-	write("accessctl", "echo direct \"$@\"\n")
-	write("devbox", "echo devbox \"$@\"\n")
-	t.Setenv("PATH", bin+":"+os.Getenv("PATH"))
+	newOnly, both, oldOnly, neither := mk("sluisctl"), mk("sluisctl", "accessctl"), mk("accessctl"), mk()
+	tools := t.TempDir()
+	devbox := "#!/bin/sh\n" +
+		"if [ \"$3\" = printenv ]; then echo 'Info: devbox chatter'; echo \"$DEVBOX_PATH\"; exit 0; fi\n" +
+		"echo devbox \"$@\"\n"
+	if err := os.WriteFile(filepath.Join(tools, "devbox"), []byte(devbox), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	withDevbox, without := t.TempDir(), t.TempDir()
 	_ = os.WriteFile(filepath.Join(withDevbox, "devbox.json"), []byte("{}"), 0o644)
+	const warning = "::warning::no sluisctl on PATH, running accessctl, its deprecated name; add sluisctl to this repository's devbox\n"
 	for _, tc := range []struct {
-		dir, mode, want string
+		name, dir, mode, jobPath, devboxPath, want, warn string
 	}{
-		{withDevbox, "auto", "devbox run -- accessctl token --audience x"},
-		{withDevbox, "direct", "direct token --audience x"},
-		{without, "auto", "direct token --audience x"},
+		{"devbox has sluisctl", withDevbox, "auto", neither, newOnly, "devbox run -- sluisctl token --audience x", ""},
+		{"devbox has both", withDevbox, "auto", neither, both, "devbox run -- sluisctl token --audience x", ""},
+		{"devbox has accessctl only", withDevbox, "auto", neither, oldOnly, "devbox run -- accessctl token --audience x", warning},
+		{"devbox has neither", withDevbox, "auto", neither, neither, "devbox run -- sluisctl token --audience x", ""},
+		{"image bakes sluisctl", withDevbox, "auto", newOnly, "", "devbox run -- sluisctl token --audience x", ""},
+		{"direct, sluisctl", withDevbox, "direct", newOnly, oldOnly, "sluisctl token --audience x", ""},
+		{"direct, accessctl only", withDevbox, "direct", oldOnly, newOnly, "accessctl token --audience x", warning},
+		{"no devbox.json", without, "auto", both, oldOnly, "sluisctl token --audience x", ""},
 	} {
-		o := Options{Dir: tc.dir, AccessctlBy: tc.mode, Err: io.Discard}
-		out, err := o.accessctl(context.Background(), []string{"token", "--audience", "x"})
-		if err != nil || strings.TrimSpace(out) != tc.want {
-			t.Errorf("%v: %q %v", tc, out, err)
-		}
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("PATH", tools+string(os.PathListSeparator)+tc.jobPath+string(os.PathListSeparator)+"/usr/bin:/bin")
+			t.Setenv("DEVBOX_PATH", tc.devboxPath)
+			var out bytes.Buffer
+			o := Options{Dir: tc.dir, SluisctlBy: tc.mode, Out: &out, Err: io.Discard}
+			got, err := o.sluisctl(context.Background(), []string{"token", "--audience", "x"})
+			if err != nil || strings.TrimSpace(got) != tc.want {
+				t.Errorf("got %q %v, want %q", got, err, tc.want)
+			}
+			if out.String() != tc.warn {
+				t.Errorf("warning %q, want %q", out.String(), tc.warn)
+			}
+		})
 	}
 }
 
@@ -419,7 +446,7 @@ func TestCACert(t *testing.T) {
 func TestDefaultsAndPathNaming(t *testing.T) {
 	var o Options
 	o.defaults()
-	if o.Mount != "kv" || o.AuthMount != "jwt-roster" || o.Role != "roster" || o.Audience != "openbao" || o.AccessctlBy != "auto" {
+	if o.Mount != "kv" || o.AuthMount != "jwt-roster" || o.Role != "roster" || o.Audience != "openbao" || o.SluisctlBy != "auto" {
 		t.Errorf("%+v", o)
 	}
 	if got := nonAlnumToDash("ci/gore-leaser é.x"); got != "ci-gore-leaser----x" {

@@ -1,6 +1,0 @@
-#!/usr/bin/env bash
-# Stand-in for accessctl: the token exchange, answered with a fixed value.
-# devbox chatter first, like the real thing: only the last line is the token.
-[ "${1:-}" = token ] || { echo "accessctl stub: only 'token' is supported" >&2; exit 2; }
-echo "Info: stub exchange for $*"
-echo "stub.job.identity-token"

@@ -4,8 +4,8 @@
 # The chain is the one a laptop already uses, with the job's own identity
 # in place of a sign-in:
 #
-#   1. `accessctl token --audience <audience>` exchanges the job's GitHub
-#      OIDC identity token at the access-roster issuer. The issuer's
+#   1. `sluisctl token --audience <audience>` exchanges the job's GitHub
+#      OIDC identity token at the sluis issuer. The issuer's
 #      grants decide: a job reaches this audience only if its matchers
 #      (repository, ref, event, workflow files) admit it.
 #   2. That token logs in at `auth/<auth-mount>/login`, whose role maps
@@ -44,15 +44,16 @@
 # (internal/openbaosecrets, table-tested; no secret value is ever printed
 # except as an `::add-mask::` argument, which the tests assert); this action
 # is a thin wrapper that finds that binary (release archive of the pinned
-# tag, or built with Go) and runs it. accessctl is still the executed
-# command that does the exchange. It needs bash plus curl and tar or Go, and
+# tag, or built with Go) and runs it. sluisctl is still the executed
+# command that does the exchange; a job with only accessctl, its
+# deprecated name, runs that instead, with a warning. It needs bash plus curl and tar or Go, and
 # no jq.
 name: Read secrets from OpenBAO
-description: Read one KV path as the job's own identity, through an access-roster token exchange.
+description: Read one KV path as the job's own identity, through a sluis token exchange.
 
 inputs:
   issuer:
-    description: The access-roster issuer URL, which mints the token the login presents.
+    description: The sluis issuer URL, which mints the token the login presents.
     required: true
   address:
     description: The OpenBAO API base URL, e.g. https://openbao.example (from a caller variable).
@@ -95,13 +96,19 @@ inputs:
       not a secret; it still comes from the caller, never from here.
     required: false
     default: ""
+  sluisctl:
+    description: >-
+      How to run sluisctl: `auto` (empty means auto) runs it through
+      devbox when the repository has a devbox.json (where every
+      consumer's copy is pinned), `direct` runs it from the job's PATH.
+    required: false
+    default: ""
   accessctl:
     description: >-
-      How to run accessctl: `auto` runs it through devbox when the
-      repository has a devbox.json (where every consumer's copy is
-      pinned), `direct` runs it from the job's PATH.
+      Deprecated: the former name of `sluisctl`, read when `sluisctl` is
+      empty. TODO(remove) in a later major release.
     required: false
-    default: auto
+    default: ""
 
 outputs:
   value:
@@ -128,6 +135,7 @@ runs:
         AUDIENCE: ${{ inputs.audience }}
         WANTED: ${{ inputs.keys }}
         CA_CERT: ${{ inputs.ca-cert }}
+        SLUISCTL_MODE: ${{ inputs.sluisctl }}
         ACCESSCTL_MODE: ${{ inputs.accessctl }}
         ACTION_PATH: ${{ github.action_path }}
         ACTION_REPOSITORY: ${{ github.action_repository }}

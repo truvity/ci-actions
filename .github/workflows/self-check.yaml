@@ -96,7 +96,7 @@ jobs:
       # box end to end.
       #
       # openbao-secrets (internal/openbaosecrets) is in here too, against a
-      # stub OpenBAO and a stub accessctl: the one action that handles
+      # stub OpenBAO and a stub sluisctl: the one action that handles
       # secret values, so the tests assert that none is ever printed
       # outside an `::add-mask::` command, that every value (and every
       # line of a multi-line one) is masked before it is written anywhere,
