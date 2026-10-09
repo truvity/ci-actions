@@ -154,10 +154,11 @@ container with `--user 1001:1001 --security-opt no-new-privileges
 - **[policy](https://github.com/truvity/policy)**: the component contract
   `policy-conformance` checks, and the `hack/kind/` box `cluster` runs at
   a pinned release.
-- **[access-roster](https://github.com/truvity/access-roster)**: its
-  action mints this repository's tagging token in `auto-release.yaml`,
-  and its `accessctl` is the exec plugin `cluster`'s `mode: shared`
-  expects.
+- **[sluis](https://github.com/truvity/sluis)** (formerly access-roster):
+  its issuer mints this repository's tagging token in `auto-release.yaml`,
+  its `sluisctl` is the exec plugin `cluster`'s `mode: shared` expects,
+  and `openbao-secrets` runs it for the exchange (`accessctl`, its
+  deprecated name, as a fallback).
 
 ## Documentation
 

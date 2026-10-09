@@ -5,8 +5,8 @@
 // The chain is the one a laptop already uses, with the job's own identity in
 // place of a sign-in:
 //
-//  1. `accessctl token --audience <audience>` exchanges the job's GitHub OIDC
-//     identity token at the access-roster issuer. The issuer's grants
+//  1. `sluisctl token --audience <audience>` exchanges the job's GitHub OIDC
+//     identity token at the sluis issuer. The issuer's grants
 //     decide: a job reaches this audience only if its matchers (repository,
 //     ref, event, workflow files) admit it.
 //  2. That token logs in at `auth/<auth-mount>/login`, whose role maps the
@@ -16,13 +16,14 @@
 //
 // Nothing here is rotated, copied into a repository, or held between runs.
 //
-// accessctl stays an executed command (through devbox, where its version is
-// pinned beside every other tool the job uses, or from PATH). The HTTP calls
-// are Go's own. NO SECRET VALUE IS EVER PRINTED except as the argument of an
-// `::add-mask::` command, which is how the runner is told to hide it: every
-// value is masked, line by line, BEFORE it is written anywhere, so a
-// multi-line secret is masked whole. Log, output and error lines are the
-// shell version's.
+// sluisctl stays an executed command (through devbox, where its version is
+// pinned beside every other tool the job uses, or from PATH). Where the job
+// has no sluisctl but still has accessctl, its deprecated name, that one runs
+// instead, with a warning (see exchangeCommand). The HTTP calls are Go's own.
+// NO SECRET VALUE IS EVER PRINTED except as the argument of an `::add-mask::`
+// command, which is how the runner is told to hide it: every value is masked,
+// line by line, BEFORE it is written anywhere, so a multi-line secret is
+// masked whole. Log, output and error lines are the shell version's.
 package openbaosecrets
 
 import (
@@ -48,17 +49,17 @@ import (
 
 // Options are the action's inputs and the runner's environment.
 type Options struct {
-	Issuer      string
-	Address     string
-	KVPath      string
-	Namespace   string
-	Mount       string
-	AuthMount   string
-	Role        string
-	Audience    string
-	Wanted      string // keys, whitespace- or comma-separated; empty takes all
-	CACert      string // PEM
-	AccessctlBy string // "auto" or "direct"
+	Issuer     string
+	Address    string
+	KVPath     string
+	Namespace  string
+	Mount      string
+	AuthMount  string
+	Role       string
+	Audience   string
+	Wanted     string // keys, whitespace- or comma-separated; empty takes all
+	CACert     string // PEM
+	SluisctlBy string // "auto" or "direct"
 
 	IDTokenRequestURL string // ACTIONS_ID_TOKEN_REQUEST_URL
 	RunnerTemp        string
@@ -66,7 +67,7 @@ type Options struct {
 	Dir               string // where devbox.json is looked for; "" is the working directory
 
 	Out, Err io.Writer
-	// Token runs accessctl and returns its stdout. Nil runs the real one.
+	// Token runs sluisctl and returns its stdout. Nil runs the real one.
 	Token func(ctx context.Context, args []string) (string, error)
 	HTTP  *http.Client // nil builds one (30s, the CA when given)
 }
@@ -87,8 +88,8 @@ func (o *Options) defaults() {
 	if o.Audience == "" {
 		o.Audience = "openbao"
 	}
-	if o.AccessctlBy == "" {
-		o.AccessctlBy = "auto"
+	if o.SluisctlBy == "" {
+		o.SluisctlBy = "auto"
 	}
 	if o.Out == nil {
 		o.Out = io.Discard
@@ -122,17 +123,17 @@ func Run(ctx context.Context, o Options) error {
 	}
 	tokenFn := o.Token
 	if tokenFn == nil {
-		tokenFn = o.accessctl
+		tokenFn = o.sluisctl
 	}
 
 	fmt.Fprintf(out, "exchanging this job's identity for the %s audience\n", o.Audience)
 	raw, err := tokenFn(ctx, []string{"token", "--issuer", o.Issuer, "--audience", o.Audience})
 	if err != nil {
-		return fail("accessctl could not exchange this job's token for %s -- the issuer's grants decide, so check the job's matchers", o.Audience)
+		return fail("sluisctl could not exchange this job's token for %s -- the issuer's grants decide, so check the job's matchers", o.Audience)
 	}
 	token := strings.ReplaceAll(lastLine(raw), "\r", "")
 	if token == "" {
-		return fail("accessctl returned no token for %s", o.Audience)
+		return fail("sluisctl returned no token for %s", o.Audience)
 	}
 	mask(out, token)
 
@@ -393,18 +394,80 @@ func stripQuery(u string) string {
 	return u
 }
 
-// accessctl runs the real one. It comes from the repository's devbox, where
+// cliName is the token exchange's command, and legacyCLIName its deprecated
+// name: the same binary (sluis is the renamed access-roster), which still
+// works and prints a deprecation notice on stderr.
+//
+// TODO(remove): the accessctl fallback, once every consumer's devbox and
+// every runner image carry sluisctl.
+const (
+	cliName       = "sluisctl"
+	legacyCLIName = "accessctl"
+)
+
+// sluisctl runs the real one. It comes from the repository's devbox, where
 // its version is pinned beside every other tool the job uses.
-func (o Options) accessctl(ctx context.Context, args []string) (string, error) {
-	dir := o.Dir
-	name, argv := "accessctl", args
-	if o.AccessctlBy != "direct" {
-		if _, err := os.Stat(filepath.Join(dir, "devbox.json")); err == nil {
-			name, argv = "devbox", append([]string{"run", "--", "accessctl"}, args...)
+func (o Options) sluisctl(ctx context.Context, args []string) (string, error) {
+	name, argv := o.exchangeCommand(ctx, args)
+	return o.capture(ctx, name, argv)
+}
+
+// exchangeCommand is the command line the exchange runs: through devbox when
+// the repository has a devbox.json (unless direct), from PATH otherwise.
+//
+// sluisctl is preferred. A job whose PATH (devbox's, when through devbox) has
+// only accessctl runs that, with a warning, so that moving this action to the
+// new name breaks no repository that has not moved yet. A PATH with neither
+// runs sluisctl, which fails as plainly as it always did.
+func (o Options) exchangeCommand(ctx context.Context, args []string) (string, []string) {
+	viaDevbox := false
+	if o.SluisctlBy != "direct" {
+		if _, err := os.Stat(filepath.Join(o.Dir, "devbox.json")); err == nil {
+			viaDevbox = true
 		}
 	}
+	path := os.Getenv("PATH")
+	if viaDevbox {
+		// devbox's PATH, as the command will see it. Only the last line:
+		// devbox may print its own chatter first. A failure keeps the job's
+		// PATH, which still finds whatever the runner image bakes.
+		if out, err := o.capture(ctx, "devbox", []string{"run", "--", "printenv", "PATH"}); err == nil {
+			if p := strings.TrimSpace(lastLine(out)); p != "" {
+				path = p
+			}
+		}
+	}
+	name := cliName
+	if !onPath(path, cliName) && onPath(path, legacyCLIName) {
+		name = legacyCLIName
+		fmt.Fprintf(o.Out, "::warning::no %s on PATH, running %s, its deprecated name; add %s to this repository's devbox\n",
+			cliName, legacyCLIName, cliName)
+	}
+	if viaDevbox {
+		return "devbox", append([]string{"run", "--", name}, args...)
+	}
+	return name, args
+}
+
+// onPath reports whether name is an executable file in one of path's
+// directories, the way exec.LookPath would find it.
+func onPath(path, name string) bool {
+	for _, dir := range filepath.SplitList(path) {
+		if dir == "" {
+			dir = "."
+		}
+		fi, err := os.Stat(filepath.Join(dir, name))
+		if err == nil && fi.Mode().IsRegular() && fi.Mode().Perm()&0o111 != 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// capture runs name in o.Dir and returns its stdout; stderr goes to o.Err.
+func (o Options) capture(ctx context.Context, name string, argv []string) (string, error) {
 	cmd := exec.CommandContext(ctx, name, argv...)
-	cmd.Dir = dir
+	cmd.Dir = o.Dir
 	cmd.Stderr = o.Err
 	var out bytes.Buffer
 	cmd.Stdout = &out

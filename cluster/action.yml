@@ -184,7 +184,7 @@ runs:
 
     # shared: resolve the files and prove identity BEFORE anything that
     # spends a credential (ECR login below). Never in parallel with
-    # another accessctl exchange in this job — each exec call spends a
+    # another sluisctl exchange in this job — each exec call spends a
     # one-use token.
     - name: shared cluster identity
       if: inputs.mode == 'shared'

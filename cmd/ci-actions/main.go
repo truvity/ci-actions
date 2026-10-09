@@ -62,7 +62,7 @@ Commands:
                        HOME, RUNNER_TEMP, GITHUB_ENV)
   openbao-secrets      read one OpenBAO KV path as the job's own identity (env: ISSUER, ADDRESS,
                        KV_PATH, BAO_NAMESPACE, MOUNT, AUTH_MOUNT, ROLE, AUDIENCE, WANTED, CA_CERT,
-                       ACCESSCTL_MODE, GITHUB_OUTPUT)
+                       SLUISCTL_MODE, GITHUB_OUTPUT)
   public-runners       refuse a self-hosted runner in a public repository
                        (env: RUNNERS, VISIBILITY, GITHUB_REPOSITORY, GH_TOKEN, GITHUB_API_URL)
   cluster <step>       the cluster action's steps: fork-guard, kind, wait, shared-connect,
@@ -225,7 +225,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, getenv fu
 			Issuer: getenv("ISSUER"), Address: getenv("ADDRESS"), KVPath: getenv("KV_PATH"),
 			Namespace: getenv("BAO_NAMESPACE"), Mount: getenv("MOUNT"), AuthMount: getenv("AUTH_MOUNT"),
 			Role: getenv("ROLE"), Audience: getenv("AUDIENCE"), Wanted: getenv("WANTED"),
-			CACert: getenv("CA_CERT"), AccessctlBy: getenv("ACCESSCTL_MODE"),
+			CACert: getenv("CA_CERT"), SluisctlBy: firstSet(getenv("SLUISCTL_MODE"), getenv("ACCESSCTL_MODE")),
 			IDTokenRequestURL: getenv("ACTIONS_ID_TOKEN_REQUEST_URL"), RunnerTemp: getenv("RUNNER_TEMP"),
 			GithubOutput: getenv("GITHUB_OUTPUT"), Out: stdout, Err: stderr,
 		})
@@ -738,4 +738,15 @@ func releasePkl(ctx context.Context, step string, stdout, stderr io.Writer, gete
 			Attempts: attempts, Sleeps: sleeps})
 	}
 	return errUsage
+}
+
+// firstSet is the first non-empty value: a renamed variable read before
+// its deprecated name.
+func firstSet(values ...string) string {
+	for _, v := range values {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
 }

@@ -35,8 +35,9 @@ truvity/policy. Any repository, in any organisation, can use it.
 
 **`mode: shared` assumes the Truvity shape.** It expects:
 
-- a repo-relative kubeconfig whose exec plugin is `accessctl` (from
-  [truvity/access-roster](https://github.com/truvity/access-roster)),
+- a repo-relative kubeconfig whose exec plugin is `sluisctl` (from
+  [truvity/sluis](https://github.com/truvity/sluis); `accessctl`, its
+  deprecated name, still works),
   exchanging the job's GitHub token for a cluster credential;
 - a repo-relative `aws.ini` whose credential process does the same for
   AWS;
