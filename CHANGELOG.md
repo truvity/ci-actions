@@ -8,6 +8,10 @@ an untagged commit; `tagged-pins` refuses anything else.
 
 ### Changed
 
+- **Version comparison follows semver precedence** for `vX.Y.Z[-pre][+build]`:
+  a release ranks above its pre-releases, so the latest-tag lookup in
+  `policy-conformance` picks `v1.74.0` over `v1.74.0-rc.4`. Other strings keep
+  the natural `sort -V` ordering.
 - **`tagged-pins` no longer lists truvity/ci-cache by default**: the repository
   is archived and `setup-devbox` calls `setup-cache` from this repository.
   Pass `libraries` to judge it anyway.
