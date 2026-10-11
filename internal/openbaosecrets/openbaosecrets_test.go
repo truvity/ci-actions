@@ -371,53 +371,39 @@ func TestInputsAndSluisctl(t *testing.T) {
 }
 
 func TestSluisctlCommand(t *testing.T) {
-	// One directory per PATH a job might have: sluisctl only, both names,
-	// the deprecated name only, neither. devbox's stub answers `printenv
-	// PATH` with $DEVBOX_PATH, so the devbox environment is a PATH of its
-	// own, as it is for real.
-	mk := func(names ...string) string {
-		dir := t.TempDir()
-		for _, name := range names {
-			if err := os.WriteFile(filepath.Join(dir, name), []byte("#!/bin/sh\necho "+name+" \"$@\"\n"), 0o755); err != nil {
-				t.Fatal(err)
-			}
-		}
-		return dir
+	// sluisctl is on the job's PATH (a stub that echoes its name and
+	// arguments). devbox's stub answers `printenv PATH` with chatter first,
+	// as the real one does.
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "sluisctl"), []byte("#!/bin/sh\necho sluisctl \"$@\"\n"), 0o755); err != nil {
+		t.Fatal(err)
 	}
-	newOnly, both, oldOnly, neither := mk("sluisctl"), mk("sluisctl", "accessctl"), mk("accessctl"), mk()
 	tools := t.TempDir()
 	devbox := "#!/bin/sh\n" +
-		"if [ \"$3\" = printenv ]; then echo 'Info: devbox chatter'; echo \"$DEVBOX_PATH\"; exit 0; fi\n" +
+		"if [ \"$3\" = printenv ]; then echo 'Info: devbox chatter'; echo \"$PATH\"; exit 0; fi\n" +
 		"echo devbox \"$@\"\n"
 	if err := os.WriteFile(filepath.Join(tools, "devbox"), []byte(devbox), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	withDevbox, without := t.TempDir(), t.TempDir()
 	_ = os.WriteFile(filepath.Join(withDevbox, "devbox.json"), []byte("{}"), 0o644)
-	const warning = "::warning::no sluisctl on PATH, running accessctl, its deprecated name; add sluisctl to this repository's devbox\n"
 	for _, tc := range []struct {
-		name, dir, mode, jobPath, devboxPath, want, warn string
+		name, dir, mode, want string
 	}{
-		{"devbox has sluisctl", withDevbox, "auto", neither, newOnly, "devbox run -- sluisctl token --audience x", ""},
-		{"devbox has both", withDevbox, "auto", neither, both, "devbox run -- sluisctl token --audience x", ""},
-		{"devbox has accessctl only", withDevbox, "auto", neither, oldOnly, "devbox run -- accessctl token --audience x", warning},
-		{"devbox has neither", withDevbox, "auto", neither, neither, "devbox run -- sluisctl token --audience x", ""},
-		{"image bakes sluisctl", withDevbox, "auto", newOnly, "", "devbox run -- sluisctl token --audience x", ""},
-		{"direct, sluisctl", withDevbox, "direct", newOnly, oldOnly, "sluisctl token --audience x", ""},
-		{"direct, accessctl only", withDevbox, "direct", oldOnly, newOnly, "accessctl token --audience x", warning},
-		{"no devbox.json", without, "auto", both, oldOnly, "sluisctl token --audience x", ""},
+		{"devbox.json, auto", withDevbox, "auto", "devbox run -- sluisctl token --audience x"},
+		{"devbox.json, direct", withDevbox, "direct", "sluisctl token --audience x"},
+		{"no devbox.json", without, "auto", "sluisctl token --audience x"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			t.Setenv("PATH", tools+string(os.PathListSeparator)+tc.jobPath+string(os.PathListSeparator)+"/usr/bin:/bin")
-			t.Setenv("DEVBOX_PATH", tc.devboxPath)
+			t.Setenv("PATH", tools+string(os.PathListSeparator)+dir+string(os.PathListSeparator)+"/usr/bin:/bin")
 			var out bytes.Buffer
 			o := Options{Dir: tc.dir, SluisctlBy: tc.mode, Out: &out, Err: io.Discard}
 			got, err := o.sluisctl(context.Background(), []string{"token", "--audience", "x"})
 			if err != nil || strings.TrimSpace(got) != tc.want {
 				t.Errorf("got %q %v, want %q", got, err, tc.want)
 			}
-			if out.String() != tc.warn {
-				t.Errorf("warning %q, want %q", out.String(), tc.warn)
+			if out.Len() != 0 {
+				t.Errorf("unexpected output %q", out.String())
 			}
 		})
 	}

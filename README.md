@@ -157,8 +157,7 @@ container with `--user 1001:1001 --security-opt no-new-privileges
 - **[sluis](https://github.com/truvity/sluis)** (formerly access-roster):
   its issuer mints this repository's tagging token in `auto-release.yaml`,
   its `sluisctl` is the exec plugin `cluster`'s `mode: shared` expects,
-  and `openbao-secrets` runs it for the exchange (`accessctl`, its
-  deprecated name, as a fallback).
+  and `openbao-secrets` runs it for the exchange.
 
 ## Documentation
 

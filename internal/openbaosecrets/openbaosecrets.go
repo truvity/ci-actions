@@ -17,9 +17,8 @@
 // Nothing here is rotated, copied into a repository, or held between runs.
 //
 // sluisctl stays an executed command (through devbox, where its version is
-// pinned beside every other tool the job uses, or from PATH). Where the job
-// has no sluisctl but still has accessctl, its deprecated name, that one runs
-// instead, with a warning (see exchangeCommand). The HTTP calls are Go's own.
+// pinned beside every other tool the job uses, or from PATH). The HTTP calls
+// are Go's own.
 // NO SECRET VALUE IS EVER PRINTED except as the argument of an `::add-mask::`
 // command, which is how the runner is told to hide it: every value is masked,
 // line by line, BEFORE it is written anywhere, so a multi-line secret is
@@ -394,16 +393,8 @@ func stripQuery(u string) string {
 	return u
 }
 
-// cliName is the token exchange's command, and legacyCLIName its deprecated
-// name: the same binary (sluis is the renamed access-roster), which still
-// works and prints a deprecation notice on stderr.
-//
-// TODO(remove): the accessctl fallback, once every consumer's devbox and
-// every runner image carry sluisctl.
-const (
-	cliName       = "sluisctl"
-	legacyCLIName = "accessctl"
-)
+// cliName is the token exchange's command.
+const cliName = "sluisctl"
 
 // sluisctl runs the real one. It comes from the repository's devbox, where
 // its version is pinned beside every other tool the job uses.
@@ -414,11 +405,6 @@ func (o Options) sluisctl(ctx context.Context, args []string) (string, error) {
 
 // exchangeCommand is the command line the exchange runs: through devbox when
 // the repository has a devbox.json (unless direct), from PATH otherwise.
-//
-// sluisctl is preferred. A job whose PATH (devbox's, when through devbox) has
-// only accessctl runs that, with a warning, so that moving this action to the
-// new name breaks no repository that has not moved yet. A PATH with neither
-// runs sluisctl, which fails as plainly as it always did.
 func (o Options) exchangeCommand(ctx context.Context, args []string) (string, []string) {
 	viaDevbox := false
 	if o.SluisctlBy != "direct" {
@@ -426,42 +412,10 @@ func (o Options) exchangeCommand(ctx context.Context, args []string) (string, []
 			viaDevbox = true
 		}
 	}
-	path := os.Getenv("PATH")
 	if viaDevbox {
-		// devbox's PATH, as the command will see it. Only the last line:
-		// devbox may print its own chatter first. A failure keeps the job's
-		// PATH, which still finds whatever the runner image bakes.
-		if out, err := o.capture(ctx, "devbox", []string{"run", "--", "printenv", "PATH"}); err == nil {
-			if p := strings.TrimSpace(lastLine(out)); p != "" {
-				path = p
-			}
-		}
+		return "devbox", append([]string{"run", "--", cliName}, args...)
 	}
-	name := cliName
-	if !onPath(path, cliName) && onPath(path, legacyCLIName) {
-		name = legacyCLIName
-		fmt.Fprintf(o.Out, "::warning::no %s on PATH, running %s, its deprecated name; add %s to this repository's devbox\n",
-			cliName, legacyCLIName, cliName)
-	}
-	if viaDevbox {
-		return "devbox", append([]string{"run", "--", name}, args...)
-	}
-	return name, args
-}
-
-// onPath reports whether name is an executable file in one of path's
-// directories, the way exec.LookPath would find it.
-func onPath(path, name string) bool {
-	for _, dir := range filepath.SplitList(path) {
-		if dir == "" {
-			dir = "."
-		}
-		fi, err := os.Stat(filepath.Join(dir, name))
-		if err == nil && fi.Mode().IsRegular() && fi.Mode().Perm()&0o111 != 0 {
-			return true
-		}
-	}
-	return false
+	return cliName, args
 }
 
 // capture runs name in o.Dir and returns its stdout; stderr goes to o.Err.

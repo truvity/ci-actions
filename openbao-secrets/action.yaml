@@ -45,8 +45,7 @@
 # except as an `::add-mask::` argument, which the tests assert); this action
 # is a thin wrapper that finds that binary (release archive of the pinned
 # tag, or built with Go) and runs it. sluisctl is still the executed
-# command that does the exchange; a job with only accessctl, its
-# deprecated name, runs that instead, with a warning. It needs bash plus curl and tar or Go, and
+# command that does the exchange. It needs bash plus curl and tar or Go, and
 # no jq.
 name: Read secrets from OpenBAO
 description: Read one KV path as the job's own identity, through a sluis token exchange.
@@ -103,12 +102,6 @@ inputs:
       consumer's copy is pinned), `direct` runs it from the job's PATH.
     required: false
     default: ""
-  accessctl:
-    description: >-
-      Deprecated: the former name of `sluisctl`, read when `sluisctl` is
-      empty. TODO(remove) in a later major release.
-    required: false
-    default: ""
 
 outputs:
   value:
@@ -136,7 +129,6 @@ runs:
         WANTED: ${{ inputs.keys }}
         CA_CERT: ${{ inputs.ca-cert }}
         SLUISCTL_MODE: ${{ inputs.sluisctl }}
-        ACCESSCTL_MODE: ${{ inputs.accessctl }}
         ACTION_PATH: ${{ github.action_path }}
         ACTION_REPOSITORY: ${{ github.action_repository }}
         ACTION_REF: ${{ github.action_ref }}
