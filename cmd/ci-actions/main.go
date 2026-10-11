@@ -225,7 +225,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, getenv fu
 			Issuer: getenv("ISSUER"), Address: getenv("ADDRESS"), KVPath: getenv("KV_PATH"),
 			Namespace: getenv("BAO_NAMESPACE"), Mount: getenv("MOUNT"), AuthMount: getenv("AUTH_MOUNT"),
 			Role: getenv("ROLE"), Audience: getenv("AUDIENCE"), Wanted: getenv("WANTED"),
-			CACert: getenv("CA_CERT"), SluisctlBy: firstSet(getenv("SLUISCTL_MODE"), getenv("ACCESSCTL_MODE")),
+			CACert: getenv("CA_CERT"), SluisctlBy: getenv("SLUISCTL_MODE"),
 			IDTokenRequestURL: getenv("ACTIONS_ID_TOKEN_REQUEST_URL"), RunnerTemp: getenv("RUNNER_TEMP"),
 			GithubOutput: getenv("GITHUB_OUTPUT"), Out: stdout, Err: stderr,
 		})
@@ -738,15 +738,4 @@ func releasePkl(ctx context.Context, step string, stdout, stderr io.Writer, gete
 			Attempts: attempts, Sleeps: sleeps})
 	}
 	return errUsage
-}
-
-// firstSet is the first non-empty value: a renamed variable read before
-// its deprecated name.
-func firstSet(values ...string) string {
-	for _, v := range values {
-		if v != "" {
-			return v
-		}
-	}
-	return ""
 }
