@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -63,5 +65,32 @@ func TestRecipe(t *testing.T) {
 				t.Errorf("calls %v", calls)
 			}
 		})
+	}
+}
+
+func TestDevboxConfig(t *testing.T) {
+	ws := t.TempDir()
+	_ = os.MkdirAll(filepath.Join(ws, "ci"), 0o755)
+	_ = os.WriteFile(filepath.Join(ws, "ci", "devbox.json"), []byte("{}"), 0o644)
+	do := func(cfg string) (string, error, []string) {
+		var out strings.Builder
+		var calls []string
+		err := Run(context.Background(), Options{Recipe: "build", Command: "just", DevboxConfig: cfg, Workspace: ws, Out: &out, Exec: func(_ context.Context, c runcmd.Cmd) error {
+			calls = append(calls, c.Name+" "+strings.Join(c.Args, " "))
+			return nil
+		}})
+		return out.String(), err, calls
+	}
+	if _, err, calls := do(""); err != nil || strings.Join(calls, "|") != "devbox run -- just build|git status --porcelain" {
+		t.Errorf("empty: %v %v", err, calls)
+	}
+	if _, err, calls := do("ci"); err != nil || strings.Join(calls, "|") != "devbox run -c ci -- just build|git status --porcelain" {
+		t.Errorf("set: %v %v", err, calls)
+	}
+	for _, bad := range []string{"/etc", "../x", "missing", "."} {
+		out, err, calls := do(bad)
+		if !errors.Is(err, ErrFailed) || len(calls) != 0 || !strings.HasPrefix(out, "::error::devbox-config ") {
+			t.Errorf("%q: %v %q %v", bad, err, out, calls)
+		}
 	}
 }

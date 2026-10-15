@@ -57,7 +57,7 @@ Commands:
   setup-devbox <step>  the setup-devbox action's steps: preflight, aws-config, detect-baked, strip-tools,
                        install-devbox, materialize, proto, expose-token, go-private, codeartifact,
                        retired-cache-server, guard-goproxy, guard-aws (env: see setup-devbox/action.yaml)
-  recipe               run one task-runner recipe in devbox and assert a clean tree (env: RECIPE, COMMAND)
+  recipe               run one task-runner recipe in devbox and assert a clean tree (env: RECIPE, COMMAND, DEVBOX_CONFIG)
   remote-builders      register BuildKit builders as one buildx builder (env: NODES, plus
                        HOME, RUNNER_TEMP, GITHUB_ENV)
   openbao-secrets      read one OpenBAO KV path as the job's own identity (env: ISSUER, ADDRESS,
@@ -196,7 +196,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, getenv fu
 	case "setup-devbox":
 		return setupDevbox(ctx, args[1:], stdout, stderr, getenv)
 	case "recipe":
-		err := recipe.Run(ctx, recipe.Options{Recipe: getenv("RECIPE"), Command: getenv("COMMAND"), Out: stdout, Err: stderr})
+		err := recipe.Run(ctx, recipe.Options{Recipe: getenv("RECIPE"), Command: getenv("COMMAND"), DevboxConfig: getenv("DEVBOX_CONFIG"), Workspace: getenv("GITHUB_WORKSPACE"), Out: stdout, Err: stderr})
 		switch {
 		case err == nil:
 			return 0

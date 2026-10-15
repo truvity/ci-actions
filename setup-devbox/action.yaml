@@ -138,6 +138,23 @@ inputs:
       clean-tree gate refuses a dirty workspace, and GitHub-hosted
       runners have npm, so the plugin bootstraps fine there.
     default: "true"
+  devbox-config:
+    description: >-
+      Directory, relative to the workspace, that holds its own devbox.json
+      and devbox.lock: a second, smaller environment than the repository's
+      own, so the job downloads that closure instead of the full one. Every
+      devbox call here (the materialize step, proto, the CodeArtifact login)
+      runs as `devbox run -c <dir>`, which makes that directory devbox's project
+      root. `just` still finds the Justfile by searching parent directories,
+      so recipes run from the repository root. Must be a relative path inside
+      the workspace (no absolute path, no `..` escaping) with a devbox.json
+      in it; anything else fails with a message naming the problem. The
+      devbox.json guards check that file. Pass the same value to the
+      `recipe` action. A second environment that ships no proto needs
+      `proto: "false"`. Empty (the default) uses the repository's own
+      devbox.json, unchanged.
+    required: false
+    default: ""
 
 runs:
   using: composite
@@ -237,6 +254,7 @@ runs:
         ACTION_PATH: ${{ github.action_path }}
         ACTION_REPOSITORY: ${{ github.action_repository }}
         ACTION_REF: ${{ github.action_ref }}
+        DEVBOX_CONFIG: ${{ inputs.devbox-config }}
       run: bash "$ACTION_PATH/run.sh" materialize
     - name: Cache proto toolchains
       if: inputs.proto == 'true' || (inputs.proto == 'auto' && steps.baked.outputs.prototools == 'true')
@@ -267,6 +285,7 @@ runs:
         ACTION_PATH: ${{ github.action_path }}
         ACTION_REPOSITORY: ${{ github.action_repository }}
         ACTION_REF: ${{ github.action_ref }}
+        DEVBOX_CONFIG: ${{ inputs.devbox-config }}
       run: bash "$ACTION_PATH/run.sh" proto
     # Gated on the App, NOT on go-private. Fetching private Go modules was
     # the first use; reading a sibling repository's files from a recipe is
@@ -335,6 +354,7 @@ runs:
         ACTION_PATH: ${{ github.action_path }}
         ACTION_REPOSITORY: ${{ github.action_repository }}
         ACTION_REF: ${{ github.action_ref }}
+        DEVBOX_CONFIG: ${{ inputs.devbox-config }}
       run: bash "$ACTION_PATH/run.sh" codeartifact
     # The caches are wired by the nested setup-cache action, not here.
     #
@@ -382,6 +402,7 @@ runs:
         ACTION_PATH: ${{ github.action_path }}
         ACTION_REPOSITORY: ${{ github.action_repository }}
         ACTION_REF: ${{ github.action_ref }}
+        DEVBOX_CONFIG: ${{ inputs.devbox-config }}
       run: bash "$ACTION_PATH/run.sh" guard-goproxy
     # The same class of problem as GOPROXY, for the AWS identity: this action
     # points AWS_CONFIG_FILE at the CI config (profiles that take their
@@ -394,4 +415,5 @@ runs:
         ACTION_PATH: ${{ github.action_path }}
         ACTION_REPOSITORY: ${{ github.action_repository }}
         ACTION_REF: ${{ github.action_ref }}
+        DEVBOX_CONFIG: ${{ inputs.devbox-config }}
       run: bash "$ACTION_PATH/run.sh" guard-aws
