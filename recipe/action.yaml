@@ -22,6 +22,19 @@ inputs:
     description: Task runner in front of it — just, moon.
     required: false
     default: just
+  devbox-config:
+    description: >-
+      Directory, relative to the workspace, that holds its own devbox.json
+      and devbox.lock: a second, smaller environment than the repository's
+      own, so the job downloads that closure instead of the full one. Run as
+      `devbox run -c <dir>`, which makes that directory devbox's project
+      root. `just` still finds the Justfile by searching parent directories,
+      so recipes run from the repository root. Must be a relative path inside
+      the workspace (no absolute path, no `..` escaping) with a devbox.json
+      in it; anything else fails with a message naming the problem. Empty
+      (the default) uses the repository's own devbox.json, unchanged.
+    required: false
+    default: ""
 
 runs:
   using: composite
@@ -30,6 +43,7 @@ runs:
       env:
         RECIPE: ${{ inputs.recipe }}
         COMMAND: ${{ inputs.command }}
+        DEVBOX_CONFIG: ${{ inputs.devbox-config }}
         ACTION_PATH: ${{ github.action_path }}
         ACTION_REPOSITORY: ${{ github.action_repository }}
         ACTION_REF: ${{ github.action_ref }}

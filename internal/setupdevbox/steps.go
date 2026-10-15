@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/truvity/ci-actions/internal/devboxconfig"
 	"github.com/truvity/ci-actions/internal/runcmd"
 )
 
@@ -92,6 +93,9 @@ func StripLocalTools(ctx context.Context, e Env) error {
 // This step is the closure cost; every devbox step after it is only itself.
 func Materialize(ctx context.Context, e Env) error {
 	e.defaults()
+	if err := e.checkDevboxConfig(); err != nil {
+		return err
+	}
 	start := e.Now()
 	if err := e.retry(ctx, e.Out, func(w io.Writer) error { return e.devbox(ctx, w, e.Err, "true") }); err != nil {
 		return fmt.Errorf("devbox run -- true: %w", err)
@@ -293,7 +297,7 @@ func devboxEnv(file string, keys ...string) (map[string]string, bool) {
 // than failing the job.
 func GuardGoproxy(e Env) error {
 	e.defaults()
-	const file = "devbox.json"
+	file := devboxconfig.JSONPath(e.devboxConfig())
 	if !fileExists(file) {
 		return nil
 	}
@@ -315,7 +319,7 @@ func GuardGoproxy(e Env) error {
 // with the wrong profile and the build runs cold.
 func GuardAWS(e Env) error {
 	e.defaults()
-	const file = "devbox.json"
+	file := devboxconfig.JSONPath(e.devboxConfig())
 	if !fileExists(file) {
 		return nil
 	}

@@ -21,6 +21,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/truvity/ci-actions/internal/devboxconfig"
 	"github.com/truvity/ci-actions/internal/runcmd"
 )
 
@@ -114,8 +115,22 @@ func (e Env) retry(ctx context.Context, out io.Writer, run func(io.Writer) error
 	return run(out)
 }
 
+// devboxConfig is the optional devbox-config input (DEVBOX_CONFIG): a
+// workspace-relative directory with its own devbox.json, passed to every
+// `devbox run` as `-c <dir>`. Empty is the repository's own devbox.json.
+func (e Env) devboxConfig() string { return e.Getenv("DEVBOX_CONFIG") }
+
+// checkDevboxConfig fails with a clear message when the input is not a
+// relative path inside the workspace holding a devbox.json.
+func (e Env) checkDevboxConfig() error {
+	if err := devboxconfig.Validate(e.Getenv("GITHUB_WORKSPACE"), e.devboxConfig()); err != nil {
+		return e.fail("%s", err)
+	}
+	return nil
+}
+
 func (e Env) devbox(ctx context.Context, out, errw io.Writer, args ...string) error {
-	return e.Exec(ctx, runcmd.Cmd{Name: "devbox", Args: append([]string{"run", "--"}, args...), Stdout: out, Stderr: errw})
+	return e.Exec(ctx, runcmd.Cmd{Name: "devbox", Args: append(devboxconfig.RunArgs(e.devboxConfig()), args...), Stdout: out, Stderr: errw})
 }
 
 // trimNL is what a command substitution does to its result.

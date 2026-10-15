@@ -13,6 +13,7 @@ import (
 	"io"
 	"strings"
 
+	"github.com/truvity/ci-actions/internal/devboxconfig"
 	"github.com/truvity/ci-actions/internal/runcmd"
 )
 
@@ -20,9 +21,14 @@ import (
 type Options struct {
 	Recipe  string
 	Command string // the task runner in front of it: just, moon
-	Out     io.Writer
-	Err     io.Writer
-	Exec    runcmd.Exec
+	// DevboxConfig is a workspace-relative directory holding its own
+	// devbox.json; run as `devbox run -c <dir>`. Empty: the repository's own.
+	DevboxConfig string
+	// Workspace is what DevboxConfig is resolved against (default ".").
+	Workspace string
+	Out       io.Writer
+	Err       io.Writer
+	Exec      runcmd.Exec
 }
 
 // ErrFailed marks a failure whose ::error:: line is already written.
@@ -39,7 +45,11 @@ func Run(ctx context.Context, o Options) error {
 	if o.Err == nil {
 		o.Err = io.Discard
 	}
-	if err := o.Exec(ctx, runcmd.Cmd{Name: "devbox", Args: []string{"run", "--", o.Command, o.Recipe}, Stdout: o.Out, Stderr: o.Err}); err != nil {
+	if err := devboxconfig.Validate(o.Workspace, o.DevboxConfig); err != nil {
+		fmt.Fprintf(o.Out, "::error::%s\n", err)
+		return ErrFailed
+	}
+	if err := o.Exec(ctx, runcmd.Cmd{Name: "devbox", Args: append(devboxconfig.RunArgs(o.DevboxConfig), o.Command, o.Recipe), Stdout: o.Out, Stderr: o.Err}); err != nil {
 		fmt.Fprintf(o.Out, "::error::%s failed\n", o.Recipe)
 		return ErrFailed
 	}

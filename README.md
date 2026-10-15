@@ -10,9 +10,9 @@ contract.
 
 | action | what it does | key inputs | used by (ci-workflows) |
 | -- | -- | -- | -- |
-| [`setup-devbox`](setup-devbox/action.yaml) | Installs devbox, proto and the toolchain, logs into CodeArtifact, mints a GitHub App token for private-module reads, and wires the caches by delegating to [`setup-cache`](setup-cache/action.yaml) | `go-cache-bucket`, `go-cache-region`, `goproxy`, `go-private`, `module-app-client-id`, `aws-config-file`, `codeartifact-domain` | `check`, `integration`, `release-public`, `release-private`, `parity-fleet` |
+| [`setup-devbox`](setup-devbox/action.yaml) | Installs devbox, proto and the toolchain, logs into CodeArtifact, mints a GitHub App token for private-module reads, and wires the caches by delegating to [`setup-cache`](setup-cache/action.yaml) | `go-cache-bucket`, `go-cache-region`, `goproxy`, `go-private`, `module-app-client-id`, `aws-config-file`, `codeartifact-domain`, `devbox-config` | `check`, `integration`, `release-public`, `release-private`, `parity-fleet` |
 | [`setup-cache`](setup-cache/action.yaml) | Detects the build systems a repository uses and wires each to the estate's cache (Go build cache through go-cache-plugin to the bucket; checks the Yarn and moon settings). Nested: only `setup-devbox` calls it, moved here from `truvity/ci-cache` | `bucket`, `region`, `endpoint`, `path-style`, `goproxy`, `languages`, `client-version` | none directly (through `setup-devbox`) |
-| [`recipe`](recipe/action.yaml) | Runs one task-runner recipe inside devbox, then fails if the working tree changed | `recipe` (required), `command` (`just`) | `check` |
+| [`recipe`](recipe/action.yaml) | Runs one task-runner recipe inside devbox, then fails if the working tree changed | `recipe` (required), `command` (`just`), `devbox-config` | `check` |
 | [`public-runners`](public-runners/action.yaml) | Refuses a public repository that asks for self-hosted runners | `runners` (required), `visibility` | `check`, `integration`, `release-public` |
 | [`tagged-pins`](tagged-pins/action.yaml) | Refuses a pin into the shared CI libraries that is not the commit of a tag | `libraries` (ci-workflows, ci-actions) | `check` |
 | [`policy-conformance`](policy-conformance/README.md) | Checks a repository against the component contract, rules C1 to C13, one line per rule | `strict` (`false`), `skip`, `reason` | `check`, opt-in |
@@ -99,6 +99,16 @@ with one exception named below.
   or `latest`), checks it against that release's own `checksums.txt` and puts
   it in `$RUNNER_TEMP/bin`, which it adds to `PATH`. It no longer pipes
   `get.jetify.com` into `bash`. Pin a tag to make the release a reviewed one.
+- **A second, smaller devbox environment is opt-in.** `devbox-config` (on
+  `setup-devbox` and on `recipe`, the same value on both) names a
+  workspace-relative directory holding its own `devbox.json` and
+  `devbox.lock`; every devbox call runs as `devbox run -c <dir>`, so the job
+  downloads that closure instead of the repository's full one. devbox makes
+  that directory the project root, and `just` finds the Justfile by searching
+  parent directories, so recipes still run from the repository root. The value
+  must be a relative path inside the workspace that contains a `devbox.json`;
+  anything else fails with a message. Empty (the default) changes nothing. A
+  second environment that ships no proto needs `proto: "false"`.
 - **The one remaining root step is the nix installer.** It runs only when nix
   is not on the runner (`Install nix` in `setup-devbox`), which means a
   GitHub-hosted runner, the one place root exists. A runner that cannot

@@ -634,3 +634,27 @@ func TestRetiredCacheServer(t *testing.T) {
 		t.Errorf("%v %q", err, x.out.String())
 	}
 }
+
+func TestDevboxConfig(t *testing.T) {
+	x := newH(t)
+	ws := x.env["GITHUB_WORKSPACE"]
+	_ = os.MkdirAll(filepath.Join(ws, "ci"), 0o755)
+	_ = os.WriteFile(filepath.Join(ws, "ci", "devbox.json"), []byte("{}"), 0o644)
+
+	x.env["DEVBOX_CONFIG"] = "ci"
+	if err := Materialize(context.Background(), x.e()); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(x.calls, "|") != "devbox run -c ci -- true" {
+		t.Errorf("%v", x.calls)
+	}
+
+	x = newH(t)
+	for _, bad := range []string{"/abs", "../up", "nope"} {
+		x.env["DEVBOX_CONFIG"] = bad
+		x.out.Reset()
+		if err := Materialize(context.Background(), x.e()); !errors.Is(err, ErrFailed) || !strings.HasPrefix(x.out.String(), "::error::devbox-config ") || len(x.calls) != 0 {
+			t.Errorf("%q: %v %q %v", bad, err, x.out.String(), x.calls)
+		}
+	}
+}

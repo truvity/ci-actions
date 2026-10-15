@@ -4,6 +4,22 @@ Every release of truvity/ci-actions, newest first. Pin the commit of a
 tag (`git rev-parse vX.Y.Z^{commit}`), never the tag object and never
 an untagged commit; `tagged-pins` refuses anything else.
 
+## v1.17.0
+
+### Added
+
+- **`devbox-config` input on `setup-devbox` and `recipe`**: a directory,
+  relative to the workspace, holding its own `devbox.json` and `devbox.lock`,
+  so a job can run in a second, smaller devbox environment and download that
+  closure instead of the repository's full one. Every devbox call runs as
+  `devbox run -c <dir>` (`recipe`, and `setup-devbox`'s materialize, proto and
+  CodeArtifact steps; its devbox.json guards read that directory's file).
+  devbox makes that directory the project root; `just` finds the Justfile by
+  searching parent directories, so recipes still run from the repository root.
+  The value is validated in Go: a relative path inside the workspace, with a
+  `devbox.json`, or the step fails with a clear message. Empty (the default)
+  runs exactly the commands it ran before.
+
 ## v1.16.0
 
 ### Changed
