@@ -35,6 +35,10 @@ go-test:
 pins-wrapper:
     @./hack/tagged-pins-wrapper-cases.sh
 
+# s3-cache's wrapper and the fallback wiring of its actions
+s3-cache:
+    @./hack/s3-cache-cases.sh
+
 # token-exchange's step body, run as written against a stub curl and kubectl
 token-exchange:
     @./hack/token-exchange-cases.sh
@@ -156,5 +160,5 @@ leak-canary:
     @./hack/leak-canary.sh
 
 # Run all checks (the merge gate)
-check: lint kit cache-env setup-cache go-test pins-wrapper token-exchange no-escalation pins runners conformance leak-canary
+check: lint kit cache-env setup-cache s3-cache go-test pins-wrapper token-exchange no-escalation pins runners conformance leak-canary
     @echo "✓ All checks passed"

@@ -1,0 +1,73 @@
+name: s3-cache save
+description: >-
+  Save a cache the way actions/cache/save does, to the CI cache bucket when
+  the job runs on a self-hosted runner and the caller passes the bucket;
+  GitHub's cache everywhere else. A key that already exists is left alone
+  (caches are immutable). Fails open: a bucket that cannot be written is a
+  warning, never a failed job. Pair it with s3-cache/restore.
+
+inputs:
+  path:
+    description: Files or directories to save, one per line. `~` is the home directory. No globs.
+    required: true
+  key:
+    description: The key to save under.
+    required: true
+  bucket:
+    description: >-
+      The CI cache bucket, from the CALLER's org variable. Empty, or a
+      GitHub-hosted runner, uses GitHub's cache.
+    required: false
+    default: ""
+  region:
+    description: The bucket's region.
+    required: false
+    default: ""
+  endpoint:
+    description: S3 endpoint URL for a store that is not AWS. Empty keeps the AWS default.
+    required: false
+    default: ""
+  path-style:
+    description: '"true" to address the bucket path-style.'
+    required: false
+    default: ""
+  prefix:
+    description: Key prefix inside the bucket; must match the restore step's.
+    required: false
+    default: gha-cache
+  timeout:
+    description: Upper bound for the transfer, a Go duration.
+    required: false
+    default: 15m
+
+outputs:
+  backend:
+    description: "`s3` or `github`: which store this step used."
+    value: ${{ steps.gh.outcome == 'success' && 'github' || 's3' }}
+
+runs:
+  using: composite
+  steps:
+    - id: s3
+      if: inputs.bucket != '' && runner.environment == 'self-hosted'
+      shell: bash
+      env:
+        BUCKET: ${{ inputs.bucket }}
+        REGION: ${{ inputs.region }}
+        ENDPOINT: ${{ inputs.endpoint }}
+        PATH_STYLE: ${{ inputs.path-style }}
+        PREFIX: ${{ inputs.prefix }}
+        TIMEOUT: ${{ inputs.timeout }}
+        KEY: ${{ inputs.key }}
+        PATHS: ${{ inputs.path }}
+        ACTION_PATH: ${{ github.action_path }}
+        ACTION_REPOSITORY: ${{ github.action_repository }}
+        ACTION_REF: ${{ github.action_ref }}
+      run: bash "$ACTION_PATH/../run.sh" save
+
+    - id: gh
+      if: inputs.bucket == '' || runner.environment != 'self-hosted' || steps.s3.outputs.fallback == 'true'
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ inputs.path }}
+        key: ${{ inputs.key }}

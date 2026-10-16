@@ -1,0 +1,95 @@
+name: s3-cache restore
+description: >-
+  Restore a cache the way actions/cache/restore does, but from the CI cache
+  bucket when the job runs on a self-hosted runner and the caller passes the
+  bucket; GitHub's cache everywhere else. Fails open: a bucket that cannot be
+  reached is a cache miss, or a hand-off to GitHub's cache when the runner
+  has no credentials. Pair it with s3-cache/save. See ../README.md.
+
+inputs:
+  path:
+    description: >-
+      Files or directories to restore, one per line. `~` is the home
+      directory. No globs.
+    required: true
+  key:
+    description: Exact key to look for first.
+    required: true
+  restore-keys:
+    description: >-
+      Key PREFIXES to try in order when the exact key misses, one per line.
+      The newest cache under the first prefix that has any is restored.
+    required: false
+    default: ""
+  bucket:
+    description: >-
+      The CI cache bucket, from the CALLER's org variable (this repository is
+      public and never contains it). Empty, or a GitHub-hosted runner, uses
+      GitHub's cache.
+    required: false
+    default: ""
+  region:
+    description: The bucket's region.
+    required: false
+    default: ""
+  endpoint:
+    description: S3 endpoint URL for a store that is not AWS. Empty keeps the AWS default.
+    required: false
+    default: ""
+  path-style:
+    description: '"true" to address the bucket path-style.'
+    required: false
+    default: ""
+  prefix:
+    description: >-
+      Key prefix inside the bucket. The runner identity must be allowed to
+      write it; the bucket's lifecycle rule ages it out.
+    required: false
+    default: gha-cache
+  timeout:
+    description: Upper bound for the transfer, a Go duration.
+    required: false
+    default: 15m
+
+outputs:
+  cache-hit:
+    description: "'true' on an exact match, 'false' on a restore-keys match or a miss (GitHub's cache: '' on a miss)."
+    value: ${{ steps.gh.outputs.cache-hit || steps.s3.outputs.cache-hit }}
+  cache-primary-key:
+    description: The exact key that was looked up.
+    value: ${{ inputs.key }}
+  cache-matched-key:
+    description: Key of the cache that was restored, empty on a miss.
+    value: ${{ steps.gh.outputs.cache-matched-key || steps.s3.outputs.cache-matched-key }}
+  backend:
+    description: "`s3` or `github`: which store served this step."
+    value: ${{ steps.gh.outcome == 'success' && 'github' || 's3' }}
+
+runs:
+  using: composite
+  steps:
+    - id: s3
+      if: inputs.bucket != '' && runner.environment == 'self-hosted'
+      shell: bash
+      env:
+        BUCKET: ${{ inputs.bucket }}
+        REGION: ${{ inputs.region }}
+        ENDPOINT: ${{ inputs.endpoint }}
+        PATH_STYLE: ${{ inputs.path-style }}
+        PREFIX: ${{ inputs.prefix }}
+        TIMEOUT: ${{ inputs.timeout }}
+        KEY: ${{ inputs.key }}
+        PATHS: ${{ inputs.path }}
+        RESTORE_KEYS: ${{ inputs.restore-keys }}
+        ACTION_PATH: ${{ github.action_path }}
+        ACTION_REPOSITORY: ${{ github.action_repository }}
+        ACTION_REF: ${{ github.action_ref }}
+      run: bash "$ACTION_PATH/../run.sh" restore
+
+    - id: gh
+      if: inputs.bucket == '' || runner.environment != 'self-hosted' || steps.s3.outputs.fallback == 'true'
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ inputs.path }}
+        key: ${{ inputs.key }}
+        restore-keys: ${{ inputs.restore-keys }}
