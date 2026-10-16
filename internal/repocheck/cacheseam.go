@@ -34,8 +34,8 @@ var ErrFailed = fmt.Errorf("repocheck: failed")
 //
 // The wiring lives in this repository's own `setup-cache` action, which is tested
 // there. What stays here is the SEAM: that this composite delegates, that it
-// hands over every input the cache needs, that the retired input is not
-// silently ignored, and that nothing here wires a cache any more.
+// hands over every input the cache needs, and that nothing here wires a cache
+// any more.
 //
 // The seam is worth its own check because it is where the two repositories can
 // disagree without either being wrong on its own: an input added there and not
@@ -175,24 +175,6 @@ func CacheSeam(ctx context.Context, o CacheSeamOptions) error {
 				}
 			}
 		}
-	}
-
-	// --- the retired input is refused loudly, not ignored quietly ---
-	//
-	// go-cache-server pointed at a cache server that was measured out of the Go
-	// path. Dropping it silently would repeat the fault that started all this:
-	// a variable that named something gone, a fall-through that cost four
-	// milliseconds, and days before anyone noticed. What the warning says is
-	// tested in internal/setupdevbox; here, that it is wired to the input.
-	checked++
-	const retired = "Warn on the retired cache-server input"
-	cond := ""
-	if s := step(retired); s != nil {
-		cond = str(s, "if")
-	}
-	if !strings.Contains(cond, "go-cache-server != ''") {
-		say("FAIL [retired]: the warning step's condition is \"%s\"; it must fire when go-cache-server is set", cond)
-		fail++
 	}
 
 	// --- nothing here wires a cache any more ---

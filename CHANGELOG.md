@@ -6,6 +6,18 @@ an untagged commit; `tagged-pins` refuses anything else.
 
 ## Unreleased
 
+### Breaking
+
+- **`setup-devbox`: the retired `go-cache-server` input is removed**, with
+  its warning step and the `ci-actions setup-devbox retired-cache-server`
+  subcommand. It has been ignored since the Go build cache went straight
+  to `go-cache-bucket`, and a caller passing it got a warning. No caller
+  in the truvity, trust-form, finttech or opwerm organisations passes it
+  any more; truvity/ci-workflows drops its pass-through in its own major.
+  A caller that still passes it now gets GitHub's "Unexpected input"
+  warning instead of ours; remove the input. The cache-seam repo check no
+  longer looks for the warning step.
+
 ### Changed
 
 - **Git LFS at checkout, as a convention.** No action here performs a

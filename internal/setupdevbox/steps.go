@@ -238,17 +238,6 @@ func CodeArtifact(ctx context.Context, e Env) error {
 	return e.exportEnv("CODEARTIFACT_AUTH_TOKEN", token)
 }
 
-// RetiredCacheServer: go-cache-server is retired and does nothing. It pointed
-// at a cache server that was measured out of the Go path. Ignoring it silently
-// would be the same mistake the module proxy made, so a caller still passing
-// it gets told. The input stays until a major so that a caller's pin and its
-// org variable can move separately.
-func RetiredCacheServer(e Env) error {
-	e.defaults()
-	e.printf("::warning::go-cache-server is retired and ignored; the Go build cache goes straight to go-cache-bucket. Remove the input and the CI_GOCACHE_SERVER org variable.\n")
-	return nil
-}
-
 // devboxEnv reads one key of devbox.json's env block as jq's
 // `.env[$k] // empty` printed it. ok is false when the file is not plain JSON
 // (devbox tolerates comments).

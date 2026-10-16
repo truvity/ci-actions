@@ -13,7 +13,7 @@ import (
 
 const sha40 = "59d0647c5f9f635e26cf1bbb787f910197976310"
 
-func action(t *testing.T, uses, with, retiredIf string, extraRun string, dropGuard string) string {
+func action(t *testing.T, uses, with string, extraRun string, dropGuard string) string {
 	root := t.TempDir()
 	steps := fmt.Sprintf(`runs:
   using: composite
@@ -22,10 +22,6 @@ func action(t *testing.T, uses, with, retiredIf string, extraRun string, dropGua
       uses: %s
       with:
 %s
-    - name: Warn on the retired cache-server input
-      if: %s
-      shell: bash
-      run: bash x retired-cache-server
     - name: Guard GOPROXY against devbox.json
       shell: bash
       run: bash x guard-goproxy
@@ -35,7 +31,7 @@ func action(t *testing.T, uses, with, retiredIf string, extraRun string, dropGua
     - name: Other
       shell: bash
       run: %s
-`, uses, with, retiredIf, extraRun)
+`, uses, with, extraRun)
 	if dropGuard != "" {
 		steps = strings.Replace(steps, "    - name: "+dropGuard+"\n      shell: bash\n", "    - name: gone\n      shell: bash\n", 1)
 	}
@@ -72,9 +68,9 @@ func run(t *testing.T, root, base string) (string, error) {
 func TestCacheSeam(t *testing.T) {
 	srv := downstreamServer(t, "bucket", "region", "goproxy", "languages", "client-version", "bazel-remote", "npm-registry")
 	good := func() string {
-		return action(t, "truvity/ci-actions/setup-cache@"+sha40+" # v0.2.0", goodWith, "inputs.go-cache-server != ''", "echo hi", "")
+		return action(t, "truvity/ci-actions/setup-cache@"+sha40+" # v0.2.0", goodWith, "echo hi", "")
 	}
-	if out, err := run(t, good(), srv.URL); err != nil || out != "cache seam holds (6 cases checked)\n" {
+	if out, err := run(t, good(), srv.URL); err != nil || out != "cache seam holds (5 cases checked)\n" {
 		t.Errorf("a good seam: %v %q", err, out)
 	}
 	for _, tc := range []struct {
@@ -84,29 +80,26 @@ func TestCacheSeam(t *testing.T) {
 		want string
 	}{
 		{"a tag is not a pin", func() string {
-			return action(t, "truvity/ci-actions/setup-cache@v0.2.0", goodWith, "inputs.go-cache-server != ''", "echo", "")
+			return action(t, "truvity/ci-actions/setup-cache@v0.2.0", goodWith, "echo", "")
 		}, srv.URL, `FAIL [pin]: the cache step does not use a SHA-pinned truvity/ci-actions/setup-cache; it uses "truvity/ci-actions/setup-cache@v0.2.0"`},
 		{"a short sha is not a full one", func() string {
-			return action(t, "truvity/ci-actions/setup-cache@59d0647", goodWith, "inputs.go-cache-server != ''", "echo", "")
+			return action(t, "truvity/ci-actions/setup-cache@59d0647", goodWith, "echo", "")
 		}, srv.URL, `FAIL [pin]: ci-actions/setup-cache is pinned to "59d0647", which is not a full 40-character SHA`},
 		{"an input the downstream declares and this does not pass", func() string {
-			return action(t, "truvity/ci-actions/setup-cache@"+sha40, "        bucket: ${{ inputs.go-cache-bucket }}", "inputs.go-cache-server != ''", "echo", "")
+			return action(t, "truvity/ci-actions/setup-cache@"+sha40, "        bucket: ${{ inputs.go-cache-bucket }}", "echo", "")
 		}, srv.URL, `FAIL [inputs]: ci-actions/setup-cache declares "goproxy" and this action does not pass it`},
 		{"an input wired to a literal does not cross the seam", func() string {
-			return action(t, "truvity/ci-actions/setup-cache@"+sha40, "        bucket: x\n        region: ${{ inputs.r }}\n        goproxy: ${{ inputs.g }}", "inputs.go-cache-server != ''", "echo", "")
+			return action(t, "truvity/ci-actions/setup-cache@"+sha40, "        bucket: x\n        region: ${{ inputs.r }}\n        goproxy: ${{ inputs.g }}", "echo", "")
 		}, srv.URL, `(wired to "x"); pass it, or exempt it with a reason`},
 		{"a downstream that cannot be fetched is a failure, not a skip", good, "http://127.0.0.1:1", "could not fetch http://127.0.0.1:1/" + sha40 + "/setup-cache/action.yaml — the seam went unchecked"},
-		{"a retired warning that does not fire on the input", func() string {
-			return action(t, "truvity/ci-actions/setup-cache@"+sha40, goodWith, "always()", "echo", "")
-		}, srv.URL, `FAIL [retired]: the warning step's condition is "always()"`},
 		{"a run step that writes GOCACHEPROG", func() string {
-			return action(t, "truvity/ci-actions/setup-cache@"+sha40, goodWith, "inputs.go-cache-server != ''", "echo GOCACHEPROG=x", "")
+			return action(t, "truvity/ci-actions/setup-cache@"+sha40, goodWith, "echo GOCACHEPROG=x", "")
 		}, srv.URL, "FAIL [ownership]: a run: step in setup-devbox writes GOCACHEPROG"},
 		{"the GOPROXY guard gone", func() string {
-			return action(t, "truvity/ci-actions/setup-cache@"+sha40, goodWith, "inputs.go-cache-server != ''", "echo", "Guard GOPROXY against devbox.json")
+			return action(t, "truvity/ci-actions/setup-cache@"+sha40, goodWith, "echo", "Guard GOPROXY against devbox.json")
 		}, srv.URL, `FAIL [guard]: the "Guard GOPROXY against devbox.json" step is gone`},
 		{"the AWS guard gone", func() string {
-			return action(t, "truvity/ci-actions/setup-cache@"+sha40, goodWith, "inputs.go-cache-server != ''", "echo", "Guard AWS config against devbox.json")
+			return action(t, "truvity/ci-actions/setup-cache@"+sha40, goodWith, "echo", "Guard AWS config against devbox.json")
 		}, srv.URL, `FAIL [aws-guard]: the "Guard AWS config against devbox.json" step is gone`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

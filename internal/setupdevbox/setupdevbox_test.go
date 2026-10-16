@@ -628,13 +628,6 @@ func TestGuards(t *testing.T) {
 	}
 }
 
-func TestRetiredCacheServer(t *testing.T) {
-	x := newH(t)
-	if err := RetiredCacheServer(x.e()); err != nil || x.out.String() != "::warning::go-cache-server is retired and ignored; the Go build cache goes straight to go-cache-bucket. Remove the input and the CI_GOCACHE_SERVER org variable.\n" || x.file("github_env") != "" {
-		t.Errorf("%v %q", err, x.out.String())
-	}
-}
-
 func TestDevboxConfig(t *testing.T) {
 	x := newH(t)
 	ws := x.env["GITHUB_WORKSPACE"]
