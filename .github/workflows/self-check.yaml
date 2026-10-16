@@ -76,8 +76,8 @@ jobs:
       # setup-devbox's cache seam: that the composite delegates to a
       # SHA-pinned truvity/ci-actions/setup-cache and passes every input that action
       # declares (read live, at the pinned sha: a guard that cannot look
-      # fails rather than skips), that the retired input is wired to its
-      # warning, and that nothing here wires a cache any more. What each
+      # fails rather than skips), and that nothing here wires a cache any
+      # more. What each
       # setup-devbox step does (the preflight, the devbox install, the
       # tokens, CodeArtifact, the devbox.json guards) is in the Go tests
       # below.

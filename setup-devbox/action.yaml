@@ -56,22 +56,6 @@ inputs:
       wildcard certificate does not cover a bucket subdomain, and
       harmless where it is not. "true" to enable.
     default: ""
-  go-cache-server:
-    description: >-
-      RETIRED and ignored. It named a truvity/ci-cache server, which was
-      measured out of the Go path: the server reached parity with the
-      bucket in its own best case, lost to the bucket in CI, and a profile
-      showed the fetch rate is set by the build's own parallelism rather
-      than by anything a cache does.
-
-      Passing it produces a warning rather than silence, because ignoring
-      a dead input quietly is the fault that started this: an org variable
-      named a module proxy removed two releases earlier and nothing said
-      so for days.
-
-      Kept until a major so a caller's pin and its org variable can move
-      separately.
-    default: ""
   goproxy:
     description: In-cluster Go module proxy with a public fallback.
     default: ""
@@ -377,24 +361,6 @@ runs:
         path-style: ${{ inputs.go-cache-path-style }}
         goproxy: ${{ inputs.goproxy }}
 
-    # go-cache-server is retired and does nothing.
-    #
-    # It pointed at truvity/ci-cache's own server, which was measured out of
-    # the Go path: it reached parity with the bucket in its own best case,
-    # lost to the bucket in CI, and a profile showed the fetch rate is set
-    # by the build's own parallelism rather than by anything a cache does.
-    #
-    # Ignoring it silently would be the same mistake the module proxy made,
-    # so a caller still passing it gets told. The input stays until a major
-    # so that a caller's pin and its org variable can move separately.
-    - name: Warn on the retired cache-server input
-      if: inputs.go-cache-server != ''
-      shell: bash
-      env:
-        ACTION_PATH: ${{ github.action_path }}
-        ACTION_REPOSITORY: ${{ github.action_repository }}
-        ACTION_REF: ${{ github.action_ref }}
-      run: bash "$ACTION_PATH/run.sh" retired-cache-server
     - name: Guard GOPROXY against devbox.json
       if: inputs.goproxy != ''
       shell: bash
