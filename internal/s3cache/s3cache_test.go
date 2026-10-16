@@ -78,6 +78,12 @@ func opts(t *testing.T, st Store, root string, paths ...string) Options {
 	return Options{Store: st, Repository: "o/r", Key: "k-1", Paths: paths, Root: root, Home: "/home/u", Workdir: "/w"}
 }
 
+// plant is the object key a restore of o over path would look for.
+func plant(o Options, path string) string {
+	o.defaults()
+	return objectKey(o.base([]string{path}), o.Key)
+}
+
 func write(t *testing.T, root, p, content string) {
 	t.Helper()
 	full := filepath.Join(root, p)
@@ -220,7 +226,7 @@ func TestRestoreRefusesEntriesOutsideThePaths(t *testing.T) {
 	st := newMem()
 	dst := t.TempDir()
 	o := opts(t, st, dst, "/ok")
-	st.objs[objectKey(o.base([]string{"/ok"}), "k-1")] = tarball(t, map[string]string{"ok/f": "fine", "etc/evil": "x", "ok/../../etc/evil2": "x"})
+	st.objs[plant(o, "/ok")] = tarball(t, map[string]string{"ok/f": "fine", "etc/evil": "x", "ok/../../etc/evil2": "x"})
 	var errb bytes.Buffer
 	o.Err = &errb
 	r := Restore(context.Background(), o)
@@ -245,9 +251,40 @@ func TestRestoreRefusesWritingThroughSymlink(t *testing.T) {
 	}
 	st := newMem()
 	o := opts(t, st, dst, "/ok")
-	st.objs[objectKey(o.base([]string{"/ok"}), "k-1")] = tarball(t, map[string]string{"ok/d/pwn": "x"})
+	st.objs[plant(o, "/ok")] = tarball(t, map[string]string{"ok/d/pwn": "x"})
 	Restore(context.Background(), o)
 	if _, err := os.Stat(filepath.Join(outside, "pwn")); err == nil {
 		t.Fatal("wrote through a symlink")
+	}
+}
+
+func TestRestoreRefusesSymlinkOutsideThePaths(t *testing.T) {
+	var b bytes.Buffer
+	zw, _ := zstd.NewWriter(&b)
+	tw := tar.NewWriter(zw)
+	for _, h := range []tar.Header{
+		{Name: "ok/inside", Typeflag: tar.TypeSymlink, Linkname: "f"},
+		{Name: "ok/abs", Typeflag: tar.TypeSymlink, Linkname: "/etc/passwd"},
+		{Name: "ok/up", Typeflag: tar.TypeSymlink, Linkname: "../../etc"},
+	} {
+		h.Mode = 0o777
+		if err := tw.WriteHeader(&h); err != nil {
+			t.Fatal(err)
+		}
+	}
+	tw.Close()
+	zw.Close()
+	dst := t.TempDir()
+	st := newMem()
+	o := opts(t, st, dst, "/ok")
+	st.objs[plant(o, "/ok")] = b.Bytes()
+	if r := Restore(context.Background(), o); r.Hit {
+		t.Fatalf("archive with an escaping link restored: %+v", r)
+	}
+	if _, err := os.Lstat(filepath.Join(dst, "ok", "inside")); err != nil {
+		t.Fatalf("inside link not made before the refusal: %v", err)
+	}
+	if _, err := os.Lstat(filepath.Join(dst, "ok", "abs")); err == nil {
+		t.Fatal("escaping link created")
 	}
 }

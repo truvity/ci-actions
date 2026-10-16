@@ -266,6 +266,9 @@ func untar(tr *tar.Reader, root string, paths []string) (int64, error) {
 			return total, fmt.Errorf("entry %q is outside the cached paths", h.Name)
 		}
 		dst := filepath.Join(root, filepath.FromSlash(name))
+		if !strings.HasPrefix(dst, filepath.Clean(root)+string(filepath.Separator)) && dst != filepath.Clean(root) {
+			return total, fmt.Errorf("entry %q escapes the extraction root", h.Name)
+		}
 		if err := safeParent(root, dst); err != nil {
 			return total, err
 		}
@@ -300,6 +303,15 @@ func untar(tr *tar.Reader, root string, paths []string) (int64, error) {
 			}
 			_ = os.Chtimes(dst, h.ModTime, h.ModTime)
 		case tar.TypeSymlink:
+			// A link must point inside the cached paths, or a later entry
+			// (or the build) would read and write wherever the archive says.
+			target := h.Linkname
+			if !path.IsAbs(target) {
+				target = path.Join(path.Dir(name), target)
+			}
+			if !under(path.Clean(target), paths) {
+				return total, fmt.Errorf("symlink %q points outside the cached paths", h.Name)
+			}
 			if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 				return total, err
 			}
