@@ -291,3 +291,21 @@ func TestRestoreNeverCreatesSymlinks(t *testing.T) {
 		}
 	}
 }
+
+func TestWithinHandlesTheFilesystemRoot(t *testing.T) {
+	for _, c := range []struct {
+		root, dst string
+		want      bool
+	}{
+		{"/", "/home/u/.cache/x", true},
+		{"/", "/", true},
+		{"/tmp/r", "/tmp/r/a/b", true},
+		{"/tmp/r", "/tmp/r", true},
+		{"/tmp/r", "/tmp/rx/a", false},
+		{"/tmp/r", "/etc/passwd", false},
+	} {
+		if got := within(c.root, c.dst); got != c.want {
+			t.Errorf("within(%q, %q) = %v, want %v", c.root, c.dst, got, c.want)
+		}
+	}
+}
