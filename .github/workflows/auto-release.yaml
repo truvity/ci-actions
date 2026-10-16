@@ -90,6 +90,8 @@ jobs:
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          # Tags and history only; LFS objects are never needed (this repository has none).
+          lfs: false
           # The tag list and the ancestry comparison both need history.
           fetch-depth: 0
           token: ${{ steps.token.outputs.github-token }}
