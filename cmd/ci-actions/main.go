@@ -35,6 +35,7 @@ import (
 	"github.com/truvity/ci-actions/internal/repocheck"
 	"github.com/truvity/ci-actions/internal/runcmd"
 	"github.com/truvity/ci-actions/internal/setupdevbox"
+	"github.com/truvity/ci-actions/internal/stablemtimes"
 	"github.com/truvity/ci-actions/internal/taggedpins"
 	"github.com/truvity/ci-actions/internal/workflowinputs"
 )
@@ -58,6 +59,8 @@ Commands:
                        install-devbox, materialize, proto, expose-token, go-private, codeartifact,
                        retired-cache-server, guard-goproxy, guard-aws (env: see setup-devbox/action.yaml)
   recipe               run one task-runner recipe in devbox and assert a clean tree (env: RECIPE, COMMAND, DEVBOX_CONFIG)
+  stable-mtimes        give every tracked file a content-derived modification time so Go's test cache can hit
+                       after a fresh checkout (env: WORKDIR, default GITHUB_WORKSPACE, then the current directory)
   remote-builders      register BuildKit builders as one buildx builder (env: NODES, plus
                        HOME, RUNNER_TEMP, GITHUB_ENV)
   openbao-secrets      read one OpenBAO KV path as the job's own identity (env: ISSUER, ADDRESS,
@@ -206,6 +209,16 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, getenv fu
 			fmt.Fprintln(stderr, "recipe:", err)
 			return 1
 		}
+	case "stable-mtimes":
+		dir := getenv("WORKDIR")
+		if dir == "" {
+			dir = getenv("GITHUB_WORKSPACE")
+		}
+		if _, err := stablemtimes.Run(ctx, stablemtimes.Options{Dir: dir, Out: stdout, Err: stderr}); err != nil {
+			fmt.Fprintln(stderr, "stable-mtimes:", err)
+			return 1
+		}
+		return 0
 	case "remote-builders":
 		err := remotebuilders.Run(ctx, remotebuilders.Options{
 			Nodes: getenv("NODES"), Home: getenv("HOME"), RunnerTemp: getenv("RUNNER_TEMP"), GithubEnv: getenv("GITHUB_ENV"),

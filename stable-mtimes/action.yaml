@@ -1,0 +1,25 @@
+name: stable-mtimes
+description: >-
+  Give every tracked file a deterministic, content-derived modification time,
+  so Go's test cache can hit after a fresh checkout. Run it right after
+  actions/checkout. See README.md next to this file for the reason and the
+  trade-off.
+
+inputs:
+  working-directory:
+    description: >-
+      The checkout to rewrite times in. Empty (the default) is the workspace
+      root.
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        WORKDIR: ${{ inputs.working-directory }}
+        ACTION_PATH: ${{ github.action_path }}
+        ACTION_REPOSITORY: ${{ github.action_repository }}
+        ACTION_REF: ${{ github.action_ref }}
+      run: bash "$ACTION_PATH/run.sh"

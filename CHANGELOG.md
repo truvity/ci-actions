@@ -4,6 +4,24 @@ Every release of truvity/ci-actions, newest first. Pin the commit of a
 tag (`git rev-parse vX.Y.Z^{commit}`), never the tag object and never
 an untagged commit; `tagged-pins` refuses anything else.
 
+## v1.18.0
+
+### Added
+
+- **`stable-mtimes` action** (and `ci-actions stable-mtimes`): right after
+  `actions/checkout`, gives every tracked file a modification time derived
+  from its blob id (2000-01-01Z plus the first 8 bytes of the id modulo
+  twenty years, in seconds) and every directory that holds tracked files the
+  constant 2000-01-01Z. Go's test cache keys a result on the size and mtime of
+  every file the test opened, and a fresh checkout stamps all of them "now",
+  so every test that reads repository files missed the cache although the
+  content was unchanged. Unchanged content now has the same mtime on every
+  runner and branch. Gitlinks and paths absent from disk are skipped; a
+  symlink gets its own time where the platform can set it; one unreadable
+  file is a warning. Trade-off: a timestamp-driven tool such as `make` may
+  judge a committed generated file newer than a changed source; such a
+  repository should not use it. Nothing else changes.
+
 ## v1.17.0
 
 ### Added
