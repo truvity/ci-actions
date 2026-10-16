@@ -12,7 +12,7 @@ of the job reads the same five variables and does not know which one it
 is on.
 
 ```yaml
-- uses: truvity/ci-actions/cluster@f0c56df8cb20d13c6ebd350f3e5f62d6dfbd4e08 # v1.1.0
+- uses: truvity/ci-actions/cluster@f9130c63db2899c18884c027a7eade20d0ab796a # v1.18.0
   with:
     mode: kind                 # or: shared
     policy-version: v0.8.1     # kind only

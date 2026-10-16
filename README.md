@@ -74,7 +74,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           lfs: true # fetch Git LFS objects; see "Git LFS" below
-      - uses: truvity/ci-actions/public-runners@73a8e54d28025275f2b2750ae4bfc56f008b36cb # v1.3.0
+      - uses: truvity/ci-actions/public-runners@f9130c63db2899c18884c027a7eade20d0ab796a # v1.18.0
         with:
           runners: ubuntu-latest
           visibility: ${{ github.event.repository.visibility }}
