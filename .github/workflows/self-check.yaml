@@ -38,6 +38,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          lfs: true
           fetch-depth: 1
 
       # A workflow with a syntax error does not go red -- GitHub declines
@@ -201,6 +202,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          lfs: true
           fetch-depth: 1
 
       - name: control, the image escalates only without the flag
@@ -229,6 +231,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          lfs: true
           fetch-depth: 1
 
       # v0.8.1 is pinned as a version, not `master`, so a change to the box

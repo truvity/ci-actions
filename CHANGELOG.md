@@ -4,6 +4,18 @@ Every release of truvity/ci-actions, newest first. Pin the commit of a
 tag (`git rev-parse vX.Y.Z^{commit}`), never the tag object and never
 an untagged commit; `tagged-pins` refuses anything else.
 
+## Unreleased
+
+### Changed
+
+- **Git LFS at checkout, as a convention.** No action here performs a
+  checkout, so nothing in an action changes. This repository's own workflows
+  now check out with `lfs: true` (the tag job of `auto-release` with
+  `lfs: false`: it reads tags and history only), and the README examples show
+  `lfs: true` and document the runner requirement (`git-lfs`: in the ARC image
+  since ci-plane v6.7.0, on GitHub-hosted runners). The reusable workflows in
+  truvity/ci-workflows carry the matching `lfs` input, default true.
+
 ## v1.18.0
 
 ### Added

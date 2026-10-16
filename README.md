@@ -72,6 +72,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          lfs: true # fetch Git LFS objects; see "Git LFS" below
       - uses: truvity/ci-actions/public-runners@73a8e54d28025275f2b2750ae4bfc56f008b36cb # v1.3.0
         with:
           runners: ubuntu-latest
@@ -84,6 +86,17 @@ hosted runners only — checked`; the second prints one `ok` or `UNTAGGED`
 line per pin into the shared CI libraries and fails on an `UNTAGGED`
 one. A repository that calls ci-workflows' `check.yaml` already runs
 both.
+
+## Git LFS
+
+No action here checks out the repository: the caller does, with
+`actions/checkout`. The shared convention is to fetch Git LFS objects at
+checkout (`lfs: true`), because a repository that tracks images or other
+binaries in LFS otherwise builds from pointer files. The reusable workflows
+in truvity/ci-workflows do this by default through an `lfs` input (default
+`true`; `false` opts out). It needs `git-lfs` on the runner: the ARC image
+has it since ci-plane v6.7.0, and GitHub-hosted runners ship it. This
+repository's own workflows follow the convention; it holds no LFS objects.
 
 ## Running without privilege
 

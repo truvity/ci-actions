@@ -20,6 +20,8 @@ action has a bug.
 ```yaml
 steps:
   - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+    with:
+      lfs: true
   - uses: truvity/ci-actions/policy-conformance@<sha> # vX.Y.Z
     with:
       strict: "false"
