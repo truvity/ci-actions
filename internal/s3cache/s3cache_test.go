@@ -278,13 +278,20 @@ func TestRestoreRefusesSymlinkOutsideThePaths(t *testing.T) {
 	st := newMem()
 	o := opts(t, st, dst, "/ok")
 	st.objs[plant(o, "/ok")] = b.Bytes()
-	if r := Restore(context.Background(), o); r.Hit {
-		t.Fatalf("archive with an escaping link restored: %+v", r)
+	var eb bytes.Buffer
+	o.Err = &eb
+	if r := Restore(context.Background(), o); !r.Hit {
+		t.Fatalf("archive not restored: %+v", r)
+	}
+	if !strings.Contains(eb.String(), "2 symlink(s)") {
+		t.Fatalf("no warning about the left-out links: %q", eb.String())
 	}
 	if _, err := os.Lstat(filepath.Join(dst, "ok", "inside")); err != nil {
-		t.Fatalf("inside link not made before the refusal: %v", err)
+		t.Fatalf("inside link not made: %v", err)
 	}
-	if _, err := os.Lstat(filepath.Join(dst, "ok", "abs")); err == nil {
-		t.Fatal("escaping link created")
+	for _, n := range []string{"abs", "up"} {
+		if _, err := os.Lstat(filepath.Join(dst, "ok", n)); err == nil {
+			t.Fatalf("escaping link %s created", n)
+		}
 	}
 }

@@ -245,50 +245,57 @@ func download(ctx context.Context, o Options, key string, paths []string) (int64
 		return 0, fmt.Errorf("zstd: %w", err)
 	}
 	defer zr.Close()
-	return untar(tar.NewReader(zr), o.Root, paths)
+	n, skipped, err := untar(tar.NewReader(zr), o.Root, paths)
+	if skipped > 0 {
+		warn(o, "restore: %d symlink(s) pointing outside their directory or the cached paths were left out", skipped)
+	}
+	return n, err
 }
 
 // untar extracts only entries under one of the configured paths, so an object
 // someone else wrote cannot place a file anywhere else, and refuses to write
-// through a symlink that points outside the root.
-func untar(tr *tar.Reader, root string, paths []string) (int64, error) {
-	var total int64
+// through a symlink. A symlink is made only when it is relative, local and
+// resolves inside the cached paths; any other is left out and counted.
+func untar(tr *tar.Reader, root string, paths []string) (total int64, skipped int, err error) {
 	for {
 		h, err := tr.Next()
 		if err == io.EOF {
-			return total, nil
+			return total, skipped, nil
 		}
 		if err != nil {
-			return total, fmt.Errorf("tar: %w", err)
+			return total, skipped, fmt.Errorf("tar: %w", err)
+		}
+		if !filepath.IsLocal(filepath.FromSlash(h.Name)) {
+			return total, skipped, fmt.Errorf("entry %q is not a relative path inside the root", h.Name)
 		}
 		name := path.Clean("/" + h.Name)
 		if !under(name, paths) {
-			return total, fmt.Errorf("entry %q is outside the cached paths", h.Name)
+			return total, skipped, fmt.Errorf("entry %q is outside the cached paths", h.Name)
 		}
 		dst := filepath.Join(root, filepath.FromSlash(name))
 		if !strings.HasPrefix(dst, filepath.Clean(root)+string(filepath.Separator)) && dst != filepath.Clean(root) {
-			return total, fmt.Errorf("entry %q escapes the extraction root", h.Name)
+			return total, skipped, fmt.Errorf("entry %q escapes the extraction root", h.Name)
 		}
 		if err := safeParent(root, dst); err != nil {
-			return total, err
+			return total, skipped, err
 		}
 		mode := fs.FileMode(h.Mode).Perm()
 		switch h.Typeflag {
 		case tar.TypeDir:
 			if err := os.MkdirAll(dst, 0o755); err != nil {
-				return total, err
+				return total, skipped, err
 			}
 			if err := os.Chmod(dst, mode|0o700); err != nil {
-				return total, err
+				return total, skipped, err
 			}
 		case tar.TypeReg:
 			if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
-				return total, err
+				return total, skipped, err
 			}
 			_ = os.Remove(dst)
 			f, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_EXCL, mode|0o200)
 			if err != nil {
-				return total, err
+				return total, skipped, err
 			}
 			n, err := io.Copy(f, tr)
 			total += n
@@ -296,28 +303,28 @@ func untar(tr *tar.Reader, root string, paths []string) (int64, error) {
 				err = cerr
 			}
 			if err != nil {
-				return total, err
+				return total, skipped, err
 			}
 			if err := os.Chmod(dst, mode); err != nil {
-				return total, err
+				return total, skipped, err
 			}
 			_ = os.Chtimes(dst, h.ModTime, h.ModTime)
 		case tar.TypeSymlink:
-			// A link must point inside the cached paths, or a later entry
-			// (or the build) would read and write wherever the archive says.
-			target := h.Linkname
-			if !path.IsAbs(target) {
-				target = path.Join(path.Dir(name), target)
-			}
-			if !under(path.Clean(target), paths) {
-				return total, fmt.Errorf("symlink %q points outside the cached paths", h.Name)
+			// A link must be relative, stay below its own directory's reach
+			// and resolve inside the cached paths, or a later entry (or the
+			// build) would read and write wherever the archive says. Any
+			// other link is refused.
+			if !filepath.IsLocal(filepath.FromSlash(h.Linkname)) ||
+				!under(path.Join(path.Dir(name), h.Linkname), paths) {
+				skipped++
+				continue
 			}
 			if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
-				return total, err
+				return total, skipped, err
 			}
 			_ = os.Remove(dst)
 			if err := os.Symlink(h.Linkname, dst); err != nil {
-				return total, err
+				return total, skipped, err
 			}
 		default:
 			// Hard links, devices, fifos: nothing a tool cache needs.
