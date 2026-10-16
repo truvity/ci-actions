@@ -314,7 +314,10 @@ func untar(tr *tar.Reader, root string, paths []string) (total int64, skipped in
 			// and resolve inside the cached paths, or a later entry (or the
 			// build) would read and write wherever the archive says. Any
 			// other link is refused.
+			target := filepath.Join(filepath.Dir(dst), filepath.FromSlash(h.Linkname))
 			if !filepath.IsLocal(filepath.FromSlash(h.Linkname)) ||
+				strings.Contains(h.Linkname, "..") ||
+				!strings.HasPrefix(target, filepath.Clean(root)+string(filepath.Separator)) ||
 				!under(path.Join(path.Dir(name), h.Linkname), paths) {
 				skipped++
 				continue
