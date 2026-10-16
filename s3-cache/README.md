@@ -56,6 +56,9 @@ NAT and stay inside the region.
 - Entries are stored by absolute path, so a cache restores only where it was
   saved from (the same runner image and home directory), and only entries
   under the configured paths are ever extracted.
+- A symlink is restored only when it is relative, does not climb out of its
+  directory and resolves inside the cached paths; any other is left out, with
+  a warning.
 - Unlike GitHub's cache there is no scoping by branch: any job that can write
   the prefix can write any key. That is the trust model of the shared build
   cache next to it, not a stronger one.
