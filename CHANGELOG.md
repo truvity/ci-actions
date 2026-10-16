@@ -4,12 +4,14 @@ Every release of truvity/ci-actions, newest first. Pin the commit of a
 tag (`git rev-parse vX.Y.Z^{commit}`), never the tag object and never
 an untagged commit; `tagged-pins` refuses anything else.
 
-## v2.0.0
+## v2.1.0
 
 ### Added
 
 - **`s3-cache`: GitHub's Actions cache traffic moves to the CI cache bucket on self-hosted runners.** New actions `s3-cache/restore` and `s3-cache/save` (and `ci-actions s3-cache restore|save` in the binary), with the contract of `actions/cache/restore` and `actions/cache/save`: exact key, then `restore-keys` as prefixes (newest object wins), immutable keys, a miss is not a failure. The payload is a zstd tar streamed to `<prefix>/<repository>/<paths hash>/<key>.tar.zst` (prefix `gha-cache`) with the AWS default credential chain, so a runner's pod identity works as it does for the Go build cache; the bucket's lifecycle rule ages objects out. A runner reaches the bucket through a gateway endpoint, GitHub's cache through the NAT (measured at about 95 GB a day on one cluster, about nine tenths of its NAT bytes). On a GitHub-hosted runner, with no `bucket`, or when the runner has no usable credentials, the same step runs the pinned `actions/cache/restore` or `actions/cache/save`. A bucket error is a warning and a miss. Symlinks are not cached (left out on save, never created on restore). Adds the AWS SDK for Go v2 and klauspost/compress to the binary.
 - `setup-devbox`: the proto toolchain cache rides `s3-cache` when `go-cache-bucket` is set on a self-hosted runner (same bucket, endpoint and path-style inputs as the Go build cache), and is saved right after `proto use` on a miss instead of in a post step; elsewhere it is `actions/cache` as before.
+
+## v2.0.0
 
 ### Breaking
 
