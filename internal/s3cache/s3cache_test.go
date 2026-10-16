@@ -121,8 +121,8 @@ func TestRoundTripAndImmutability(t *testing.T) {
 	if err != nil || string(got) != "beta" {
 		t.Fatalf("b.txt: %q %v", got, err)
 	}
-	if l, err := os.Readlink(filepath.Join(dst, "home/u/.cache/x/link")); err != nil || l != "a.txt" {
-		t.Fatalf("link: %q %v", l, err)
+	if _, err := os.Lstat(filepath.Join(dst, "home/u/.cache/x/link")); err == nil {
+		t.Fatal("symlink was saved and restored")
 	}
 }
 
@@ -258,14 +258,13 @@ func TestRestoreRefusesWritingThroughSymlink(t *testing.T) {
 	}
 }
 
-func TestRestoreRefusesSymlinkOutsideThePaths(t *testing.T) {
+func TestRestoreNeverCreatesSymlinks(t *testing.T) {
 	var b bytes.Buffer
 	zw, _ := zstd.NewWriter(&b)
 	tw := tar.NewWriter(zw)
 	for _, h := range []tar.Header{
 		{Name: "ok/inside", Typeflag: tar.TypeSymlink, Linkname: "f"},
 		{Name: "ok/abs", Typeflag: tar.TypeSymlink, Linkname: "/etc/passwd"},
-		{Name: "ok/up", Typeflag: tar.TypeSymlink, Linkname: "../../etc"},
 	} {
 		h.Mode = 0o777
 		if err := tw.WriteHeader(&h); err != nil {
@@ -286,12 +285,9 @@ func TestRestoreRefusesSymlinkOutsideThePaths(t *testing.T) {
 	if !strings.Contains(eb.String(), "2 symlink(s)") {
 		t.Fatalf("no warning about the left-out links: %q", eb.String())
 	}
-	if _, err := os.Lstat(filepath.Join(dst, "ok", "inside")); err != nil {
-		t.Fatalf("inside link not made: %v", err)
-	}
-	for _, n := range []string{"abs", "up"} {
+	for _, n := range []string{"inside", "abs"} {
 		if _, err := os.Lstat(filepath.Join(dst, "ok", n)); err == nil {
-			t.Fatalf("escaping link %s created", n)
+			t.Fatalf("link %s created", n)
 		}
 	}
 }

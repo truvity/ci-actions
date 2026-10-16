@@ -247,15 +247,14 @@ func download(ctx context.Context, o Options, key string, paths []string) (int64
 	defer zr.Close()
 	n, skipped, err := untar(tar.NewReader(zr), o.Root, paths)
 	if skipped > 0 {
-		warn(o, "restore: %d symlink(s) pointing outside their directory or the cached paths were left out", skipped)
+		warn(o, "restore: %d symlink(s) in the archive were left out", skipped)
 	}
 	return n, err
 }
 
 // untar extracts only entries under one of the configured paths, so an object
 // someone else wrote cannot place a file anywhere else, and refuses to write
-// through a symlink. A symlink is made only when it is relative, local and
-// resolves inside the cached paths; any other is left out and counted.
+// through a symlink. Symlinks in an archive are never created, only counted.
 func untar(tr *tar.Reader, root string, paths []string) (total int64, skipped int, err error) {
 	for {
 		h, err := tr.Next()
@@ -310,25 +309,10 @@ func untar(tr *tar.Reader, root string, paths []string) (total int64, skipped in
 			}
 			_ = os.Chtimes(dst, h.ModTime, h.ModTime)
 		case tar.TypeSymlink:
-			// A link must be relative, stay below its own directory's reach
-			// and resolve inside the cached paths, or a later entry (or the
-			// build) would read and write wherever the archive says. Any
-			// other link is refused.
-			target := filepath.Join(filepath.Dir(dst), filepath.FromSlash(h.Linkname))
-			if !filepath.IsLocal(filepath.FromSlash(h.Linkname)) ||
-				strings.Contains(h.Linkname, "..") ||
-				!strings.HasPrefix(target, filepath.Clean(root)+string(filepath.Separator)) ||
-				!under(path.Join(path.Dir(name), h.Linkname), paths) {
-				skipped++
-				continue
-			}
-			if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
-				return total, skipped, err
-			}
-			_ = os.Remove(dst)
-			if err := os.Symlink(h.Linkname, dst); err != nil {
-				return total, skipped, err
-			}
+			// Never created: an archive link is the one way a cache object
+			// writes outside the paths it claims. Tools rebuild a link far
+			// more cheaply than a cache can vouch for one.
+			skipped++
 		default:
 			// Hard links, devices, fifos: nothing a tool cache needs.
 		}
@@ -462,18 +446,11 @@ func tarPaths(tw *tar.Writer, root string, paths []string) error {
 				}
 				return err
 			}
-			link := ""
-			if fi.Mode()&fs.ModeSymlink != 0 {
-				if link, err = os.Readlink(fp); err != nil {
-					return nil
-				}
-			}
-			switch {
-			case fi.Mode().IsRegular(), fi.IsDir(), fi.Mode()&fs.ModeSymlink != 0:
-			default:
+			// Regular files and directories only; links are not restored.
+			if !fi.Mode().IsRegular() && !fi.IsDir() {
 				return nil
 			}
-			h, err := tar.FileInfoHeader(fi, link)
+			h, err := tar.FileInfoHeader(fi, "")
 			if err != nil {
 				return err
 			}
