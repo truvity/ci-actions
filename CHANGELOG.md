@@ -4,6 +4,12 @@ Every release of truvity/ci-actions, newest first. Pin the commit of a
 tag (`git rev-parse vX.Y.Z^{commit}`), never the tag object and never
 an untagged commit; `tagged-pins` refuses anything else.
 
+## v2.1.1
+
+### Fixed
+
+- **`s3-cache`: a restore into `/` no longer refuses every entry.** The extraction-root check built the prefix `//` for the root `/`, so every restore on a real runner was treated as a miss ("escapes the extraction root"); only the tests, which extract into a temporary directory, passed. `s3-cache` restores worked in no release before v2.1.1. The save step now reports the file count and the packed and compressed sizes.
+
 ## v2.1.0
 
 ### Added

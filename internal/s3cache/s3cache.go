@@ -272,7 +272,7 @@ func untar(tr *tar.Reader, root string, paths []string) (total int64, skipped in
 			return total, skipped, fmt.Errorf("entry %q is outside the cached paths", h.Name)
 		}
 		dst := filepath.Join(root, filepath.FromSlash(name))
-		if !strings.HasPrefix(dst, filepath.Clean(root)+string(filepath.Separator)) && dst != filepath.Clean(root) {
+		if !within(root, dst) {
 			return total, skipped, fmt.Errorf("entry %q escapes the extraction root", h.Name)
 		}
 		if err := safeParent(root, dst); err != nil {
@@ -317,6 +317,16 @@ func untar(tr *tar.Reader, root string, paths []string) (total int64, skipped in
 			// Hard links, devices, fifos: nothing a tool cache needs.
 		}
 	}
+}
+
+// within reports whether dst is root or below it. The root "/" needs care: a
+// prefix of "//" would match nothing.
+func within(root, dst string) bool {
+	root = filepath.Clean(root)
+	if dst == root {
+		return true
+	}
+	return strings.HasPrefix(dst, strings.TrimSuffix(root, string(filepath.Separator))+string(filepath.Separator))
 }
 
 func under(name string, paths []string) bool {
@@ -393,10 +403,11 @@ func Save(ctx context.Context, o Options) Result {
 
 	pr, pw := io.Pipe()
 	counter := &countWriter{}
+	var st stats
 	go func() {
 		zw, err := zstd.NewWriter(io.MultiWriter(pw, counter))
 		if err == nil {
-			err = tarPaths(tar.NewWriter(zw), o.Root, present)
+			err = tarPaths(tar.NewWriter(zw), o.Root, present, &st)
 			if cerr := zw.Close(); err == nil {
 				err = cerr
 			}
@@ -410,8 +421,8 @@ func Save(ctx context.Context, o Options) Result {
 		return res
 	}
 	res.Bytes = counter.n
-	fmt.Fprintf(o.Out, "s3-cache: saved %s, %.1f MB compressed to s3 in %.1fs\n",
-		o.Key, float64(counter.n)/1e6, o.Now().Sub(start).Seconds())
+	fmt.Fprintf(o.Out, "s3-cache: saved %s, %d files %.1f MB packed to %.1f MB, to s3 in %.1fs\n",
+		o.Key, st.files, float64(st.bytes)/1e6, float64(counter.n)/1e6, o.Now().Sub(start).Seconds())
 	return res
 }
 
@@ -423,7 +434,13 @@ type countWriter struct{ n int64 }
 
 func (c *countWriter) Write(p []byte) (int, error) { c.n += int64(len(p)); return len(p), nil }
 
-func tarPaths(tw *tar.Writer, root string, paths []string) error {
+// stats counts what went into the archive, uncompressed.
+type stats struct {
+	files, dirs int
+	bytes       int64
+}
+
+func tarPaths(tw *tar.Writer, root string, paths []string, st *stats) error {
 	for _, p := range paths {
 		top := filepath.Join(root, p)
 		err := filepath.WalkDir(top, func(fp string, d fs.DirEntry, err error) error {
@@ -462,7 +479,12 @@ func tarPaths(tw *tar.Writer, root string, paths []string) error {
 			if err := tw.WriteHeader(h); err != nil {
 				return err
 			}
+			if fi.IsDir() {
+				st.dirs++
+			}
 			if fi.Mode().IsRegular() {
+				st.files++
+				st.bytes += h.Size
 				f, err := os.Open(fp)
 				if err != nil {
 					if errors.Is(err, fs.ErrNotExist) {
