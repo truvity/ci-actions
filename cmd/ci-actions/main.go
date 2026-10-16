@@ -34,6 +34,7 @@ import (
 	"github.com/truvity/ci-actions/internal/remotebuilders"
 	"github.com/truvity/ci-actions/internal/repocheck"
 	"github.com/truvity/ci-actions/internal/runcmd"
+	"github.com/truvity/ci-actions/internal/s3cache"
 	"github.com/truvity/ci-actions/internal/setupdevbox"
 	"github.com/truvity/ci-actions/internal/stablemtimes"
 	"github.com/truvity/ci-actions/internal/taggedpins"
@@ -61,6 +62,9 @@ Commands:
   recipe               run one task-runner recipe in devbox and assert a clean tree (env: RECIPE, COMMAND, DEVBOX_CONFIG)
   stable-mtimes        give every tracked file a content-derived modification time so Go's test cache can hit
                        after a fresh checkout (env: WORKDIR, default GITHUB_WORKSPACE, then the current directory)
+  s3-cache <step>      restore | save: actions/cache semantics against the CI cache bucket, for a self-hosted
+                       runner (env: BUCKET, REGION, ENDPOINT, PATH_STYLE, PREFIX, KEY, PATHS, RESTORE_KEYS,
+                       GITHUB_REPOSITORY, GITHUB_OUTPUT)
   remote-builders      register BuildKit builders as one buildx builder (env: NODES, plus
                        HOME, RUNNER_TEMP, GITHUB_ENV)
   openbao-secrets      read one OpenBAO KV path as the job's own identity (env: ISSUER, ADDRESS,
@@ -219,6 +223,8 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, getenv fu
 			return 1
 		}
 		return 0
+	case "s3-cache":
+		return s3CacheCmd(ctx, args[1:], stdout, stderr, getenv)
 	case "remote-builders":
 		err := remotebuilders.Run(ctx, remotebuilders.Options{
 			Nodes: getenv("NODES"), Home: getenv("HOME"), RunnerTemp: getenv("RUNNER_TEMP"), GithubEnv: getenv("GITHUB_ENV"),
@@ -749,4 +755,64 @@ func releasePkl(ctx context.Context, step string, stdout, stderr io.Writer, gete
 			Attempts: attempts, Sleeps: sleeps})
 	}
 	return errUsage
+}
+
+// s3CacheCmd runs one step of s3-cache. It exits 0 whatever the bucket does:
+// a cache that did not work is a miss, reported on the step's outputs.
+func s3CacheCmd(ctx context.Context, args []string, stdout, stderr io.Writer, getenv func(string) string) int {
+	if len(args) != 1 || (args[0] != "restore" && args[0] != "save") {
+		fmt.Fprintln(stderr, "usage: ci-actions s3-cache restore|save")
+		return 2
+	}
+	split := func(v string) []string {
+		var out []string
+		for _, l := range strings.Split(v, "\n") {
+			if l = strings.TrimSpace(l); l != "" {
+				out = append(out, l)
+			}
+		}
+		return out
+	}
+	o := s3cache.Options{
+		Prefix: getenv("PREFIX"), Repository: getenv("GITHUB_REPOSITORY"), Key: getenv("KEY"),
+		Paths: split(getenv("PATHS")), RestoreKey: split(getenv("RESTORE_KEYS")),
+		Workdir: getenv("GITHUB_WORKSPACE"), Out: stdout, Err: stderr,
+	}
+	res := s3cache.Result{PrimaryKey: o.Key}
+	store, err := s3cache.NewS3(ctx, s3cache.S3Config{
+		Bucket: getenv("BUCKET"), Region: getenv("REGION"), Endpoint: getenv("ENDPOINT"),
+		PathStyle: getenv("PATH_STYLE") == "true",
+	})
+	if err != nil {
+		fmt.Fprintf(stderr, "::warning::s3-cache: %v; using GitHub's cache for this step\n", err)
+		res.Fallback = true
+	} else {
+		o.Store = store
+		timeout := 15 * time.Minute
+		if v, err := time.ParseDuration(getenv("TIMEOUT")); err == nil && v > 0 {
+			timeout = v
+		}
+		cctx, cancel := context.WithTimeout(ctx, timeout)
+		defer cancel()
+		if args[0] == "restore" {
+			res = s3cache.Restore(cctx, o)
+		} else {
+			res = s3cache.Save(cctx, o)
+		}
+	}
+	// A value with a line break would mint further outputs.
+	for _, v := range []*string{&res.PrimaryKey, &res.Matched} {
+		if strings.ContainsAny(*v, "\r\n") {
+			*v = ""
+		}
+	}
+	if out := getenv("GITHUB_OUTPUT"); out != "" {
+		f, err := os.OpenFile(out, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0o644)
+		if err == nil {
+			fmt.Fprintf(f, "cache-hit=%t\ncache-primary-key=%s\ncache-matched-key=%s\nfallback=%t\n",
+				res.Hit, res.PrimaryKey, res.Matched, res.Fallback)
+			f.Close()
+		}
+	}
+	return 0
 }

@@ -240,8 +240,8 @@ runs:
         ACTION_REF: ${{ github.action_ref }}
         DEVBOX_CONFIG: ${{ inputs.devbox-config }}
       run: bash "$ACTION_PATH/run.sh" materialize
-    - name: Cache proto toolchains
-      if: inputs.proto == 'true' || (inputs.proto == 'auto' && steps.baked.outputs.prototools == 'true')
+    - name: Restore proto toolchains from the CI cache bucket
+      id: proto-s3
       # proto downloads toolchains from GitHub releases/upstreams — no
       # nix, no S3 cache can help it, and ephemeral runners rebuild it
       # from nothing every job. Keyed on .prototools: a pin bump misses
@@ -252,7 +252,29 @@ runs:
       # path pointed at a directory nothing writes, so this cache
       # silently neither restored nor saved ("Path Validation Error"
       # in every post step, goreleaser-pro re-downloaded every job).
-      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+      #
+      # On a self-hosted runner with a bucket this rides the bucket (the
+      # s3-cache wrapper in this repository), not GitHub's cache: the
+      # runners reach the bucket through a gateway endpoint, GitHub's cache
+      # through the NAT. Anywhere else, or when the bucket's credentials are
+      # unusable, the next step does what this step used to.
+      if: (inputs.proto == 'true' || (inputs.proto == 'auto' && steps.baked.outputs.prototools == 'true')) && inputs.go-cache-bucket != '' && runner.environment == 'self-hosted'
+      shell: bash
+      env:
+        BUCKET: ${{ inputs.go-cache-bucket }}
+        REGION: ${{ inputs.go-cache-region }}
+        ENDPOINT: ${{ inputs.go-cache-endpoint }}
+        PATH_STYLE: ${{ inputs.go-cache-path-style }}
+        KEY: proto-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.prototools') }}
+        PATHS: .proto
+        ACTION_PATH: ${{ github.action_path }}
+        ACTION_REPOSITORY: ${{ github.action_repository }}
+        ACTION_REF: ${{ github.action_ref }}
+      run: bash "$ACTION_PATH/../s3-cache/run.sh" restore
+    - name: Cache proto toolchains
+      id: proto-gh
+      if: (inputs.proto == 'true' || (inputs.proto == 'auto' && steps.baked.outputs.prototools == 'true')) && (inputs.go-cache-bucket == '' || runner.environment != 'self-hosted' || steps.proto-s3.outputs.fallback == 'true')
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: .proto
         key: proto-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.prototools') }}
@@ -271,6 +293,29 @@ runs:
         ACTION_REF: ${{ github.action_ref }}
         DEVBOX_CONFIG: ${{ inputs.devbox-config }}
       run: bash "$ACTION_PATH/run.sh" proto
+    # Saved right here, not in a post step: a composite action has none, and
+    # the toolchains are complete once proto use has run. Only on a miss; a
+    # key that exists is immutable in both stores.
+    - name: Save proto toolchains to the CI cache bucket
+      if: (inputs.proto == 'true' || (inputs.proto == 'auto' && steps.baked.outputs.prototools == 'true')) && steps.proto-s3.outcome == 'success' && steps.proto-s3.outputs.fallback != 'true' && steps.proto-s3.outputs.cache-hit != 'true'
+      shell: bash
+      env:
+        BUCKET: ${{ inputs.go-cache-bucket }}
+        REGION: ${{ inputs.go-cache-region }}
+        ENDPOINT: ${{ inputs.go-cache-endpoint }}
+        PATH_STYLE: ${{ inputs.go-cache-path-style }}
+        KEY: proto-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.prototools') }}
+        PATHS: .proto
+        ACTION_PATH: ${{ github.action_path }}
+        ACTION_REPOSITORY: ${{ github.action_repository }}
+        ACTION_REF: ${{ github.action_ref }}
+      run: bash "$ACTION_PATH/../s3-cache/run.sh" save
+    - name: Save proto toolchains
+      if: (inputs.proto == 'true' || (inputs.proto == 'auto' && steps.baked.outputs.prototools == 'true')) && steps.proto-gh.outcome == 'success' && steps.proto-gh.outputs.cache-hit != 'true'
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: .proto
+        key: proto-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.prototools') }}
     # Gated on the App, NOT on go-private. Fetching private Go modules was
     # the first use; reading a sibling repository's files from a recipe is
     # the general one -- TrustForm's OpenAPI contracts sit in a private
