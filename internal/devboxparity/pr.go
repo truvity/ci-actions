@@ -126,12 +126,23 @@ func armAutoMerge(ctx context.Context, c *ghapi.Client, nodeID string) error {
 	return nil
 }
 
-// repository names the repository the run works on, as owner/name: the runner's
-// own GITHUB_REPOSITORY, else the origin remote of the checkout.
+// repository names the repository the run works on, as owner/name: the origin
+// remote of the checkout, else the runner's own GITHUB_REPOSITORY. The remote
+// comes first because a fleet job checks out each repository of the fleet, so
+// GITHUB_REPOSITORY names the workflow's repository, not the one being worked on.
 func (r *run) repository(ctx context.Context) (string, error) {
+	repo, err := r.originRepository(ctx)
+	if err == nil {
+		return repo, nil
+	}
 	if v := envLookup(r.o.Environ, "GITHUB_REPOSITORY"); strings.Count(v, "/") == 1 {
 		return v, nil
 	}
+	return "", err
+}
+
+// originRepository reads owner/name from the origin remote of the checkout.
+func (r *run) originRepository(ctx context.Context) (string, error) {
 	var out strings.Builder
 	if err := r.cmd(ctx, ".", &out, r.stderr(), "git", "remote", "get-url", "origin"); err != nil {
 		return "", fmt.Errorf("git remote get-url: %w", err)

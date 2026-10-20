@@ -594,7 +594,7 @@ func TestPullRequest(t *testing.T) {
 			}
 		}
 	})
-	t.Run("the repository comes from the origin remote without GITHUB_REPOSITORY", func(t *testing.T) {
+	t.Run("the repository comes from the origin remote", func(t *testing.T) {
 		for remote, want := range map[string]string{
 			"https://github.com/acme/app.git\n":              "acme/app",
 			"git@github.com:acme/app.git\n":                  "acme/app",
@@ -607,6 +607,23 @@ func TestPullRequest(t *testing.T) {
 			if got, err := r.repository(context.Background()); err != nil || got != want {
 				t.Errorf("%q: %q, %v", remote, got, err)
 			}
+		}
+	})
+	t.Run("the origin remote wins over GITHUB_REPOSITORY", func(t *testing.T) {
+		e := newEnv(t)
+		e.o.Environ = []string{"PATH=/usr/bin", "GITHUB_REPOSITORY=acme/caller"}
+		e.f.out["git remote get-url origin"] = "https://github.com/acme/app\n"
+		r := &run{o: e.o, env: e.o.Environ}
+		if got, err := r.repository(context.Background()); err != nil || got != "acme/app" {
+			t.Errorf("%q, %v", got, err)
+		}
+	})
+	t.Run("GITHUB_REPOSITORY is the fallback when the remote cannot be read", func(t *testing.T) {
+		e := newEnv(t)
+		e.o.Environ = []string{"PATH=/usr/bin", "GITHUB_REPOSITORY=acme/app"}
+		r := &run{o: e.o, env: e.o.Environ}
+		if got, err := r.repository(context.Background()); err != nil || got != "acme/app" {
+			t.Errorf("%q, %v", got, err)
 		}
 	})
 	t.Run("classic protection arms it too", func(t *testing.T) {

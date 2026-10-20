@@ -4,6 +4,12 @@ Every release of truvity/ci-actions, newest first. Pin the commit of a
 tag (`git rev-parse vX.Y.Z^{commit}`), never the tag object and never
 an untagged commit; `tagged-pins` refuses anything else.
 
+## v3.3.1
+
+### Fixed
+
+- **`devbox-parity` works on the repository it checked out, not on the repository whose workflow runs it.** v3.3.0 read the repository from `GITHUB_REPOSITORY` first, which in a fleet job is the caller's own repository, so the label request went to the wrong repository (`POST /repos/<caller>/labels: HTTP 404`) and no pull request was opened. The `origin` remote of the checkout now comes first; `GITHUB_REPOSITORY` is only the fallback when the remote cannot be read.
+
 ## v3.3.0
 
 ### Fixed
