@@ -441,35 +441,35 @@ var rulecases = []rcase{
 	{"C11", "a ghcr.io reference inside a comment is not a reference to check", func(f *fx) {
 		f.write("charts/widget/values.yaml", "# was ghcr.io/example/widget/widget up to an earlier version.\n"+f.read("charts/widget/values.yaml"))
 	}, "PASS", "(2 checked)"},
-	// C18 · workflow and action YAML is runner-agnostic. A finding is a WARN
-	// until runner-code is error.
+	// C18 · workflow and action YAML is runner-agnostic. A finding is a FAIL
+	// unless runner-code is warn.
 	{"C18", "an in-cluster address with the cluster domain", func(f *fx) {
 		f.write(".github/workflows/ci.yaml", "jobs:\n  a:\n    env:\n      SERVER: http://gemaal.gemaal-system.svc"+clusterDomain+":8080\n")
-	}, "WARN", "ci.yaml:4 (svc)"},
+	}, "FAIL", "ci.yaml:4 (svc)"},
 	{"C18", "a bare .svc address in a script", func(f *fx) {
 		f.write(".github/workflows/ci.yaml", "jobs:\n  a:\n    steps:\n      - run: curl -fsS http://npm-cache.ci-cache.svc/-/ping\n")
-	}, "WARN", "ci.yaml:4 (svc)"},
+	}, "FAIL", "ci.yaml:4 (svc)"},
 	{"C18", "an address under .svc in an action file", func(f *fx) {
 		f.write(".github/actions/probe/action.yaml", "runs:\n  using: composite\n  steps:\n    - shell: bash\n      run: nc zot.registry.svc 5000\n")
-	}, "WARN", "action.yaml:5 (svc)"},
+	}, "FAIL", "action.yaml:5 (svc)"},
 	{"C18", "branching on runner.environment", func(f *fx) {
 		f.write(".github/workflows/ci.yaml", "jobs:\n  a:\n    steps:\n      - if: runner.environment == 'self-hosted'\n        run: true\n")
-	}, "WARN", "ci.yaml:4 (runner)"},
+	}, "FAIL", "ci.yaml:4 (runner)"},
 	{"C18", "branching on runner.environment inside an expression", func(f *fx) {
 		f.write(".github/workflows/ci.yaml", "jobs:\n  a:\n    env:\n      X: ${{ runner.environment == 'github-hosted' && 'a' || 'b' }}\n")
-	}, "WARN", "ci.yaml:4 (runner)"},
+	}, "FAIL", "ci.yaml:4 (runner)"},
 	{"C18", "a static key from a secret", func(f *fx) {
 		f.write(".github/workflows/ci.yaml", "jobs:\n  a:\n    env:\n      AWS_ACCESS_KEY_ID: ${{ secrets.CI_KEY }}\n")
-	}, "WARN", "ci.yaml:4 (aws)"},
+	}, "FAIL", "ci.yaml:4 (aws)"},
 	{"C18", "a static key literal exported by a script", func(f *fx) {
 		f.write(".github/workflows/ci.yaml", "jobs:\n  a:\n    steps:\n      - run: export AWS_SECRET_ACCESS_KEY=abc\n")
-	}, "WARN", "ci.yaml:4 (aws)"},
+	}, "FAIL", "ci.yaml:4 (aws)"},
 	{"C18", "a secret named like an AWS key", func(f *fx) {
 		f.write(".github/workflows/ci.yaml", "jobs:\n  a:\n    with:\n      token: ${{ secrets.AWS_SESSION_TOKEN }}\n")
-	}, "WARN", "ci.yaml:4 (aws)"},
+	}, "FAIL", "ci.yaml:4 (aws)"},
 	{"C18", "an aws-access-key-id input", func(f *fx) {
 		f.write(".github/workflows/ci.yaml", "jobs:\n  a:\n    steps:\n      - uses: aws-actions/configure-aws-credentials@x\n        with:\n          aws-access-key-id: ${{ secrets.K }}\n")
-	}, "WARN", "ci.yaml:6 (aws)"},
+	}, "FAIL", "ci.yaml:6 (aws)"},
 	{"C18", "none of the three in comments, reads, comparisons or cleared variables", func(f *fx) {
 		f.write(".github/workflows/ci.yaml", "# was http://x.y.svc"+clusterDomain+", runner.environment and AWS_ACCESS_KEY_ID: abc\n"+
 			"jobs:\n  a:\n    env:\n      AWS_ACCESS_KEY_ID: \"\"\n      AWS_SECRET_ACCESS_KEY: ''\n      HOST: example.svc-x.invalid\n"+
@@ -485,7 +485,7 @@ var rulecases = []rcase{
 	{"C18", "an exemption that names another path", func(f *fx) {
 		f.write(".github/workflows/ci.yaml", "jobs:\n  a:\n    env:\n      S: http://a.b.svc\n")
 		f.write(".github/policy-conformance.yaml", "exempt:\n  C18:\n    reason: elsewhere\n    paths: [.github/workflows/other.yaml]\n")
-	}, "WARN", "ci.yaml:4 (svc)"},
+	}, "FAIL", "ci.yaml:4 (svc)"},
 }
 
 func TestRules(t *testing.T) {
