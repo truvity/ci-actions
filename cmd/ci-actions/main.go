@@ -340,6 +340,9 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, getenv fu
 		err := releasegate.Run(ctx, releasegate.Options{
 			Token: getenv("GH_TOKEN"), Repo: getenv("GITHUB_REPOSITORY"), SHA: getenv("GITHUB_SHA"),
 			RunID: getenv("GITHUB_RUN_ID"), API: getenv("GITHUB_API_URL"), Out: stdout,
+			// A tag pushed right after its commit races the commit's own
+			// `check`: wait for the checks to finish instead of refusing.
+			Wait: 20 * time.Minute, Poll: 25 * time.Second,
 		})
 		switch {
 		case err == nil:
