@@ -6,6 +6,10 @@ an untagged commit; `tagged-pins` refuses anything else.
 
 ## Unreleased
 
+### Breaking
+
+- **`policy-conformance`: the `runner-code` input defaults to `error`, so rule C18 fails the job.** See Added. Callers that have not exempted or fixed their findings go red on this release.
+
 ### Changed
 
 - **Capability checks instead of `runner.environment`.** The actions no longer ask what kind of runner they are on; they decide by what is configured, so one code path serves ARC pods, ECS Fargate tasks and GitHub-hosted runners.
@@ -16,6 +20,7 @@ an untagged commit; `tagged-pins` refuses anything else.
 
 ### Added
 
+- **`policy-conformance`: rule C18, workflow and action YAML is runner-agnostic, an error by default.** In tracked `.github/workflows/*.yaml|yml` and every `action.yaml|yml` it flags an in-cluster service address (`<svc>.<ns>.svc`, with or without the cluster domain after it), an expression branching on `runner.environment` (or `$RUNNER_ENVIRONMENT`), and a static AWS credential (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` or `AWS_SESSION_TOKEN` set in env or a script, a secret of that name, the `aws-access-key-id` family of inputs; an empty assignment is not one). New input `runner-code` (default `error`): a finding is a `FAIL` that `strict` gates; `runner-code: warn` makes it a `WARN`, which is an annotation and a summary row and never fails the job, `strict: true` included. A new verdict `WARN` exists for that, and the closing line counts warnings. Exemptions work as for any rule (`exempt: C18:` with `reason` and optional `paths`), and `skip: C18` skips it. The rule is the contract's C18 in truvity/policy. **A repository that still has findings must exempt them per repository** (`exempt: C18` with a reason and the paths) or set `runner-code: warn` before it takes this release.
 - `setup-devbox` inputs `npm-registry` and `bazel-remote` (the caller's `CI_NPM_REGISTRY` and `CI_BAZEL_REMOTE_CACHE`), forwarded to `setup-cache`. Empty changes nothing.
 
 ## v2.1.1

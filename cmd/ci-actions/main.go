@@ -49,7 +49,7 @@ const usage = `ci-actions <command>
 Commands:
   tagged-pins          refuse a pin into a shared CI library that names no release
                        (env: LIBRARIES, whitespace- or comma-separated)
-  policy-conformance   hold the checkout against the component contract's rules C1-C13
+  policy-conformance   hold the checkout against the component contract's rules C1-C13 and C18
                        (env: STRICT, SKIP, REASON, RENOVATE_PRESET, DEFAULT_BRANCH, GITHUB_REPOSITORY,
                        GITHUB_STEP_SUMMARY; run it from the repository root)
   repo-check <name>    this repository's own gate, run from its root: cache-seam (setup-devbox's cache
@@ -185,7 +185,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, getenv fu
 	case "policy-conformance":
 		err := policyconformance.Run(ctx, policyconformance.Options{
 			Strict: getenv("STRICT"), Skip: getenv("SKIP"), Reason: getenv("REASON"),
-			RenovatePreset: getenv("RENOVATE_PRESET"), DefaultBranch: getenv("DEFAULT_BRANCH"),
+			RenovatePreset: getenv("RENOVATE_PRESET"), DefaultBranch: getenv("DEFAULT_BRANCH"), RunnerCode: getenv("RUNNER_CODE"),
 			GithubRepository: getenv("GITHUB_REPOSITORY"), SummaryPath: getenv("GITHUB_STEP_SUMMARY"), Out: stdout,
 		})
 		var ee *policyconformance.ExitError

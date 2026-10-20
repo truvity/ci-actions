@@ -1,8 +1,8 @@
 # Hold the calling repository's checkout against the component contract.
 #
 # The contract lives in truvity/policy (docs/contracts/component.md) and
-# numbers its checkable rules C1 to C14. This action evaluates C1 to C13
-# and prints one line per rule; C13 (estate facts are inputs, never
+# numbers its checkable rules C1 to C18. This action evaluates C1 to C13
+# and C18 and prints one line per rule; C13 (estate facts are inputs, never
 # defaults) is checked only for the shapes a script can tell with
 # confidence, and the rest is review. C14 is the chart's own render test.
 #
@@ -20,8 +20,8 @@
 # sed.
 name: policy-conformance
 description: >-
-  Check a repository against the component contract's rules C1-C13 and
-  print one line per rule. Report-only by default; `strict: true` fails
+  Check a repository against the component contract's rules C1-C13 and C18
+  and print one line per rule. Report-only by default; `strict: true` fails
   the job on any failed rule.
 
 inputs:
@@ -34,7 +34,7 @@ inputs:
   skip:
     description: >-
       Comma-separated rule ids not to evaluate, e.g. "C3,C11". Each is
-      printed as SKIP with `reason`. An id outside C1-C13 fails the step.
+      printed as SKIP with `reason`. An id outside C1-C13 and C18 fails the step.
     required: false
     default: ""
   reason:
@@ -43,6 +43,16 @@ inputs:
       empty, and printed beside every skipped rule.
     required: false
     default: ""
+  runner-code:
+    description: >-
+      How C18 (workflow and action YAML names no in-cluster address, does
+      not branch on `runner.environment`, sets no static AWS credential)
+      reports. "error" (the default) makes a finding a failure that `strict`
+      then gates; "warn" makes it a warning that never fails the job,
+      `strict` or not. A repository that cannot fix a finding exempts it
+      (`exempt: C18`) rather than lowering this.
+    required: false
+    default: error
   renovate-preset:
     description: The preset C7 expects renovate.json's `extends` to name, alone.
     required: false
@@ -62,6 +72,7 @@ runs:
         SKIP: ${{ inputs.skip }}
         REASON: ${{ inputs.reason }}
         RENOVATE_PRESET: ${{ inputs.renovate-preset }}
+        RUNNER_CODE: ${{ inputs.runner-code }}
         DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         ACTION_PATH: ${{ github.action_path }}
         ACTION_REPOSITORY: ${{ github.action_repository }}
