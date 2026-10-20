@@ -13,6 +13,7 @@ an untagged commit; `tagged-pins` refuses anything else.
   - `setup-remote-builders`: the `remote-builders` input is no longer required, since a runner may supply the list. The step logs which source won.
   - A runner value that holds whitespace or a control character fails the step instead of falling back to the caller's value.
   - New package `internal/runnerenv` holds the rule and the redaction.
+  - The cache-seam repository check accepts an input passed through `steps.endpoints.outputs.<name>`.
 
 ## v3.0.1
 

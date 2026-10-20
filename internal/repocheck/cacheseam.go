@@ -168,7 +168,11 @@ func CacheSeam(ctx context.Context, o CacheSeamOptions) error {
 				if v, ok := with[to]; ok && v != nil {
 					got = fmt.Sprint(v)
 				}
-				if !strings.Contains(got, "inputs.") {
+				// An input crosses either straight (inputs.X) or through the
+				// step that first lets the runner override it
+				// (steps.endpoints.outputs.X). Both are the caller's input, not
+				// a value made up here; a literal is neither.
+				if !strings.Contains(got, "inputs.") && !strings.Contains(got, "steps.endpoints.outputs.") {
 					say("FAIL [inputs]: ci-actions/setup-cache declares \"%s\" and this action does not pass it", to)
 					say("               (wired to \"%s\"); pass it, or exempt it with a reason", got)
 					fail++
