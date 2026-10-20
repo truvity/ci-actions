@@ -1,8 +1,8 @@
 name: s3-cache save
 description: >-
   Save a cache the way actions/cache/save does, to the CI cache bucket when
-  the job runs on a self-hosted runner and the caller passes the bucket;
-  GitHub's cache everywhere else. A key that already exists is left alone
+  the caller passes one; GitHub's cache otherwise. Decided by what is
+  configured, not by the kind of runner. A key that already exists is left alone
   (caches are immutable). Fails open: a bucket that cannot be written is a
   warning, never a failed job. Pair it with s3-cache/restore.
 
@@ -15,8 +15,9 @@ inputs:
     required: true
   bucket:
     description: >-
-      The CI cache bucket, from the CALLER's org variable. Empty, or a
-      GitHub-hosted runner, uses GitHub's cache.
+      The CI cache bucket, from the CALLER's org variable. Empty uses
+      GitHub's cache. Set, the bucket is tried first, and a runner with no
+      usable credentials hands the same key to GitHub's cache.
     required: false
     default: ""
   region:
@@ -49,7 +50,7 @@ runs:
   using: composite
   steps:
     - id: s3
-      if: inputs.bucket != '' && runner.environment == 'self-hosted'
+      if: inputs.bucket != ''
       shell: bash
       env:
         BUCKET: ${{ inputs.bucket }}
@@ -66,7 +67,7 @@ runs:
       run: bash "$ACTION_PATH/../run.sh" save
 
     - id: gh
-      if: inputs.bucket == '' || runner.environment != 'self-hosted' || steps.s3.outputs.fallback == 'true'
+      if: inputs.bucket == '' || steps.s3.outputs.fallback == 'true'
       uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: ${{ inputs.path }}

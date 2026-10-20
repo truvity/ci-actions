@@ -114,8 +114,12 @@ usable_case() {
 }
 
 usable_case "self-hosted with a bucket" yes RUNNER_ENVIRONMENT=self-hosted  INPUT_BUCKET=b INPUT_LANGUAGES=
-usable_case "github-hosted"             no  RUNNER_ENVIRONMENT=github-hosted INPUT_BUCKET=b INPUT_LANGUAGES=
+usable_case "github-hosted, no bucket"  no  RUNNER_ENVIRONMENT=github-hosted INPUT_BUCKET=  INPUT_LANGUAGES=
 usable_case "no bucket"                 no  RUNNER_ENVIRONMENT=self-hosted  INPUT_BUCKET=  INPUT_LANGUAGES=
+# Decided by the bucket, not by the kind of runner: the same input gives the
+# same answer wherever the job runs (ARC, ECS Fargate, GitHub-hosted).
+usable_case "github-hosted with a bucket" yes RUNNER_ENVIRONMENT=github-hosted INPUT_BUCKET=b INPUT_LANGUAGES=
+usable_case "runner type unset, bucket" yes INPUT_BUCKET=b INPUT_LANGUAGES=
 
 # ---------------------------------------------------------------------------
 # The cache directory. The node-persistent mount is ci-plane's to provide

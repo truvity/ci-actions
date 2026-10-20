@@ -24,8 +24,9 @@
 # written once, after every build landed. With that in place a stable
 # release registers both nodes, exactly like a snapshot on devel.
 #
-# ARC runners only: the endpoints resolve nowhere else; gate the step
-# on `runner.environment == 'self-hosted'`. Registry auth is the
+# Run it wherever the builders are configured: the step is for a caller that
+# HAS a `remote-builders` value (the org variable CI_REMOTE_BUILDERS). Gate it
+# on that value being set, not on `runner.environment`. Registry auth is the
 # caller's: whatever `docker login` / amazon-ecr-login wrote to
 # ~/.docker/config.json is forwarded to the builder at push time, so
 # log in BEFORE building, not before registering.

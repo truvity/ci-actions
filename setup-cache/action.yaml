@@ -96,18 +96,18 @@ runs:
           src=override
         fi
 
-        # A hosted runner reaches neither the cluster nor the VPC endpoint
-        # and carries no pool identity, so no estate cache applies there.
-        # That is a fact about the runner, not a failure: wire nothing and
-        # say why. Whether a hosted-runner strategy is worth building is a
-        # separate question, and one nobody has measured yet.
+        # The estate cache applies exactly when a bucket is configured. The
+        # kind of runner is not asked: an ARC pod, an ECS Fargate task and a
+        # GitHub-hosted runner differ in what they are CONFIGURED with (a
+        # bucket, credentials, the client binary), and each of those is
+        # checked where it is used -- an empty bucket here, no go-cache-plugin
+        # or no credentials in "Wire the Go build cache". A runner that is
+        # passed no bucket is a valid configuration, not a fault, so it is a
+        # notice.
         usable=yes
-        if [ "${RUNNER_ENVIRONMENT:-}" = "github-hosted" ]; then
+        if [ -z "${INPUT_BUCKET:-}" ]; then
           usable=no
-          echo "::notice::ci-cache: GitHub-hosted runner; no estate cache is reachable, using the plain toolchain caches"
-        elif [ -z "${INPUT_BUCKET:-}" ]; then
-          usable=no
-          echo "::warning::ci-cache: no bucket configured; using the plain toolchain caches"
+          echo "::notice::ci-cache: no bucket configured; using the plain toolchain caches"
         fi
 
         # The node-persistent directory is a RUNNER mount (ci-plane's
@@ -361,8 +361,11 @@ runs:
     # .yarnrc.yml -- files the repository owns and that already carry its
     # own choices. An action that edited them would fight the tree and leave
     # a diff behind. So: report the disagreement and let a human decide.
+    #
+    # Not gated on the bucket: the npm registry and the bazel-remote are
+    # configured on their own (CI_NPM_REGISTRY, CI_BAZEL_REMOTE_CACHE), and
+    # each check below already does nothing when its address is empty.
     - name: Check the repository's own cache configuration
-      if: steps.detect.outputs.usable == 'yes'
       shell: bash
       run: |
         set -uo pipefail

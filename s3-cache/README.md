@@ -1,7 +1,9 @@
 # s3-cache
 
-`actions/cache` for a self-hosted runner, against the CI cache bucket the
-runner already reaches for its Go build cache, instead of GitHub's cache.
+`actions/cache` against the CI cache bucket the runner already reaches for
+its Go build cache, instead of GitHub's cache. Whether it applies is decided
+by what is configured (a `bucket`, then credentials the runner can use), never
+by the kind of runner.
 
 GitHub's cache is blob storage on the internet: on an ARC runner every restore
 is downloaded through the NAT, every save uploaded through it. The bucket is
@@ -40,10 +42,11 @@ NAT and stay inside the region.
   `<prefix>/<repository>/<hash of the paths>/<key>.tar.zst` in the bucket.
   `prefix` defaults to `gha-cache`. The bucket's lifecycle rule ages objects
   out; nothing here deletes.
-- On a **GitHub-hosted runner**, or with no `bucket`, or when the runner has
-  no usable credentials (found out in one bounded lookup), the same step runs
-  the pinned `actions/cache/restore` / `actions/cache/save`. One workflow
-  serves both kinds of runner.
+- With no `bucket`, or when the runner has no usable credentials (found out
+  in one bounded lookup, 20 s at most), the same step runs the pinned
+  `actions/cache/restore` / `actions/cache/save`. One workflow serves every
+  kind of runner: a GitHub-hosted runner is simply one that is passed no
+  bucket, or has no credentials for it.
 - **Fail-open**: a bucket error is a `::warning::` and a miss, never a failed
   job.
 - Credentials are the runner's default AWS chain (pod identity, or the

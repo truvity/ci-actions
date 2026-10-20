@@ -4,6 +4,20 @@ Every release of truvity/ci-actions, newest first. Pin the commit of a
 tag (`git rev-parse vX.Y.Z^{commit}`), never the tag object and never
 an untagged commit; `tagged-pins` refuses anything else.
 
+## Unreleased
+
+### Changed
+
+- **Capability checks instead of `runner.environment` (INF-1696).** The actions no longer ask what kind of runner they are on; they decide by what is configured, so one code path serves ARC pods, ECS Fargate tasks and GitHub-hosted runners.
+  - `s3-cache/restore` and `s3-cache/save`: the bucket is used when `bucket` is set (and the runner has credentials for it); otherwise GitHub's cache. The `runner.environment == 'self-hosted'` test is gone. A GitHub-hosted caller that passes a bucket now tries it (at most a 20 s credential lookup) and hands the key to GitHub's cache when there are no credentials.
+  - `setup-devbox`: the proto toolchain cache follows the same rule (`go-cache-bucket` set, else `actions/cache`).
+  - `setup-cache`: `usable` follows the bucket alone; the GitHub-hosted notice is gone. An empty bucket is a `::notice::` rather than a `::warning::`. The Yarn and moon checks no longer require a bucket. Takes effect in `setup-devbox` when its pin of `setup-cache` is bumped to this release.
+  - `setup-remote-builders`: documentation no longer asks callers to gate on `runner.environment`; gate on the configured `remote-builders` value.
+
+### Added
+
+- `setup-devbox` inputs `npm-registry` and `bazel-remote` (the caller's `CI_NPM_REGISTRY` and `CI_BAZEL_REMOTE_CACHE`), forwarded to `setup-cache`. Empty changes nothing.
+
 ## v2.1.1
 
 ### Fixed
