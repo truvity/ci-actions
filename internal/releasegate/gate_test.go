@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 func cr(id int64, name, url string, conclusion *string) checkRun {
@@ -174,6 +175,78 @@ func TestRun(t *testing.T) {
 		var out bytes.Buffer
 		err := Run(context.Background(), Options{Token: "tok", Repo: "acme/app", SHA: "abc123", RunID: "999", API: srv.URL, Out: &out})
 		if err == nil || errors.Is(err, ErrNotGreen) || strings.Contains(out.String(), "all checks green") {
+			t.Errorf("err %v out %q", err, out.String())
+		}
+	})
+}
+
+// seq serves a different list of check runs on each successive look.
+func seq(t *testing.T, looks ...[]checkRun) *httptest.Server {
+	var n int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		i := n
+		if i >= len(looks) {
+			i = len(looks) - 1
+		}
+		n++
+		json.NewEncoder(w).Encode(page{TotalCount: len(looks[i]), CheckRuns: looks[i]})
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+func TestRunWait(t *testing.T) {
+	var slept []time.Duration
+	opts := func(srv *httptest.Server, out *bytes.Buffer) Options {
+		slept = nil
+		return Options{Token: "tok", Repo: "acme/app", SHA: "abc123", RunID: "999", API: srv.URL, Out: out,
+			Wait: 100 * time.Second, Poll: 30 * time.Second,
+			Sleep: func(_ context.Context, d time.Duration) error { slept = append(slept, d); return nil }}
+	}
+	t.Run("a check that is still running is waited for", func(t *testing.T) {
+		srv := seq(t,
+			[]checkRun{},
+			[]checkRun{cr(1, "check", run("1"), nil)},
+			[]checkRun{cr(1, "check", run("1"), s("success")), cr(2, "suite", run("1"), nil)},
+			[]checkRun{cr(1, "check", run("1"), s("success")), cr(2, "suite", run("1"), s("success"))},
+		)
+		var out bytes.Buffer
+		if err := Run(context.Background(), opts(srv, &out)); err != nil || len(slept) != 3 || !strings.HasSuffix(out.String(), "all checks green on abc123\n") {
+			t.Errorf("err %v slept %v out %q", err, slept, out.String())
+		}
+	})
+	t.Run("a red check refuses at once", func(t *testing.T) {
+		srv := seq(t, []checkRun{cr(1, "check", run("1"), nil), cr(2, "suite", run("1"), s("failure"))})
+		var out bytes.Buffer
+		err := Run(context.Background(), opts(srv, &out))
+		if !errors.Is(err, ErrNotGreen) || len(slept) != 0 || !strings.Contains(out.String(), "suite\tfailure") {
+			t.Errorf("err %v slept %v out %q", err, slept, out.String())
+		}
+	})
+	t.Run("a cancelled check refuses at once", func(t *testing.T) {
+		srv := seq(t, []checkRun{cr(1, "check", run("1"), s("cancelled"))})
+		var out bytes.Buffer
+		if err := Run(context.Background(), opts(srv, &out)); !errors.Is(err, ErrNotGreen) || len(slept) != 0 {
+			t.Errorf("err %v slept %v", err, slept)
+		}
+	})
+	t.Run("a check that never finishes times out, bounded", func(t *testing.T) {
+		srv := seq(t, []checkRun{cr(1, "check", run("1"), nil)})
+		var out bytes.Buffer
+		err := Run(context.Background(), opts(srv, &out))
+		var total time.Duration
+		for _, d := range slept {
+			total += d
+		}
+		if !errors.Is(err, ErrNotGreen) || total != 100*time.Second || !strings.Contains(out.String(), "no successful check run after 1m40s") {
+			t.Errorf("err %v slept %v out %q", err, slept, out.String())
+		}
+	})
+	t.Run("green with another check pending times out naming the pending check", func(t *testing.T) {
+		srv := seq(t, []checkRun{cr(1, "check", run("1"), s("success")), cr(2, "suite", run("1"), nil)})
+		var out bytes.Buffer
+		err := Run(context.Background(), opts(srv, &out))
+		if !errors.Is(err, ErrNotGreen) || !strings.HasSuffix(out.String(), "::error::not-green checks on the tagged commit:\nsuite\tpending\n") {
 			t.Errorf("err %v out %q", err, out.String())
 		}
 	})

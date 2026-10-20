@@ -4,6 +4,12 @@ Every release of truvity/ci-actions, newest first. Pin the commit of a
 tag (`git rev-parse vX.Y.Z^{commit}`), never the tag object and never
 an untagged commit; `tagged-pins` refuses anything else.
 
+## Unreleased
+
+### Fixed
+
+- **`require-green-checks` waits for the tagged commit's checks instead of racing them.** A tag pushed right after its commit lands always found the commit's own `check` still queued or running, so the gate refused with "the tagged commit has no successful check run" and the release failed. The `release-gate` command now polls the check runs every 25 s for up to 20 minutes: it passes as soon as `check` is successful and nothing is pending, refuses at once when any check has concluded red, and refuses with the same message (naming the 20 minutes) on timeout. Callers need a job `timeout-minutes` that covers the wait.
+
 ## v3.6.1
 
 ### Fixed

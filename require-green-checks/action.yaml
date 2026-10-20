@@ -1,6 +1,7 @@
 name: require-green-checks
 description: >-
-  Refuse a release unless the tagged commit is check-green: it must have a
+  Refuse a release unless the tagged commit is check-green. Waits (up to 20
+  minutes) for checks still running, and refuses at once on a red one. It must have a
   successful `check` run, and no other check on it may be red, cancelled or
   still pending. The newest run of each check counts; this run's own checks,
   every release-shaped check (a sibling project releasing the same commit) and

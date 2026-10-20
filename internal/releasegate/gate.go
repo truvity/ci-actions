@@ -27,6 +27,17 @@ type Options struct {
 	API   string // default https://api.github.com
 	HTTP  *http.Client
 	Out   io.Writer
+
+	// Wait bounds how long the gate waits for the tagged commit's checks to
+	// finish. A tag is usually pushed right after its commit lands, so the
+	// commit's own `check` is still queued or running when the release job
+	// starts; judging it at once would refuse every such release. Zero judges
+	// once, immediately. Poll is the pause between looks (default 25s) and
+	// Sleep the clock behind it (default time.Sleep with context), both
+	// replaceable in tests.
+	Wait  time.Duration
+	Poll  time.Duration
+	Sleep func(ctx context.Context, d time.Duration) error
 }
 
 type checkRun struct {
@@ -95,8 +106,11 @@ func Lines(pages [][]checkRun, runID string) []string {
 }
 
 // Run reads the checks of the tagged commit and refuses unless the commit has
-// a successful `check` and nothing else is red or pending. curl, not gh: the
-// ARC runner image ships no gh; the API is read directly.
+// a successful `check` and nothing else is red or pending. With Options.Wait it
+// first waits, polling, for pending checks to settle: it returns as soon as
+// `check` is green and nothing is pending, refuses at once when any check has
+// concluded red, and refuses with the usual message once Wait has elapsed. curl,
+// not gh: the ARC runner image ships no gh; the API is read directly.
 func Run(ctx context.Context, o Options) error {
 	if o.API == "" {
 		o.API = "https://api.github.com"
@@ -104,19 +118,95 @@ func Run(ctx context.Context, o Options) error {
 	if o.HTTP == nil {
 		o.HTTP = &http.Client{Timeout: 60 * time.Second}
 	}
+	if o.Poll <= 0 {
+		o.Poll = 25 * time.Second
+	}
+	if o.Sleep == nil {
+		o.Sleep = func(ctx context.Context, d time.Duration) error {
+			select {
+			case <-time.After(d):
+				return nil
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+		}
+	}
+	var waited time.Duration
+	for {
+		runs, err := fetch(ctx, o)
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(o.Out, "checks on %s:\n", o.SHA)
+		if len(runs) == 0 {
+			fmt.Fprintln(o.Out, "  ")
+		}
+		for _, l := range runs {
+			fmt.Fprintf(o.Out, "  %s\n", l)
+		}
+
+		hasCheck, red, pending := false, false, false
+		var bad []string
+		for _, l := range runs {
+			switch {
+			case l == "check\tsuccess":
+				hasCheck = true
+			case strings.HasSuffix(l, "\tpending"):
+				pending = true
+			case !strings.HasSuffix(l, "\tsuccess") && !strings.HasSuffix(l, "\tneutral") && !strings.HasSuffix(l, "\tskipped"):
+				red = true
+			}
+			if !strings.HasSuffix(l, "\tsuccess") && !strings.HasSuffix(l, "\tneutral") && !strings.HasSuffix(l, "\tskipped") {
+				bad = append(bad, l)
+			}
+		}
+		if hasCheck && len(bad) == 0 {
+			fmt.Fprintf(o.Out, "all checks green on %s\n", o.SHA)
+			return nil
+		}
+		// Not decided yet: nothing is red and either `check` has not
+		// finished (or has not appeared) or another check is pending.
+		if !red && (pending || !hasCheck) && waited < o.Wait {
+			d := o.Poll
+			if rest := o.Wait - waited; d > rest {
+				d = rest
+			}
+			fmt.Fprintf(o.Out, "waiting %s for the tagged commit's checks to finish\n", d)
+			if err := o.Sleep(ctx, d); err != nil {
+				return err
+			}
+			waited += d
+			continue
+		}
+		if !hasCheck {
+			if o.Wait > 0 && !red {
+				fmt.Fprintf(o.Out, "::error::the tagged commit has no successful check run after %s — releases build only from check-green commits\n", o.Wait)
+			} else {
+				fmt.Fprintln(o.Out, "::error::the tagged commit has no successful check run — releases build only from check-green commits")
+			}
+			return ErrNotGreen
+		}
+		fmt.Fprintln(o.Out, "::error::not-green checks on the tagged commit:")
+		fmt.Fprintln(o.Out, strings.Join(bad, "\n"))
+		return ErrNotGreen
+	}
+}
+
+// fetch reads every page of the commit's check runs and filters them.
+func fetch(ctx context.Context, o Options) ([]string, error) {
 	var pages [][]checkRun
 	for n := 1; ; n++ {
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet,
 			fmt.Sprintf("%s/repos/%s/commits/%s/check-runs?per_page=100&page=%d", o.API, o.Repo, o.SHA, n), nil)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		req.Header.Set("Authorization", "Bearer "+o.Token)
 		req.Header.Set("Accept", "application/vnd.github+json")
 		req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
 		resp, err := o.HTTP.Do(req)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		var p page
 		err = func() error {
@@ -127,42 +217,12 @@ func Run(ctx context.Context, o Options) error {
 			return json.NewDecoder(resp.Body).Decode(&p)
 		}()
 		if err != nil {
-			return err
+			return nil, err
 		}
 		pages = append(pages, p.CheckRuns)
 		if n*100 >= p.TotalCount {
 			break
 		}
 	}
-
-	runs := Lines(pages, o.RunID)
-	fmt.Fprintf(o.Out, "checks on %s:\n", o.SHA)
-	if len(runs) == 0 {
-		fmt.Fprintln(o.Out, "  ")
-	}
-	for _, l := range runs {
-		fmt.Fprintf(o.Out, "  %s\n", l)
-	}
-
-	hasCheck := false
-	var bad []string
-	for _, l := range runs {
-		if l == "check\tsuccess" {
-			hasCheck = true
-		}
-		if !strings.HasSuffix(l, "\tsuccess") && !strings.HasSuffix(l, "\tneutral") && !strings.HasSuffix(l, "\tskipped") {
-			bad = append(bad, l)
-		}
-	}
-	if !hasCheck {
-		fmt.Fprintln(o.Out, "::error::the tagged commit has no successful check run — releases build only from check-green commits")
-		return ErrNotGreen
-	}
-	if len(bad) > 0 {
-		fmt.Fprintln(o.Out, "::error::not-green checks on the tagged commit:")
-		fmt.Fprintln(o.Out, strings.Join(bad, "\n"))
-		return ErrNotGreen
-	}
-	fmt.Fprintf(o.Out, "all checks green on %s\n", o.SHA)
-	return nil
+	return Lines(pages, o.RunID), nil
 }
