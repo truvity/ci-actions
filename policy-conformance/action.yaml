@@ -46,7 +46,7 @@ inputs:
   runner-code:
     description: >-
       How C18 (workflow and action YAML names no in-cluster address, does
-      not branch on `runner.environment`, sets no static AWS credential)
+      not branch on the kind of runner, sets no static AWS credential)
       reports. "error" (the default) makes a finding a failure that `strict`
       then gates; "warn" makes it a warning that never fails the job,
       `strict` or not. A repository that cannot fix a finding exempts it
