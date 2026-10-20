@@ -4,6 +4,15 @@ Every release of truvity/ci-actions, newest first. Pin the commit of a
 tag (`git rev-parse vX.Y.Z^{commit}`), never the tag object and never
 an untagged commit; `tagged-pins` refuses anything else.
 
+## v3.3.0
+
+### Fixed
+
+- **`devbox-parity` no longer needs the GitHub CLI on the runner.** On a self-hosted runner without `gh` the run installed a pinned `gh` into a temporary directory and put it on `PATH`, but Go resolves a command name against the *parent* process's `PATH`, so the first call (`gh label create`) failed with `exec: "gh": executable file not found in $PATH` and no pull request was opened. The label, the pull-request lookup, the pull request itself and auto-merge now go through the GitHub REST and GraphQL API with the module's own client, on every runner (hosted, self-hosted, container task).
+  - The repository is `GITHUB_REPOSITORY`, else read from the `origin` remote of the checkout.
+  - Same behaviour as before: one fixed branch, an open pull request is updated in place, the label is created or updated to the same colour and description, and auto-merge (rebase) is armed only where a ruleset or classic protection requires a check.
+  - The download, checksum check and unpacking of `gh` are removed, with the `CI_ACTIONS_GH_DL_URL` test seam. `GH_TOKEN` is no longer set for the child processes.
+
 ## v3.2.0
 
 ### Added

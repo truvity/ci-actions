@@ -13,7 +13,8 @@
 //	            playwright-test (nixpkgs) package.json (browsers come from
 //	            nixpkgs; npm must not get ahead)
 //
-// devbox, git and gh stay what they were: programs this package executes.
+// devbox and git stay what they were: programs this package executes. The
+// pull request is opened through the GitHub API, so no `gh` binary is needed.
 // What moved into Go is the logic around them: the mode, the version
 // comparisons, the go.mod and package.json reading, the movement gate and
 // the auto-merge gate.
@@ -35,29 +36,23 @@ import (
 
 // Options are the action's inputs and the runner's environment.
 type Options struct {
-	Token         string
-	WorkDir       string // working-directory
-	Base          string
-	Label         string
-	Mode          string
-	FullDay       string
-	ModuleDirs    string // JSON array
-	GitUser       string
-	GitEmail      string
-	GoDLURL       string // test seam: the go.dev release list
-	APIURL        string // GitHub API base; empty means the public API
-	GHVersion     string // test seam: the gh release to install when it is missing
-	GHBaseURL     string // test seam: where gh archives are downloaded from
-	RunnerTemp    string
-	GithubOutput  string
-	GithubPath    string
-	Environ       []string
-	Now           func() time.Time
-	Out, Err      io.Writer
-	Exec          Exec
-	HTTPClient    *ghapi.Client // nil builds one from APIURL and Token
-	ArchOverride  string        // test seam: uname -m
-	SkipGHInstall bool
+	Token        string
+	WorkDir      string // working-directory
+	Base         string
+	Label        string
+	Mode         string
+	FullDay      string
+	ModuleDirs   string // JSON array
+	GitUser      string
+	GitEmail     string
+	GoDLURL      string // test seam: the go.dev release list
+	APIURL       string // GitHub API base; empty means the public API
+	GithubOutput string
+	Environ      []string
+	Now          func() time.Time
+	Out, Err     io.Writer
+	Exec         Exec
+	HTTPClient   *ghapi.Client // nil builds one from APIURL and Token
 }
 
 type run struct {
@@ -122,12 +117,6 @@ func (o *Options) defaults() {
 	if o.Err == nil {
 		o.Err = io.Discard
 	}
-	if o.GHVersion == "" {
-		o.GHVersion = "2.97.0"
-	}
-	if o.GHBaseURL == "" {
-		o.GHBaseURL = "https://github.com/cli/cli/releases/download"
-	}
 }
 
 // Run does the whole action. Its output lines are the shell version's; the
@@ -135,12 +124,6 @@ func (o *Options) defaults() {
 func Run(ctx context.Context, o Options) error {
 	o.defaults()
 	r := &run{o: o, env: withEnv(o.Environ, []string{"TOKEN", "GH_TOKEN", "GITHUB_TOKEN"})}
-
-	if !o.SkipGHInstall {
-		if err := r.ensureGH(ctx); err != nil {
-			return err
-		}
-	}
 
 	// Decide the mode.
 	weekday := int(o.Now().UTC().Weekday())
@@ -199,7 +182,6 @@ func (r *run) setOutput(k, v string) error {
 // request, and auto-merge only where a required check exists.
 func (r *run) openPR(ctx context.Context) error {
 	o := r.o
-	r.env = withEnv(r.env, nil, "GH_TOKEN="+o.Token)
 	wd := "."
 
 	// The movement gate names every follower, so a change to any of them is
@@ -257,45 +239,45 @@ func (r *run) openPR(ctx context.Context) error {
 		return fmt.Errorf("git push: %w", err)
 	}
 
-	if err := r.cmd(ctx, wd, io.Discard, r.stderr(), "gh", "label", "create", o.Label, "--force", "--color", "0366d6", "--description", "Dependency updates"); err != nil {
-		return fmt.Errorf("gh label create: %w", err)
+	repo, err := r.repository(ctx)
+	if err != nil {
+		return err
 	}
-
-	var out strings.Builder
-	if err := r.cmd(ctx, wd, &out, r.stderr(), "gh", "pr", "list", "--head", branch, "--state", "open", "--json", "url", "--jq", ".[0].url"); err != nil {
-		return fmt.Errorf("gh pr list: %w", err)
-	}
-	if url := strings.TrimRight(out.String(), "\n"); url != "" {
-		r.printf("open PR for %s already exists — updated in place by the push\n", branch)
-		if err := r.setOutput("changed", "true"); err != nil {
-			return err
-		}
-		return r.setOutput("url", url)
-	}
-
-	out.Reset()
-	if err := r.cmd(ctx, wd, &out, r.stderr(), "gh", "pr", "create",
-		"--title", "chore(deps): update devbox packages and align the followers",
-		"--body", "Automated parity: `devbox update` on the configured weekday, and every follower aligned to its devbox pin — the go toolchain directive (language minor capped by golangci-lint's build Go, patch = newest of that line, never downward) and the playwright npm package (exactly the nix-pinned driver). Nix packages are outside Renovate's reach and the followers are owned here, so the pairs can never disagree.",
-		"--base", o.Base, "--label", o.Label); err != nil {
-		return fmt.Errorf("gh pr create: %w", err)
-	}
-	url := strings.TrimRight(out.String(), "\n")
-
-	// Arm auto-merge ONLY where required checks exist. With none, `--auto`
-	// merges IMMEDIATELY, unvalidated. A branch can require a check in two
-	// unrelated ways (a ruleset, or classic branch protection) and EITHER is
-	// a green to wait for. An unreadable source still means "leave it for a
-	// human": failing toward a manual merge is the safe side.
-	out.Reset()
-	if err := r.cmd(ctx, wd, &out, r.stderr(), "gh", "repo", "view", "--json", "nameWithOwner", "--jq", ".nameWithOwner"); err != nil {
-		return fmt.Errorf("gh repo view: %w", err)
-	}
-	repo := strings.TrimRight(out.String(), "\n")
 	c := o.HTTPClient
 	if c == nil {
 		c = ghapi.New(o.APIURL, o.Token)
 	}
+
+	if err := ensureLabel(ctx, c, repo, o.Label); err != nil {
+		return fmt.Errorf("label %s: %w", o.Label, err)
+	}
+
+	existing, err := openPullRequest(ctx, c, repo, branch)
+	if err != nil {
+		return fmt.Errorf("listing pull requests: %w", err)
+	}
+	if existing != "" {
+		r.printf("open PR for %s already exists — updated in place by the push\n", branch)
+		if err := r.setOutput("changed", "true"); err != nil {
+			return err
+		}
+		return r.setOutput("url", existing)
+	}
+
+	pr, err := createPullRequest(ctx, c, repo, branch, o.Base,
+		"chore(deps): update devbox packages and align the followers",
+		"Automated parity: `devbox update` on the configured weekday, and every follower aligned to its devbox pin — the go toolchain directive (language minor capped by golangci-lint's build Go, patch = newest of that line, never downward) and the playwright npm package (exactly the nix-pinned driver). Nix packages are outside Renovate's reach and the followers are owned here, so the pairs can never disagree.",
+		o.Label)
+	if err != nil {
+		return fmt.Errorf("creating the pull request: %w", err)
+	}
+	url := pr.URL
+
+	// Arm auto-merge ONLY where required checks exist. With none, auto-merge
+	// merges IMMEDIATELY, unvalidated. A branch can require a check in two
+	// unrelated ways (a ruleset, or classic branch protection) and EITHER is
+	// a green to wait for. An unreadable source still means "leave it for a
+	// human": failing toward a manual merge is the safe side.
 	rulesets := gates.Rulesets(ctx, c, repo, o.Base)
 	classic := gates.Classic(ctx, c, repo, o.Base, true)
 	if rulesets < 0 {
@@ -306,8 +288,8 @@ func (r *run) openPR(ctx context.Context) error {
 	}
 	if rulesets >= 1 || classic >= 1 {
 		r.printf("required checks on %s: %d from rulesets, %d from classic protection — arming auto-merge\n", o.Base, rulesets, classic)
-		if err := r.cmd(ctx, wd, r.stdout(), r.stderr(), "gh", "pr", "merge", "--auto", "--rebase", branch); err != nil {
-			return fmt.Errorf("gh pr merge: %w", err)
+		if err := armAutoMerge(ctx, c, pr.NodeID); err != nil {
+			return fmt.Errorf("arming auto-merge: %w", err)
 		}
 	} else {
 		r.printf("no required status check on %s — neither a ruleset nor classic branch protection requires one; leaving the PR for a human to merge\n", o.Base)

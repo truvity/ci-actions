@@ -1,20 +1,19 @@
 package devboxparity
 
 import (
-	"archive/tar"
 	"bytes"
-	"compress/gzip"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -86,10 +85,9 @@ func newEnv(t *testing.T) *env {
 	e.gh = filepath.Join(dir, "..", filepath.Base(dir)+".out")
 	e.o = Options{
 		Token: token, WorkDir: dir, Base: "master", Label: "dependencies", Mode: "align",
-		FullDay: "1", ModuleDirs: "[]", RunnerTemp: t.TempDir(), GithubOutput: e.gh,
-		Environ: []string{"PATH=/usr/bin", "TOKEN=" + token, "GH_TOKEN=" + token, "HOME=/h"},
+		FullDay: "1", ModuleDirs: "[]", GithubOutput: e.gh,
+		Environ: []string{"PATH=/usr/bin", "TOKEN=" + token, "GH_TOKEN=" + token, "HOME=/h", "GITHUB_REPOSITORY=acme/app"},
 		Exec:    e.f.exec, Now: func() time.Time { return time.Date(2026, 10, 5, 12, 0, 0, 0, time.UTC) }, // a Monday
-		SkipGHInstall: true,
 	}
 	e.o.Out, e.o.Err = &e.out, &e.err
 	t.Cleanup(func() { os.Remove(e.gh) })
@@ -409,33 +407,100 @@ func TestPlaywrightFirstPackageWins(t *testing.T) {
 	}
 }
 
-// gh answers for the pull-request phase.
-func (e *env) ghAnswers(existing string) {
-	e.f.out["gh repo view --json nameWithOwner --jq .nameWithOwner"] = "acme/app\n"
-	e.f.out["gh pr list --head chore/devbox-update --state open --json url --jq .[0].url"] = existing
-	e.f.out["gh pr create --title chore(deps): update devbox packages and align the followers --body "+prBody+" --base master --label dependencies"] = "https://github.com/acme/app/pull/7\n"
-}
-
 const prBody = "Automated parity: `devbox update` on the configured weekday, and every follower aligned to its devbox pin — the go toolchain directive (language minor capped by golangci-lint's build Go, patch = newest of that line, never downward) and the playwright npm package (exactly the nix-pinned driver). Nix packages are outside Renovate's reach and the followers are owned here, so the pairs can never disagree."
 
-func apiStub(t *testing.T, rules, protection string) *httptest.Server {
-	t.Helper()
+// api is a GitHub that answers the pull-request phase and records what it
+// was asked, as "METHOD path" plus the body for the writes.
+type api struct {
+	t          *testing.T
+	rules      string
+	protection string
+	existing   string // URL of the open pull request, or none
+	labelCode  int    // answer to the label create; 0 means 201
+	failPR     bool   // POST /pulls is refused
+	mu         sync.Mutex
+	reqs       []string
+	bodies     map[string]string
+}
+
+func (a *api) called(sub string) bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	for _, r := range a.reqs {
+		if strings.Contains(r, sub) {
+			return true
+		}
+	}
+	return false
+}
+
+func (a *api) body(key string) string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.bodies[key]
+}
+
+func (a *api) server() *httptest.Server {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "Bearer "+token {
-			t.Errorf("Authorization %q", r.Header.Get("Authorization"))
+			a.t.Errorf("Authorization %q", r.Header.Get("Authorization"))
 		}
+		raw, _ := io.ReadAll(r.Body)
+		key := r.Method + " " + r.URL.Path
+		a.mu.Lock()
+		a.reqs = append(a.reqs, key+"?"+r.URL.RawQuery)
+		if a.bodies == nil {
+			a.bodies = map[string]string{}
+		}
+		a.bodies[key] = string(raw)
+		a.mu.Unlock()
 		switch {
-		case strings.HasPrefix(r.URL.Path, "/repos/acme/app/rules/branches/master"):
-			fmt.Fprint(w, rules)
+		case key == "GET /repos/acme/app/rules/branches/master":
+			fmt.Fprint(w, a.rules)
 		case strings.HasSuffix(r.URL.Path, "/protection"):
-			fmt.Fprint(w, protection)
+			fmt.Fprint(w, a.protection)
+		case key == "POST /repos/acme/app/labels":
+			if a.labelCode != 0 {
+				w.WriteHeader(a.labelCode)
+				fmt.Fprint(w, `{"message":"Validation Failed","errors":[{"code":"already_exists"}]}`)
+				return
+			}
+			w.WriteHeader(201)
+			fmt.Fprint(w, `{}`)
+		case key == "PATCH /repos/acme/app/labels/dependencies":
+			fmt.Fprint(w, `{}`)
+		case key == "GET /repos/acme/app/pulls":
+			if a.existing == "" {
+				fmt.Fprint(w, `[]`)
+				return
+			}
+			fmt.Fprintf(w, `[{"number":3,"html_url":%q,"node_id":"PR_3"}]`, a.existing)
+		case key == "POST /repos/acme/app/pulls":
+			if a.failPR {
+				w.WriteHeader(403)
+				fmt.Fprint(w, `{"message":"Resource not accessible by integration `+token+`"}`)
+				return
+			}
+			w.WriteHeader(201)
+			fmt.Fprint(w, `{"number":7,"html_url":"https://github.com/acme/app/pull/7","node_id":"PR_7"}`)
+		case key == "POST /repos/acme/app/issues/7/labels":
+			fmt.Fprint(w, `[]`)
+		case key == "POST /graphql":
+			fmt.Fprint(w, `{"data":{"enablePullRequestAutoMerge":{"pullRequest":{"number":7}}}}`)
 		default:
 			w.WriteHeader(404)
 			fmt.Fprint(w, `{"message":"Not Found"}`)
 		}
 	}))
-	t.Cleanup(srv.Close)
+	a.t.Cleanup(srv.Close)
 	return srv
+}
+
+// newAPI starts a stub and points the run at it.
+func (e *env) newAPI(rules, protection string) *api {
+	a := &api{t: e.t, rules: rules, protection: protection}
+	e.o.APIURL = a.server().URL
+	return a
 }
 
 const withRuleset = `[{"type":"required_status_checks","parameters":{"required_status_checks":[{"context":"check"}]}}]`
@@ -450,21 +515,21 @@ func TestPullRequest(t *testing.T) {
 	}
 	t.Run("at parity", func(t *testing.T) {
 		e := newEnv(t)
+		a := e.newAPI("", "")
 		if err := e.run(); err != nil {
 			t.Fatal(err)
 		}
 		if !strings.Contains(e.out.String(), "everything already at parity\n") || e.outputs() != "changed=false\n" {
 			t.Errorf("%s / %s", e.out.String(), e.outputs())
 		}
-		if e.f.called("git checkout") || e.f.called("gh ") {
-			t.Errorf("nothing is touched at parity: %v", e.f.calls)
+		if e.f.called("git checkout") || len(a.reqs) != 0 {
+			t.Errorf("nothing is touched at parity: %v / %v", e.f.calls, a.reqs)
 		}
 	})
 	t.Run("opens a pull request and arms auto-merge", func(t *testing.T) {
 		e := newEnv(t)
 		changed(e)
-		e.ghAnswers("")
-		e.o.APIURL = apiStub(t, withRuleset, `{"message":"Branch not protected"}`).URL
+		a := e.newAPI(withRuleset, `{"message":"Branch not protected"}`)
 		e.o.ModuleDirs = `["tools"]`
 		e.f.fail["git diff --quiet -- devbox.json devbox.lock go.mod package.json yarn.lock pnpm-lock.yaml package-lock.json tools/go.mod"] = true
 		if err := e.run(); err != nil {
@@ -477,8 +542,6 @@ func TestPullRequest(t *testing.T) {
 			": git add -- devbox.json", ": git add -- devbox.lock", ": git add -- yarn.lock",
 			": devbox run -- git commit -m chore(deps): update devbox packages and align the followers",
 			": devbox run -- git push --force origin chore/devbox-update",
-			": gh label create dependencies --force --color 0366d6 --description Dependency updates",
-			": gh pr merge --auto --rebase chore/devbox-update",
 		}
 		for _, w := range want {
 			if !e.f.called(w) {
@@ -490,6 +553,35 @@ func TestPullRequest(t *testing.T) {
 				t.Errorf("only existing followers are staged: %s", absent)
 			}
 		}
+		if e.f.called("gh ") {
+			t.Errorf("the pull request is opened through the API, not the gh binary: %v", e.f.calls)
+		}
+		if got := a.body("POST /repos/acme/app/labels"); got != `{"color":"0366d6","description":"Dependency updates","name":"dependencies"}` {
+			t.Errorf("label body %s", got)
+		}
+		if !a.called("GET /repos/acme/app/pulls?head=acme%3Achore%2Fdevbox-update&per_page=1&state=open") {
+			t.Errorf("pull request lookup: %v", a.reqs)
+		}
+		var pr map[string]string
+		if err := json.Unmarshal([]byte(a.body("POST /repos/acme/app/pulls")), &pr); err != nil {
+			t.Fatal(err)
+		}
+		if pr["title"] != "chore(deps): update devbox packages and align the followers" || pr["body"] != prBody || pr["head"] != "chore/devbox-update" || pr["base"] != "master" {
+			t.Errorf("pull request %v", pr)
+		}
+		if got := a.body("POST /repos/acme/app/issues/7/labels"); got != `{"labels":["dependencies"]}` {
+			t.Errorf("labels %s", got)
+		}
+		var gq struct {
+			Query     string            `json:"query"`
+			Variables map[string]string `json:"variables"`
+		}
+		if err := json.Unmarshal([]byte(a.body("POST /graphql")), &gq); err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(gq.Query, "enablePullRequestAutoMerge") || !strings.Contains(gq.Query, "mergeMethod:REBASE") || gq.Variables["id"] != "PR_7" {
+			t.Errorf("auto-merge request %+v", gq)
+		}
 		if !strings.Contains(e.out.String(), "required checks on master: 1 from rulesets, 0 from classic protection — arming auto-merge\n") {
 			t.Errorf("%s", e.out.String())
 		}
@@ -497,40 +589,62 @@ func TestPullRequest(t *testing.T) {
 			t.Errorf("outputs %q", e.outputs())
 		}
 		for line, saw := range e.f.tokenIn {
-			if !saw {
-				continue
-			}
-			if !strings.HasPrefix(line, "gh ") && !strings.HasPrefix(line, "git ") && !strings.HasPrefix(line, "devbox run -- git ") {
+			if saw && !strings.HasPrefix(line, "git ") && !strings.HasPrefix(line, "devbox run -- git ") {
 				t.Errorf("the token reached %q", line)
+			}
+		}
+	})
+	t.Run("the repository comes from the origin remote without GITHUB_REPOSITORY", func(t *testing.T) {
+		for remote, want := range map[string]string{
+			"https://github.com/acme/app.git\n":              "acme/app",
+			"git@github.com:acme/app.git\n":                  "acme/app",
+			"https://x-access-token:t@github.com/acme/app\n": "acme/app",
+		} {
+			e := newEnv(t)
+			e.o.Environ = []string{"PATH=/usr/bin"}
+			e.f.out["git remote get-url origin"] = remote
+			r := &run{o: e.o, env: e.o.Environ}
+			if got, err := r.repository(context.Background()); err != nil || got != want {
+				t.Errorf("%q: %q, %v", remote, got, err)
 			}
 		}
 	})
 	t.Run("classic protection arms it too", func(t *testing.T) {
 		e := newEnv(t)
 		changed(e)
-		e.ghAnswers("")
-		e.o.APIURL = apiStub(t, `[]`, `{"required_status_checks":{"contexts":["a","b"]}}`).URL
+		a := e.newAPI(`[]`, `{"required_status_checks":{"contexts":["a","b"]}}`)
 		if err := e.run(); err != nil {
 			t.Fatal(err)
 		}
-		if !strings.Contains(e.out.String(), "required checks on master: 0 from rulesets, 2 from classic protection — arming auto-merge\n") || !e.f.called("gh pr merge --auto") {
+		if !strings.Contains(e.out.String(), "required checks on master: 0 from rulesets, 2 from classic protection — arming auto-merge\n") || !a.called("POST /graphql") {
 			t.Errorf("%s", e.out.String())
 		}
 	})
-	for name, api := range map[string][2]string{
+	t.Run("an existing label is updated", func(t *testing.T) {
+		e := newEnv(t)
+		changed(e)
+		a := e.newAPI(`[]`, `{"message":"Branch not protected"}`)
+		a.labelCode = 422
+		if err := e.run(); err != nil {
+			t.Fatal(err)
+		}
+		if !a.called("PATCH /repos/acme/app/labels/dependencies") || !a.called("POST /repos/acme/app/pulls") {
+			t.Errorf("%v", a.reqs)
+		}
+	})
+	for name, apis := range map[string][2]string{
 		"nothing requires a check":               {`[]`, `{"message":"Branch not protected"}`},
 		"unreadable sources fail toward a human": {`oops`, `{"message":"Not Found"}`},
 	} {
 		t.Run(name, func(t *testing.T) {
 			e := newEnv(t)
 			changed(e)
-			e.ghAnswers("")
-			e.o.APIURL = apiStub(t, api[0], api[1]).URL
+			a := e.newAPI(apis[0], apis[1])
 			if err := e.run(); err != nil {
 				t.Fatal(err)
 			}
-			if !strings.Contains(e.out.String(), "no required status check on master — neither a ruleset nor classic branch protection requires one; leaving the PR for a human to merge\n") || e.f.called("gh pr merge") {
-				t.Errorf("%s / %v", e.out.String(), e.f.calls)
+			if !strings.Contains(e.out.String(), "no required status check on master — neither a ruleset nor classic branch protection requires one; leaving the PR for a human to merge\n") || a.called("enablePullRequestAutoMerge") {
+				t.Errorf("%s / %v", e.out.String(), a.reqs)
 			}
 			if !strings.Contains(e.outputs(), "changed=true") {
 				t.Errorf("%q", e.outputs())
@@ -540,15 +654,29 @@ func TestPullRequest(t *testing.T) {
 	t.Run("an open pull request is updated in place", func(t *testing.T) {
 		e := newEnv(t)
 		changed(e)
-		e.ghAnswers("https://github.com/acme/app/pull/3\n")
+		a := e.newAPI(withRuleset, `{"message":"Branch not protected"}`)
+		a.existing = "https://github.com/acme/app/pull/3"
 		if err := e.run(); err != nil {
 			t.Fatal(err)
 		}
-		if !strings.Contains(e.out.String(), "open PR for chore/devbox-update already exists — updated in place by the push\n") || e.f.called("gh pr create") || e.f.called("gh pr merge") {
-			t.Errorf("%s / %v", e.out.String(), e.f.calls)
+		if !strings.Contains(e.out.String(), "open PR for chore/devbox-update already exists — updated in place by the push\n") || a.called("POST /repos/acme/app/pulls") || a.called("POST /graphql") {
+			t.Errorf("%s / %v", e.out.String(), a.reqs)
 		}
 		if e.outputs() != "changed=true\nurl=https://github.com/acme/app/pull/3\n" {
 			t.Errorf("%q", e.outputs())
+		}
+	})
+	t.Run("a refused pull request fails the run without printing the token", func(t *testing.T) {
+		e := newEnv(t)
+		changed(e)
+		a := e.newAPI(withRuleset, `{"message":"Branch not protected"}`)
+		a.failPR = true
+		err := e.run()
+		if err == nil || !strings.Contains(err.Error(), "creating the pull request: POST /repos/acme/app/pulls: HTTP 403") {
+			t.Fatalf("%v", err)
+		}
+		if strings.Contains(err.Error(), token) {
+			t.Errorf("the error carries the token: %v", err)
 		}
 	})
 	t.Run("nothing staged is an error", func(t *testing.T) {
@@ -592,81 +720,6 @@ func TestToolsDoNotSeeTheToken(t *testing.T) {
 		if saw && !strings.HasPrefix(line, "git diff --quiet") {
 			t.Errorf("%q saw the token before the pull-request phase", line)
 		}
-	}
-}
-
-func TestEnsureGH(t *testing.T) {
-	// a gh on PATH is used as is
-	e := newEnv(t)
-	e.o.SkipGHInstall = false
-	bin := t.TempDir()
-	os.WriteFile(filepath.Join(bin, "gh"), []byte("#!/bin/sh\n"), 0o755)
-	e.o.Environ = []string{"PATH=" + bin}
-	e.f.out[filepath.Join(bin, "gh")+" --version"] = "gh version 2.50.0 (2026)\nhttps://x\n"
-	if err := e.run(); err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(e.out.String(), "gh present: gh version 2.50.0 (2026)\n") {
-		t.Errorf("%s", e.out.String())
-	}
-
-	// otherwise it is installed, verified, and put on PATH
-	var tgz bytes.Buffer
-	gz := gzip.NewWriter(&tgz)
-	tw := tar.NewWriter(gz)
-	body := []byte("#!/bin/sh\necho gh\n")
-	tw.WriteHeader(&tar.Header{Name: "gh_2.97.0_linux_amd64/bin/gh", Mode: 0o755, Size: int64(len(body)), Typeflag: tar.TypeReg})
-	tw.Write(body)
-	tw.Close()
-	gz.Close()
-	sum := sha256.Sum256(tgz.Bytes())
-	good := hex.EncodeToString(sum[:]) + "  gh_2.97.0_linux_amd64.tar.gz\n"
-	for name, sums := range map[string]string{"verified": good, "mismatch": strings.Repeat("0", 64) + "  gh_2.97.0_linux_amd64.tar.gz\n"} {
-		t.Run(name, func(t *testing.T) {
-			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				switch {
-				case strings.HasSuffix(r.URL.Path, ".tar.gz"):
-					w.Write(tgz.Bytes())
-				case strings.HasSuffix(r.URL.Path, "_checksums.txt"):
-					fmt.Fprint(w, sums)
-				default:
-					w.WriteHeader(404)
-				}
-			}))
-			defer srv.Close()
-			e := newEnv(t)
-			e.o.SkipGHInstall = false
-			e.o.GHBaseURL = srv.URL
-			e.o.ArchOverride = "x86_64"
-			e.o.Environ = []string{"PATH=/nonexistent"}
-			e.o.GithubPath = filepath.Join(t.TempDir(), "github_path")
-			err := e.run()
-			if name == "mismatch" {
-				if !IsReported(err) || !strings.Contains(e.out.String(), "::error::checksum mismatch for gh_2.97.0_linux_amd64.tar.gz; refusing to run it\n") {
-					t.Errorf("%v / %s", err, e.out.String())
-				}
-				return
-			}
-			if err != nil {
-				t.Fatal(err, e.out.String())
-			}
-			if !strings.Contains(e.out.String(), "gh installed: v2.97.0\n") {
-				t.Errorf("%s", e.out.String())
-			}
-			if b, _ := os.ReadFile(e.o.GithubPath); !strings.HasSuffix(strings.TrimSpace(string(b)), "/gh/bin") {
-				t.Errorf("GITHUB_PATH = %q", b)
-			}
-			if _, err := os.Stat(filepath.Join(e.o.RunnerTemp, "gh", "bin", "gh")); err != nil {
-				t.Error(err)
-			}
-		})
-	}
-	e = newEnv(t)
-	e.o.SkipGHInstall = false
-	e.o.ArchOverride = "riscv64"
-	e.o.Environ = []string{"PATH=/nonexistent"}
-	if err := e.run(); !IsReported(err) || !strings.Contains(e.out.String(), "unsupported arch: riscv64\n") {
-		t.Errorf("%v / %s", err, e.out.String())
 	}
 }
 
