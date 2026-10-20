@@ -100,9 +100,9 @@ spec, a task definition), and that wins:
 
 | the runner exports | overrides | read by |
 | -- | -- | -- |
-| `CI_RUNNER_GOPROXY` | the `goproxy` input | `setup-devbox` |
-| `CI_RUNNER_NPM_REGISTRY` | the `npm-registry` input | `setup-devbox`; the "Point npm and yarn" step of ci-workflows |
-| `CI_RUNNER_BAZEL_REMOTE_CACHE` | the `bazel-remote` input | `setup-devbox`; also exported to the job as `CI_BAZEL_REMOTE_CACHE` |
+| `CI_RUNNER_GOPROXY` | the `goproxy` input | `setup-devbox` (and so `setup-cache`) |
+| `CI_RUNNER_NPM_REGISTRY` | the `npm-registry` input | the "Point npm and yarn" steps of ci-workflows (`setup-devbox` logs it) |
+| `CI_RUNNER_BAZEL_REMOTE_CACHE` | the `bazel-remote` input | `setup-devbox`, which exports the winner to the job as `CI_BAZEL_REMOTE_CACHE` |
 | `CI_RUNNER_REMOTE_BUILDERS` | the `remote-builders` input | `setup-remote-builders`; the "Plan the remote builders" steps of ci-workflows |
 
 Precedence, per value: **runner environment, then the input (the caller's

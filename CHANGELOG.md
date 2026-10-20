@@ -9,11 +9,10 @@ an untagged commit; `tagged-pins` refuses anything else.
 ### Added
 
 - **Runner-provided overrides of the cache endpoints.** A value the runner itself exports, in its process environment, wins over the input (the caller's organisation variable): `CI_RUNNER_GOPROXY`, `CI_RUNNER_NPM_REGISTRY` and `CI_RUNNER_BAZEL_REMOTE_CACHE` for `setup-devbox`, `CI_RUNNER_REMOTE_BUILDERS` for `setup-remote-builders`. Precedence: runner environment, then the input, then the default. The names differ from the variables and inputs they override. With none of them set, behaviour is identical to v3.0.1.
-  - `setup-devbox`: a new step "Resolve the cache endpoints" (`ci-actions setup-devbox resolve-endpoints`) decides the three values, logs the source that won with any userinfo removed from the address, and hands the effective values to the nested `setup-cache` and to the GOPROXY guard. When the runner's bazel-remote address wins it is also exported as `CI_BAZEL_REMOTE_CACHE`, replacing the job-level value a workflow sets from the caller's variable. It is a step of this action rather than a change of `setup-cache` because `setup-devbox` pins `setup-cache` at an earlier release.
+  - `setup-devbox`: a new step "Resolve the cache endpoints" (`ci-actions setup-devbox resolve-endpoints`) decides the three values, logs the source that won with any userinfo removed from the address, and hands the effective GOPROXY to the nested `setup-cache` and to the GOPROXY guard. `setup-cache` keeps the caller's `npm-registry` and `bazel-remote`: it only compares them with the repository's `.yarnrc.yml` and `.moon/workspace.yml`, which cannot name a runner's private address. When the runner's bazel-remote address wins it is also exported as `CI_BAZEL_REMOTE_CACHE`, replacing the job-level value a workflow sets from the caller's variable. It is a step of this action rather than a change of `setup-cache` because `setup-devbox` pins `setup-cache` at an earlier release.
   - `setup-remote-builders`: the `remote-builders` input is no longer required, since a runner may supply the list. The step logs which source won.
   - A runner value that holds whitespace or a control character fails the step instead of falling back to the caller's value.
   - New package `internal/runnerenv` holds the rule and the redaction.
-- The cache-seam repository check accepts an input passed through `steps.endpoints.outputs.<name>`.
 
 ## v3.0.1
 
