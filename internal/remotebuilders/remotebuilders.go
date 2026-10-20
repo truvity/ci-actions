@@ -18,6 +18,7 @@ import (
 	"strings"
 
 	"github.com/truvity/ci-actions/internal/runcmd"
+	"github.com/truvity/ci-actions/internal/runnerenv"
 )
 
 // builder is a literal: it is written to GITHUB_ENV, and an input there is
@@ -26,14 +27,18 @@ const builder = "ci"
 
 // Options are the action's input and the runner's environment.
 type Options struct {
-	Nodes      string // whitespace-separated `platforms=endpoint` entries
-	Home       string // where ~/.docker/cli-plugins lives
-	RunnerTemp string
-	GithubEnv  string
-	Dir        string // where devbox.json is looked for; "" is the working directory
-	Out        io.Writer
-	Err        io.Writer
-	Exec       runcmd.Exec
+	Nodes string // whitespace-separated `platforms=endpoint` entries
+	// RunnerNodes is what the RUNNER exports as CI_RUNNER_REMOTE_BUILDERS, same
+	// format. When set it wins over Nodes: a pool that reaches the builders by
+	// other names than the caller's variable carries its own.
+	RunnerNodes string
+	Home        string // where ~/.docker/cli-plugins lives
+	RunnerTemp  string
+	GithubEnv   string
+	Dir         string // where devbox.json is looked for; "" is the working directory
+	Out         io.Writer
+	Err         io.Writer
+	Exec        runcmd.Exec
 }
 
 // ErrFailed marks a failure whose ::error:: line is already written.
@@ -54,9 +59,15 @@ func Run(ctx context.Context, o Options) error {
 		fmt.Fprintf(o.Out, "::error::"+format+"\n", a...)
 		return ErrFailed
 	}
-	if strings.ReplaceAll(o.Nodes, " ", "") == "" {
-		return fail("remote-builders is empty — set the org variable or skip this step")
+	nodes, src, err := runnerenv.Pick(runnerenv.RemoteBuilder, o.RunnerNodes, o.Nodes, true)
+	if err != nil {
+		return fail("%v", err)
 	}
+	o.Nodes = nodes
+	if strings.TrimSpace(o.Nodes) == "" {
+		return fail("remote-builders is empty — set the org variable, export " + runnerenv.RemoteBuilder + " from the runner, or skip this step")
+	}
+	fmt.Fprintf(o.Err, "%s\n", runnerenv.Describe("remote builders", src, strings.Join(strings.Fields(nodes), " "), runnerenv.RemoteBuilder))
 
 	// docker + buildx resolve from the job's PATH; through devbox when the
 	// project has one (a devbox docker only finds the plugins it can see,

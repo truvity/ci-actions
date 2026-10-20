@@ -17,6 +17,7 @@ type h struct {
 	dir   string
 	calls []string
 	out   strings.Builder
+	errs  strings.Builder // diagnostics, among them which source named the builders
 	o     Options
 	fn    func(c runcmd.Cmd) error
 }
@@ -27,6 +28,7 @@ func newH(t *testing.T, nodes string) *h {
 	x.o = Options{Nodes: nodes, Home: filepath.Join(dir, "home"), RunnerTemp: dir, GithubEnv: filepath.Join(dir, "env"), Dir: filepath.Join(dir, "ws")}
 	_ = os.MkdirAll(x.o.Dir, 0o755)
 	x.o.Out = &x.out
+	x.o.Err = &x.errs
 	x.o.Exec = func(_ context.Context, c runcmd.Cmd) error {
 		x.calls = append(x.calls, c.Name+" "+strings.Join(c.Args, " "))
 		if x.fn != nil {
@@ -125,7 +127,7 @@ func TestFailures(t *testing.T) {
 	// empty (only spaces are removed by the shell's test: a newline is not empty)
 	for _, n := range []string{"", "   "} {
 		x := newH(t, n)
-		if err := Run(context.Background(), x.o); !errors.Is(err, ErrFailed) || x.out.String() != "::error::remote-builders is empty — set the org variable or skip this step\n" || len(x.calls) != 0 {
+		if err := Run(context.Background(), x.o); !errors.Is(err, ErrFailed) || x.out.String() != "::error::remote-builders is empty — set the org variable, export CI_RUNNER_REMOTE_BUILDERS from the runner, or skip this step\n" || len(x.calls) != 0 {
 			t.Errorf("%q: %v %q", n, err, x.out.String())
 		}
 	}
@@ -178,5 +180,44 @@ func TestSplitEntry(t *testing.T) {
 		if p, e := splitEntry(in); p != want[0] || e != want[1] {
 			t.Errorf("%s: %q %q", in, p, e)
 		}
+	}
+}
+
+// The runner's own list wins over the caller's, and the log says which won.
+func TestRunnerNodesWin(t *testing.T) {
+	x := newH(t, "linux/arm64=tcp://caller:1234")
+	x.o.RunnerNodes = "linux/arm64=tcp://runner:1234\n"
+	x.fn = inspect("linux/arm64")
+	if err := Run(context.Background(), x.o); err != nil {
+		t.Fatal(err, x.out.String())
+	}
+	joined := strings.Join(x.calls, "\n")
+	if !strings.Contains(joined, "tcp://runner:1234") || strings.Contains(joined, "caller") {
+		t.Errorf("the runner's node must be registered, not the caller's:\n%s", joined)
+	}
+	if !strings.Contains(x.errs.String(), "(from the runner's CI_RUNNER_REMOTE_BUILDERS)") {
+		t.Errorf("the log must name the winning source:\n%s", x.errs.String())
+	}
+}
+
+// With no runner list nothing changes: the caller's wins and the log says so.
+func TestCallerNodesWithoutRunner(t *testing.T) {
+	x := newH(t, "linux/arm64=tcp://caller:1234")
+	x.fn = inspect("linux/arm64")
+	if err := Run(context.Background(), x.o); err != nil {
+		t.Fatal(err, x.out.String())
+	}
+	if !strings.Contains(strings.Join(x.calls, "\n"), "tcp://caller:1234") || !strings.Contains(x.errs.String(), "(from the caller's input or organisation variable)") {
+		t.Errorf("calls %v log %q", x.calls, x.errs.String())
+	}
+}
+
+// The runner may supply the list when the caller passes none.
+func TestRunnerNodesWithoutCaller(t *testing.T) {
+	x := newH(t, "")
+	x.o.RunnerNodes = "linux/arm64=tcp://runner:1234"
+	x.fn = inspect("linux/arm64")
+	if err := Run(context.Background(), x.o); err != nil {
+		t.Fatal(err, x.out.String())
 	}
 }

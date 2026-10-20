@@ -31,6 +31,11 @@
 # ~/.docker/config.json is forwarded to the builder at push time, so
 # log in BEFORE building, not before registering.
 #
+# WHICH nodes can also be the RUNNER's: a pool that reaches the builders by
+# names of its own (a Fargate task through a private gateway, where an ARC pod
+# uses in-cluster names) exports CI_RUNNER_REMOTE_BUILDERS in the same
+# format, and it wins over the input. The step logs which source won.
+#
 # The logic is the `ci-actions` binary's `remote-builders` command
 # (internal/remotebuilders, table-tested); this action is a thin wrapper that
 # finds that binary (release archive of the pinned tag, or built with Go) and
@@ -43,8 +48,11 @@ inputs:
   remote-builders:
     description: >-
       Builder nodes, whitespace-separated `platforms=endpoint` entries
-      (platforms comma-separated). From the caller's org variable.
-    required: true
+      (platforms comma-separated). From the caller's org variable. A runner
+      that exports CI_RUNNER_REMOTE_BUILDERS (same format) overrides it, and
+      then this input may be empty.
+    required: false
+    default: ""
 
 runs:
   using: composite

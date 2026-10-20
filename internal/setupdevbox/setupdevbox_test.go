@@ -651,3 +651,113 @@ func TestDevboxConfig(t *testing.T) {
 		}
 	}
 }
+
+// resolve runs the step with the caller's inputs and the runner's environment
+// and returns the step outputs and what it exported to GITHUB_ENV.
+func resolve(t *testing.T, caller, runner map[string]string) (outputs map[string]string, env string, log string, err error) {
+	t.Helper()
+	x := newH(t)
+	for k, v := range caller {
+		x.env[k] = v
+	}
+	for k, v := range runner {
+		x.env[k] = v
+	}
+	err = ResolveEndpoints(x.e())
+	outputs = map[string]string{}
+	// name<<DELIM, value, DELIM
+	lines := strings.Split(x.file("github_output"), "\n")
+	for i := 0; i+2 < len(lines); i += 3 {
+		name, _, _ := strings.Cut(lines[i], "<<")
+		outputs[name] = lines[i+1]
+		if lines[i+2] != strings.SplitN(lines[i], "<<", 2)[1] {
+			t.Fatalf("output %q is not delimited: %q", name, lines[i:i+3])
+		}
+	}
+	return outputs, x.file("github_env"), x.out.String(), err
+}
+
+func TestResolveEndpointsWithoutRunnerEnvIsTheCallers(t *testing.T) {
+	out, env, log, err := resolve(t, map[string]string{
+		"CALLER_GOPROXY": "https://proxy.example,direct", "CALLER_NPM_REGISTRY": "https://npm.example", "CALLER_BAZEL_REMOTE": "grpc://bazel.example:9092",
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for k, want := range map[string]string{
+		"goproxy": "https://proxy.example,direct", "goproxy-source": "caller",
+		"npm-registry": "https://npm.example", "npm-registry-source": "caller",
+		"bazel-remote": "grpc://bazel.example:9092", "bazel-remote-source": "caller",
+	} {
+		if out[k] != want {
+			t.Errorf("%s = %q, want %q", k, out[k], want)
+		}
+	}
+	if env != "" {
+		t.Errorf("nothing may be exported when the runner overrides nothing: %q", env)
+	}
+	if !strings.Contains(log, "goproxy: https://proxy.example,direct (from the caller's input or organisation variable)") {
+		t.Errorf("log: %s", log)
+	}
+}
+
+func TestResolveEndpointsRunnerWins(t *testing.T) {
+	out, env, log, err := resolve(t, map[string]string{
+		"CALLER_GOPROXY": "https://proxy.example", "CALLER_NPM_REGISTRY": "https://npm.example", "CALLER_BAZEL_REMOTE": "grpc://bazel.example:9092",
+	}, map[string]string{
+		"CI_RUNNER_GOPROXY": "https://gw.example/goproxy,direct", "CI_RUNNER_NPM_REGISTRY": "https://gw.example/npm\n", "CI_RUNNER_BAZEL_REMOTE_CACHE": "grpcs://gw.example:443",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for k, want := range map[string]string{
+		"goproxy": "https://gw.example/goproxy,direct", "goproxy-source": "runner",
+		"npm-registry": "https://gw.example/npm", "npm-registry-source": "runner",
+		"bazel-remote": "grpcs://gw.example:443", "bazel-remote-source": "runner",
+	} {
+		if out[k] != want {
+			t.Errorf("%s = %q, want %q", k, out[k], want)
+		}
+	}
+	// Only the bazel address is exported: recipes read it by name, and the
+	// workflow's job-level value (the caller's) must lose to the runner's.
+	if !strings.HasPrefix(env, "CI_BAZEL_REMOTE_CACHE<<EOF_") || !strings.Contains(env, "\ngrpcs://gw.example:443\n") || strings.Count(env, "<<") != 1 {
+		t.Errorf("GITHUB_ENV: %q", env)
+	}
+	if !strings.Contains(log, "(from the runner's CI_RUNNER_NPM_REGISTRY)") {
+		t.Errorf("log: %s", log)
+	}
+}
+
+func TestResolveEndpointsRunnerOverridesOneValueOnly(t *testing.T) {
+	out, _, _, err := resolve(t, map[string]string{"CALLER_GOPROXY": "https://proxy.example", "CALLER_NPM_REGISTRY": "https://npm.example"},
+		map[string]string{"CI_RUNNER_NPM_REGISTRY": "https://gw.example/npm"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out["goproxy"] != "https://proxy.example" || out["goproxy-source"] != "caller" || out["npm-registry"] != "https://gw.example/npm" {
+		t.Errorf("%v", out)
+	}
+	if out["bazel-remote"] != "" || out["bazel-remote-source"] != "unset" {
+		t.Errorf("an unset value stays unset: %v", out)
+	}
+}
+
+func TestResolveEndpointsLogsNoCredential(t *testing.T) {
+	_, _, log, err := resolve(t, nil, map[string]string{"CI_RUNNER_GOPROXY": "https://user:s3cret@gw.example/goproxy"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(log, "s3cret") || strings.Contains(log, "user:") || !strings.Contains(log, "https://gw.example/goproxy") {
+		t.Errorf("the log must show the address without its userinfo: %s", log)
+	}
+}
+
+func TestResolveEndpointsRefusesAMalformedRunnerValue(t *testing.T) {
+	for _, v := range []string{"https://a.example https://b.example", "https://a.example\nGOPROXY=evil"} {
+		_, env, log, err := resolve(t, map[string]string{"CALLER_GOPROXY": "https://proxy.example"}, map[string]string{"CI_RUNNER_GOPROXY": v})
+		if !errors.Is(err, ErrFailed) || !strings.Contains(log, "::error::CI_RUNNER_GOPROXY holds whitespace") || env != "" {
+			t.Errorf("%q: err %v log %q env %q", v, err, log, env)
+		}
+	}
+}

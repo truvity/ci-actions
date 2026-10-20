@@ -88,6 +88,36 @@ line per pin into the shared CI libraries and fails on an `UNTAGGED`
 one. A repository that calls ci-workflows' `check.yaml` already runs
 both.
 
+## Runner-provided overrides
+
+The cache endpoints are org-wide variables (`CI_GOPROXY`, `CI_NPM_REGISTRY`,
+`CI_BAZEL_REMOTE_CACHE`, `CI_REMOTE_BUILDERS`), one value for every runner a
+workflow may land on. A runner pool that reaches the same services by other
+names (a container-task pool going through a private gateway, where a Kubernetes
+pod uses in-cluster service names) would need a variable of its own. Instead the
+**runner exports its own value**, in the process environment of the runner (a pod
+spec, a task definition), and that wins:
+
+| the runner exports | overrides | read by |
+| -- | -- | -- |
+| `CI_RUNNER_GOPROXY` | the `goproxy` input | `setup-devbox` |
+| `CI_RUNNER_NPM_REGISTRY` | the `npm-registry` input | `setup-devbox`; the "Point npm and yarn" step of ci-workflows |
+| `CI_RUNNER_BAZEL_REMOTE_CACHE` | the `bazel-remote` input | `setup-devbox`; also exported to the job as `CI_BAZEL_REMOTE_CACHE` |
+| `CI_RUNNER_REMOTE_BUILDERS` | the `remote-builders` input | `setup-remote-builders`; the "Plan the remote builders" steps of ci-workflows |
+
+Precedence, per value: **runner environment, then the input (the caller's
+organisation variable), then the action's default.** With no `CI_RUNNER_*` set
+nothing changes. The names are distinct from the variables and inputs they
+override, so they never collide with them. Each step logs which source won and the
+address with any `user:password@` removed. A runner value holding whitespace or a
+control character (a list of builders may hold whitespace between entries) fails
+the step; a malformed value never falls back silently to the caller's.
+
+Example, for a pool whose gateway serves all four: `CI_RUNNER_GOPROXY=https://gateway.example/goproxy,direct`,
+`CI_RUNNER_NPM_REGISTRY=https://gateway.example/npm`,
+`CI_RUNNER_BAZEL_REMOTE_CACHE=grpcs://gateway.example:443`,
+`CI_RUNNER_REMOTE_BUILDERS="linux/amd64=tcp://builder.example:1234"`.
+
 ## Git LFS
 
 No action here checks out the repository: the caller does, with

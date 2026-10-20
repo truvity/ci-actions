@@ -64,17 +64,21 @@ inputs:
   goproxy:
     description: >-
       Go module proxy (the caller's CI_GOPROXY). Empty leaves Go's default.
+      A runner that exports CI_RUNNER_GOPROXY overrides it.
     default: ""
   npm-registry:
     description: >-
       Registry URL for Yarn/npm (the caller's CI_NPM_REGISTRY). Empty leaves
-      the repository's own. Checked against .yarnrc.yml, never written.
+      the repository's own. Checked against .yarnrc.yml, never written. A
+      runner that exports CI_RUNNER_NPM_REGISTRY overrides it.
     default: ""
   bazel-remote:
     description: >-
       gRPC address of a bazel-remote for moon's task cache (the caller's
       CI_BAZEL_REMOTE_CACHE). Empty leaves moon's own configuration alone.
-      Checked against .moon/workspace.yml, never written.
+      Checked against .moon/workspace.yml, never written. A runner that
+      exports CI_RUNNER_BAZEL_REMOTE_CACHE overrides it, and the winning value
+      is exported to the job as CI_BAZEL_REMOTE_CACHE.
     default: ""
   github-token:
     description: Token for proto's GitHub API resolution (rate limits).
@@ -413,6 +417,27 @@ runs:
     # This action keeps the WHEN -- which jobs get a cache at all -- and
     # setup-cache owns the HOW. Callers keep one pin, to this workflow, and
     # never name the cache action themselves.
+    #
+    # WHICH goproxy, npm registry and bazel-remote the job uses is decided one
+    # step earlier, and a RUNNER can decide it: a pool that reaches those
+    # services by names of its own exports CI_RUNNER_GOPROXY,
+    # CI_RUNNER_NPM_REGISTRY or CI_RUNNER_BAZEL_REMOTE_CACHE, and that wins
+    # over the input (the caller's organisation variable). With none of them
+    # set the inputs pass through unchanged. The step logs which source won.
+    # Resolved here, not inside setup-cache, so one release carries it: the
+    # nested action is pinned at an earlier release of this repository.
+    - name: Resolve the cache endpoints
+      id: endpoints
+      shell: bash
+      env:
+        CALLER_GOPROXY: ${{ inputs.goproxy }}
+        CALLER_NPM_REGISTRY: ${{ inputs.npm-registry }}
+        CALLER_BAZEL_REMOTE: ${{ inputs.bazel-remote }}
+        ACTION_PATH: ${{ github.action_path }}
+        ACTION_REPOSITORY: ${{ github.action_repository }}
+        ACTION_REF: ${{ github.action_ref }}
+      run: bash "$ACTION_PATH/run.sh" resolve-endpoints
+
     - name: Wire the fleet caches
       uses: truvity/ci-actions/setup-cache@d9438a810d56a6443228fba7c8cb814b93bf6bd9 # v3.0.0
       with:
@@ -420,12 +445,12 @@ runs:
         region: ${{ inputs.go-cache-region }}
         endpoint: ${{ inputs.go-cache-endpoint }}
         path-style: ${{ inputs.go-cache-path-style }}
-        goproxy: ${{ inputs.goproxy }}
-        npm-registry: ${{ inputs.npm-registry }}
-        bazel-remote: ${{ inputs.bazel-remote }}
+        goproxy: ${{ steps.endpoints.outputs.goproxy }}
+        npm-registry: ${{ steps.endpoints.outputs.npm-registry }}
+        bazel-remote: ${{ steps.endpoints.outputs.bazel-remote }}
 
     - name: Guard GOPROXY against devbox.json
-      if: inputs.goproxy != ''
+      if: steps.endpoints.outputs.goproxy != ''
       shell: bash
       env:
         ACTION_PATH: ${{ github.action_path }}
