@@ -73,6 +73,11 @@ func TestCacheSeam(t *testing.T) {
 	if out, err := run(t, good(), srv.URL); err != nil || out != "cache seam holds (5 cases checked)\n" {
 		t.Errorf("a good seam: %v %q", err, out)
 	}
+	// goproxy may cross through the step that resolves the runner's override.
+	viaEndpoints := action(t, "truvity/ci-actions/setup-cache@"+sha40, "        bucket: ${{ inputs.go-cache-bucket }}\n        region: ${{ inputs.go-cache-region }}\n        goproxy: ${{ steps.endpoints.outputs.goproxy }}", "echo hi", "")
+	if out, err := run(t, viaEndpoints, srv.URL); err != nil || out != "cache seam holds (5 cases checked)\n" {
+		t.Errorf("an input resolved by the endpoints step still crosses: %v %q", err, out)
+	}
 	for _, tc := range []struct {
 		name string
 		root func() string
