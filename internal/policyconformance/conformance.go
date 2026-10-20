@@ -35,6 +35,7 @@ type Options struct {
 	Reason           string // why; required whenever Skip is not empty
 	RenovatePreset   string // the preset C7 expects `extends` to name
 	DefaultBranch    string // the branch C5 finds the latest tag from
+	RunnerCode       string // "warn" makes a C18 finding a WARN; empty or anything else makes it a FAIL
 	GithubRepository string // owner/repo, for C11's repository name
 	SummaryPath      string // GITHUB_STEP_SUMMARY, "" for none
 	Out              io.Writer
@@ -44,7 +45,7 @@ type Options struct {
 }
 
 // Rules is the rule order.
-var Rules = []string{"C1", "C2", "C3", "C4", "C5", "C6", "C7", "C8", "C9", "C10", "C11", "C12", "C13"}
+var Rules = []string{"C1", "C2", "C3", "C4", "C5", "C6", "C7", "C8", "C9", "C10", "C11", "C12", "C13", "C18"}
 
 // README_HEADINGS: the headings C8 asks for, in this order. Other headings
 // may sit between them; these must all be present and must not be reordered.
@@ -70,6 +71,7 @@ type run struct {
 	ctx     context.Context
 	results []result
 	failed  int
+	warned  int
 }
 
 // ExitError carries the step's exit status.
@@ -143,6 +145,10 @@ func Run(ctx context.Context, o Options) error {
 		r.printf("policy-conformance: %d rule(s) failed; reported as warnings (strict: false)\n", r.failed)
 		return nil
 	}
+	if r.warned > 0 {
+		r.printf("policy-conformance: every evaluated rule passed (%d warning(s))\n", r.warned)
+		return nil
+	}
 	r.printf("policy-conformance: every evaluated rule passed\n")
 	return nil
 }
@@ -175,6 +181,8 @@ func (r *run) rule(id string) {
 		r.c12()
 	case "C13":
 		r.c13()
+	case "C18":
+		r.c18()
 	}
 }
 
@@ -183,6 +191,12 @@ func (r *run) printf(format string, a ...any) { fmt.Fprintf(r.o.Out, format, a..
 func (r *run) emit(id, verdict, msg string) {
 	r.printf("%s %s: %s\n", id, verdict, msg)
 	r.results = append(r.results, result{id, verdict, msg})
+	if verdict == "WARN" {
+		// A finding that does not fail the job, strict or not: the rule is
+		// still being introduced.
+		r.warned++
+		r.printf("::warning title=policy-conformance %s::%s\n", id, msg)
+	}
 	if verdict == "FAIL" {
 		r.failed++
 		if r.o.Strict == "true" {

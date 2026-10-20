@@ -1,7 +1,7 @@
 # policy-conformance
 
 Checks the calling repository's checkout against the component
-contract's checkable rules, C1 to C13, and prints one line per rule:
+contract's checkable rules, C1 to C13 and C18, and prints one line per rule:
 
 ```
 C1 PASS: 1 chart(s) commit version 0.0.0
@@ -35,8 +35,9 @@ Most repositories get it from ci-workflows' `check.yaml` by setting its
 | input | default | meaning |
 | -- | -- | -- |
 | `strict` | `false` | `true` fails the job on any failed rule. Otherwise each failure is a warning annotation and a job-summary row, and the step succeeds. |
-| `skip` | empty | Comma-separated rule IDs not to evaluate. Each prints as `SKIP` with `reason`. An ID outside C1 to C12 fails the step. |
+| `skip` | empty | Comma-separated rule IDs not to evaluate. Each prints as `SKIP` with `reason`. An ID outside C1 to C13 and C18 fails the step. |
 | `reason` | empty | Why. Required whenever `skip` is set. |
+| `runner-code` | `error` | How C18 reports. `error`: a finding is a `FAIL`, which `strict` gates. `warn`: a finding is a warning that never fails the job, `strict` or not. |
 | `renovate-preset` | `github>truvity/ci-workflows` | The one preset C7 expects `extends` to name. |
 | `working-directory` | `.` | The repository root to judge. |
 
@@ -61,6 +62,7 @@ binary (the rules are its `policy-conformance` command), and no token. Run it lo
 | C11 | no image name ends in the repository name one level below it (`<registry>/<owner>/<repo>/<repo>`) | names are built from `ko-docker-repo`/`image-repo` in `.github/workflows/release.yaml` and `repositories:` in `.goreleaser.yaml`, joined to the base of each `main:`; plus every `ghcr.io/...` written out in those files and in `charts/*/values.yaml` |
 | C12 | `README.md` never says `@latest` | |
 | C13 | no estate fact written as a default, and no internal ticket key in any tracked file | see below |
+| C18 | workflow and action YAML has no in-cluster service address, does not branch on `runner.environment`, and sets no static AWS credential | `FAIL` by default (`runner-code: error`); `runner-code: warn` makes it a WARN; see below |
 
 ### C13
 
@@ -105,6 +107,35 @@ under `C13:`, still works. Its checks and paths combine as a cross product
 paths), which is why the list form is preferred.
 
 Findings the exemption covers are dropped and the line says how many.
+
+### C18
+
+Workflow and action YAML must not know which runner it is on: the same file
+has to run on an ARC runner, a GitHub-hosted one and whatever pool comes
+next. It reads tracked `.github/workflows/*.yaml|yml` and every tracked
+`action.yaml|yml` (not under `tests/`, `test/`, `testdata/`, `fixtures/`,
+`golden/`, `node_modules/` or `vendor/`; comments are not read), and flags
+three things. Each finding is printed as `C18 <file>:<line>: <why>`.
+
+| kind | flags | not flagged |
+| -- | -- | -- |
+| `svc` | an in-cluster service address: `<svc>.<ns>.svc`, with or without the cluster domain after it. It resolves on one pool only; take it from an org variable | `.svc-x.example`, a `kubectl get svc` |
+| `runner` | `runner.environment` in an expression, or `$RUNNER_ENVIRONMENT` in a script: the job behaves differently on the two kinds of runner, and probing the capability is the portable form | |
+| `aws` | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` or `AWS_SESSION_TOKEN` assigned in env or a script, `secrets.AWS_...` of those names, or an `aws-access-key-id`, `aws-secret-access-key` or `aws-session-token` input. The identity is the runner's pod identity or the job's OIDC token | `AWS_ACCESS_KEY_ID: ""` (clearing the variable), `${AWS_ACCESS_KEY_ID:-}`, `[ "$AWS_ACCESS_KEY_ID" = "" ]` |
+
+It is an error by default (`runner-code: error`): each finding is a `FAIL`,
+which `strict` gates. `runner-code: warn` makes it a WARN instead, an
+annotation and a summary row that never fails the job, `strict: true`
+included. A repository that still has findings exempts them, per repository
+(the default was a warning until v3.0.0). An
+exemption names one reviewed exception, `paths:` being optional:
+
+```yaml
+exempt:
+  C18:
+    reason: the legacy cluster is addressed in-cluster, until it is retired
+    paths: [.github/workflows/legacy.yaml]   # shell globs; omit to cover every path
+```
 
 ## Tests
 
