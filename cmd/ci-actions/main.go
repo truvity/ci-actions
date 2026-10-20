@@ -174,9 +174,8 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, getenv fu
 			Mode: getenv("MODE"), FullDay: getenv("FULL_DAY"), ModuleDirs: getenv("MODULE_DIRS"),
 			GitUser: getenv("GIT_USER"), GitEmail: getenv("GIT_EMAIL"),
 			GoDLURL: getenv("CI_ACTIONS_GO_DL_URL"), APIURL: getenv("GITHUB_API_URL"),
-			GHBaseURL:  getenv("CI_ACTIONS_GH_DL_URL"),
-			RunnerTemp: getenv("RUNNER_TEMP"), GithubOutput: getenv("GITHUB_OUTPUT"), GithubPath: getenv("GITHUB_PATH"),
-			Environ: os.Environ(), Out: stdout, Err: stderr,
+			GithubOutput: getenv("GITHUB_OUTPUT"),
+			Environ:      os.Environ(), Out: stdout, Err: stderr,
 		})
 		switch {
 		case err == nil:

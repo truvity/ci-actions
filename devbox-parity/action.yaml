@@ -21,9 +21,9 @@
 # The logic is the `ci-actions` binary's `devbox-parity` command
 # (internal/devboxparity, table-tested); this action is a thin wrapper that
 # finds that binary (release archive of the pinned tag, or built with Go)
-# and runs it. devbox, git and gh stay executed commands. Everything
-# reaches the binary through env; the token is passed only to the
-# processes of the pull-request phase.
+# and runs it. devbox and git stay executed commands; the label, the pull
+# request and auto-merge go through the GitHub API, so the runner needs no
+# `gh` binary. Everything reaches the binary through env.
 name: devbox-parity
 description: Refresh devbox packages on the full day, align every follower to its devbox pin, and open one auto-merging pull request if anything moved.
 
