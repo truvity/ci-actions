@@ -48,11 +48,11 @@ fi
 
 for a in restore save; do
   f="$here/s3-cache/$a/action.yaml"
-  if grep -q "steps.s3.outputs.fallback == 'true'" "$f" && grep -q "runner.environment == 'self-hosted'" "$f" \
+  if grep -q "steps.s3.outputs.fallback == 'true'" "$f" && ! grep -q "runner.environment" "$f" \
     && grep -q "uses: actions/cache/$a@[0-9a-f]\{40\}" "$f"; then
-    ok "$a: falls back to a pinned actions/cache/$a off self-hosted, without a bucket, or without credentials"
+    ok "$a: falls back to a pinned actions/cache/$a without a bucket or without credentials, and never asks the runner type"
   else
-    bad "$a: fallback to a pinned actions/cache/$a is not wired as expected"
+    bad "$a: fallback to a pinned actions/cache/$a is not wired as expected (or the runner type is consulted)"
   fi
 done
 

@@ -6,9 +6,14 @@
 #
 # ONE root step remains, and only on a runner that has no nix: "Install nix"
 # below runs the nix installer, which needs root. It is skipped wherever nix
-# is baked into the runner image (the self-hosted pool, a restricted runner),
-# so it exists for GitHub-hosted runners alone, and preflight says so out loud
-# and refuses early when the runner can neither bake nix nor escalate.
+# is already on PATH (a runner image that bakes it: the ARC pool, an ECS
+# Fargate task, a restricted runner), so in practice it runs on GitHub-hosted
+# runners, and preflight says so out loud and refuses early when the runner
+# has no nix and cannot escalate.
+#
+# Nothing here asks what KIND of runner it is on. Each step is decided by what
+# the runner has or the caller configured: nix on PATH, devbox on PATH, a
+# .prototools in the tree, a cache bucket passed in.
 # devbox itself is the release binary in $RUNNER_TEMP/bin, checksum-verified,
 # with no privilege.
 # Checkout must precede this action — GitHub resolves repo-local
@@ -57,7 +62,19 @@ inputs:
       harmless where it is not. "true" to enable.
     default: ""
   goproxy:
-    description: In-cluster Go module proxy with a public fallback.
+    description: >-
+      Go module proxy (the caller's CI_GOPROXY). Empty leaves Go's default.
+    default: ""
+  npm-registry:
+    description: >-
+      Registry URL for Yarn/npm (the caller's CI_NPM_REGISTRY). Empty leaves
+      the repository's own. Checked against .yarnrc.yml, never written.
+    default: ""
+  bazel-remote:
+    description: >-
+      gRPC address of a bazel-remote for moon's task cache (the caller's
+      CI_BAZEL_REMOTE_CACHE). Empty leaves moon's own configuration alone.
+      Checked against .moon/workspace.yml, never written.
     default: ""
   github-token:
     description: Token for proto's GitHub API resolution (rate limits).
@@ -167,10 +184,10 @@ runs:
         ACTION_REPOSITORY: ${{ github.action_repository }}
         ACTION_REF: ${{ github.action_ref }}
       run: bash "$ACTION_PATH/run.sh" aws-config
-    # The runner image bakes nix (S3 substituter pre-configured in the
+    # A runner image may bake nix (S3 substituter pre-configured in the
     # baked nix.conf) and devbox: installing them again per job was the bulk
-    # of the bootstrap minute. GitHub-hosted runners (release jobs) have
-    # neither and keep the install path.
+    # of the bootstrap minute. Whatever is already on PATH is used; a runner
+    # with neither (a GitHub-hosted one) keeps the install path.
     - name: Detect baked tools
       id: baked
       shell: bash
@@ -181,14 +198,13 @@ runs:
       run: bash "$ACTION_PATH/run.sh" detect-baked
     - name: Install nix
       # THE ONE REMAINING ROOT STEP: the nix installer needs root. It runs
-      # only when nix is not baked (condition below), which is a
-      # GitHub-hosted runner; a runner that cannot escalate must bake nix, and
-      # preflight fails early, naming that, when it does not.
+      # only when nix is not already on PATH (condition below), which in
+      # practice is a GitHub-hosted runner; a runner that cannot escalate must
+      # bake nix, and preflight fails early, naming that, when it does not.
       #
-      # GitHub-hosted runners only (ARC runners bake nix, with the
-      # in-cluster read-through substituter in the baked nix.conf —
-      # unreachable from outside the VPC anyway, so hosted jobs just
-      # use the upstream cache directly).
+      # Where nix is baked (ARC, ECS Fargate) its nix.conf carries the
+      # estate's substituter; where it is installed here, the upstream cache
+      # is used directly.
       #
       # PLAIN upstream nix, NOT determinate-nix-action: every hosted
       # consumer of this composite is a RELEASE job, which must carry
@@ -253,12 +269,12 @@ runs:
       # silently neither restored nor saved ("Path Validation Error"
       # in every post step, goreleaser-pro re-downloaded every job).
       #
-      # On a self-hosted runner with a bucket this rides the bucket (the
-      # s3-cache wrapper in this repository), not GitHub's cache: the
-      # runners reach the bucket through a gateway endpoint, GitHub's cache
-      # through the NAT. Anywhere else, or when the bucket's credentials are
-      # unusable, the next step does what this step used to.
-      if: (inputs.proto == 'true' || (inputs.proto == 'auto' && steps.baked.outputs.prototools == 'true')) && inputs.go-cache-bucket != '' && runner.environment == 'self-hosted'
+      # With a bucket configured this rides the bucket (the s3-cache wrapper
+      # in this repository), not GitHub's cache: a runner that has one
+      # reaches it through a gateway endpoint, GitHub's cache through the
+      # NAT. With no bucket, or when the runner has no usable credentials for
+      # it, the next step does what this step used to.
+      if: (inputs.proto == 'true' || (inputs.proto == 'auto' && steps.baked.outputs.prototools == 'true')) && inputs.go-cache-bucket != ''
       shell: bash
       env:
         BUCKET: ${{ inputs.go-cache-bucket }}
@@ -273,7 +289,7 @@ runs:
       run: bash "$ACTION_PATH/../s3-cache/run.sh" restore
     - name: Cache proto toolchains
       id: proto-gh
-      if: (inputs.proto == 'true' || (inputs.proto == 'auto' && steps.baked.outputs.prototools == 'true')) && (inputs.go-cache-bucket == '' || runner.environment != 'self-hosted' || steps.proto-s3.outputs.fallback == 'true')
+      if: (inputs.proto == 'true' || (inputs.proto == 'auto' && steps.baked.outputs.prototools == 'true')) && (inputs.go-cache-bucket == '' || steps.proto-s3.outputs.fallback == 'true')
       uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: .proto
@@ -405,6 +421,8 @@ runs:
         endpoint: ${{ inputs.go-cache-endpoint }}
         path-style: ${{ inputs.go-cache-path-style }}
         goproxy: ${{ inputs.goproxy }}
+        npm-registry: ${{ inputs.npm-registry }}
+        bazel-remote: ${{ inputs.bazel-remote }}
 
     - name: Guard GOPROXY against devbox.json
       if: inputs.goproxy != ''

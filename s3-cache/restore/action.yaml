@@ -1,10 +1,10 @@
 name: s3-cache restore
 description: >-
   Restore a cache the way actions/cache/restore does, but from the CI cache
-  bucket when the job runs on a self-hosted runner and the caller passes the
-  bucket; GitHub's cache everywhere else. Fails open: a bucket that cannot be
-  reached is a cache miss, or a hand-off to GitHub's cache when the runner
-  has no credentials. Pair it with s3-cache/save. See ../README.md.
+  bucket when the caller passes one; GitHub's cache otherwise. Decided by
+  what is configured, not by the kind of runner. Fails open: a bucket that
+  cannot be reached is a cache miss, or a hand-off to GitHub's cache when the
+  runner has no credentials. Pair it with s3-cache/save. See ../README.md.
 
 inputs:
   path:
@@ -24,8 +24,9 @@ inputs:
   bucket:
     description: >-
       The CI cache bucket, from the CALLER's org variable (this repository is
-      public and never contains it). Empty, or a GitHub-hosted runner, uses
-      GitHub's cache.
+      public and never contains it). Empty uses GitHub's cache. Set, the
+      bucket is tried first, and a runner with no usable credentials hands
+      the same key to GitHub's cache.
     required: false
     default: ""
   region:
@@ -69,7 +70,7 @@ runs:
   using: composite
   steps:
     - id: s3
-      if: inputs.bucket != '' && runner.environment == 'self-hosted'
+      if: inputs.bucket != ''
       shell: bash
       env:
         BUCKET: ${{ inputs.bucket }}
@@ -87,7 +88,7 @@ runs:
       run: bash "$ACTION_PATH/../run.sh" restore
 
     - id: gh
-      if: inputs.bucket == '' || runner.environment != 'self-hosted' || steps.s3.outputs.fallback == 'true'
+      if: inputs.bucket == '' || steps.s3.outputs.fallback == 'true'
       uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: ${{ inputs.path }}
