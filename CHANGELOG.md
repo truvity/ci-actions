@@ -8,7 +8,7 @@ an untagged commit; `tagged-pins` refuses anything else.
 
 ### Changed
 
-- **Capability checks instead of `runner.environment` (INF-1696).** The actions no longer ask what kind of runner they are on; they decide by what is configured, so one code path serves ARC pods, ECS Fargate tasks and GitHub-hosted runners.
+- **Capability checks instead of `runner.environment`.** The actions no longer ask what kind of runner they are on; they decide by what is configured, so one code path serves ARC pods, ECS Fargate tasks and GitHub-hosted runners.
   - `s3-cache/restore` and `s3-cache/save`: the bucket is used when `bucket` is set (and the runner has credentials for it); otherwise GitHub's cache. The `runner.environment == 'self-hosted'` test is gone. A GitHub-hosted caller that passes a bucket now tries it (at most a 20 s credential lookup) and hands the key to GitHub's cache when there are no credentials.
   - `setup-devbox`: the proto toolchain cache follows the same rule (`go-cache-bucket` set, else `actions/cache`).
   - `setup-cache`: `usable` follows the bucket alone; the GitHub-hosted notice is gone. An empty bucket is a `::notice::` rather than a `::warning::`. The Yarn and moon checks no longer require a bucket. Takes effect in `setup-devbox` when its pin of `setup-cache` is bumped to this release.
