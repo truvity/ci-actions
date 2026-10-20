@@ -4,6 +4,12 @@ Every release of truvity/ci-actions, newest first. Pin the commit of a
 tag (`git rev-parse vX.Y.Z^{commit}`), never the tag object and never
 an untagged commit; `tagged-pins` refuses anything else.
 
+## v3.0.1
+
+### Fixed
+
+- **`setup-devbox`: the capability checks of v3.0.0 now take effect.** It pinned `setup-cache` at v1.18.0, so the bucket-only `usable` rule, the quieter empty-bucket notice and the Yarn and moon checks that no longer need a bucket were not what ran, and the `npm-registry` and `bazel-remote` inputs it forwards reached a `setup-cache` that does not declare them. The pin is v3.0.0 (`d9438a8`).
+
 ## v3.0.0
 
 ### Breaking
