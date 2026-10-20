@@ -34,6 +34,7 @@ import (
 	"github.com/truvity/ci-actions/internal/remotebuilders"
 	"github.com/truvity/ci-actions/internal/repocheck"
 	"github.com/truvity/ci-actions/internal/runcmd"
+	"github.com/truvity/ci-actions/internal/runnerenv"
 	"github.com/truvity/ci-actions/internal/s3cache"
 	"github.com/truvity/ci-actions/internal/setupdevbox"
 	"github.com/truvity/ci-actions/internal/stablemtimes"
@@ -58,14 +59,14 @@ Commands:
                        still a verbatim copy of the policy repository's, at its pinned tag)
   setup-devbox <step>  the setup-devbox action's steps: preflight, aws-config, detect-baked, strip-tools,
                        install-devbox, materialize, proto, expose-token, go-private, codeartifact,
-                       guard-goproxy, guard-aws (env: see setup-devbox/action.yaml)
+                       resolve-endpoints, guard-goproxy, guard-aws (env: see setup-devbox/action.yaml)
   recipe               run one task-runner recipe in devbox and assert a clean tree (env: RECIPE, COMMAND, DEVBOX_CONFIG)
   stable-mtimes        give every tracked file a content-derived modification time so Go's test cache can hit
                        after a fresh checkout (env: WORKDIR, default GITHUB_WORKSPACE, then the current directory)
   s3-cache <step>      restore | save: actions/cache semantics against the CI cache bucket, for a self-hosted
                        runner (env: BUCKET, REGION, ENDPOINT, PATH_STYLE, PREFIX, KEY, PATHS, RESTORE_KEYS,
                        GITHUB_REPOSITORY, GITHUB_OUTPUT)
-  remote-builders      register BuildKit builders as one buildx builder (env: NODES, plus
+  remote-builders      register BuildKit builders as one buildx builder (env: NODES, CI_RUNNER_REMOTE_BUILDERS wins over it, plus
                        HOME, RUNNER_TEMP, GITHUB_ENV)
   openbao-secrets      read one OpenBAO KV path as the job's own identity (env: ISSUER, ADDRESS,
                        KV_PATH, BAO_NAMESPACE, MOUNT, AUTH_MOUNT, ROLE, AUDIENCE, WANTED, CA_CERT,
@@ -227,7 +228,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, getenv fu
 		return s3CacheCmd(ctx, args[1:], stdout, stderr, getenv)
 	case "remote-builders":
 		err := remotebuilders.Run(ctx, remotebuilders.Options{
-			Nodes: getenv("NODES"), Home: getenv("HOME"), RunnerTemp: getenv("RUNNER_TEMP"), GithubEnv: getenv("GITHUB_ENV"),
+			Nodes: getenv("NODES"), RunnerNodes: getenv(runnerenv.RemoteBuilder), Home: getenv("HOME"), RunnerTemp: getenv("RUNNER_TEMP"), GithubEnv: getenv("GITHUB_ENV"),
 			Out: stdout, Err: stderr,
 		})
 		switch {
@@ -663,6 +664,8 @@ func setupDevbox(ctx context.Context, args []string, stdout, stderr io.Writer, g
 		err = setupdevbox.GoPrivate(ctx, e)
 	case "codeartifact":
 		err = setupdevbox.CodeArtifact(ctx, e)
+	case "resolve-endpoints":
+		err = setupdevbox.ResolveEndpoints(e)
 	case "guard-goproxy":
 		err = setupdevbox.GuardGoproxy(e)
 	case "guard-aws":

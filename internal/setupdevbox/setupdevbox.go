@@ -101,6 +101,18 @@ func (e Env) exportEnv(name, value string) error {
 	return appendTo(e.Getenv("GITHUB_ENV"), fmt.Sprintf("%s<<%s\n%s\n%s\n", name, d, value, d))
 }
 
+// setOutput writes a step output with the same random-delimiter heredoc as
+// exportEnv: GITHUB_OUTPUT is line-oriented too, so a value carrying a newline
+// would otherwise define a second output.
+func (e Env) setOutput(name, value string) error {
+	var r [16]byte
+	if _, err := rand.Read(r[:]); err != nil {
+		return err
+	}
+	d := "EOF_" + hex.EncodeToString(r[:])
+	return appendTo(e.Getenv("GITHUB_OUTPUT"), fmt.Sprintf("%s<<%s\n%s\n%s\n", name, d, value, d))
+}
+
 // retry is `for i in 1 2; do "$@" && return 0; echo "attempt $i failed;
 // sleeping"; sleep 20; done; "$@"`: two attempts with a pause, then a last one
 // whose status propagates.

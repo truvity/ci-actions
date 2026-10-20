@@ -13,6 +13,7 @@ import (
 
 	"github.com/truvity/ci-actions/internal/devboxconfig"
 	"github.com/truvity/ci-actions/internal/runcmd"
+	"github.com/truvity/ci-actions/internal/runnerenv"
 )
 
 // AWSConfig is "CI face of the AWS config": caller-supplied, because aws.ini
@@ -320,6 +321,59 @@ func GuardAWS(e Env) error {
 		}
 		if pinned := vals[key]; pinned != "" {
 			e.printf("::warning file=%s::%s sets env.%s (%s). devbox run re-applies that env block, so it overrides the CI AWS config and identity (OIDC) and build tooling such as the Go cache plugin loses its credentials. Set it in shell.init_hook with a fallback instead, e.g. export %s=\"${%s:-<default>}\".\n", file, file, key, pinned, key, key)
+		}
+	}
+	return nil
+}
+
+// ResolveEndpoints decides the Go module proxy, the npm registry and the
+// bazel-remote address the rest of the job uses, and says out loud which
+// source named each.
+//
+// Precedence, per value: the RUNNER's own environment (CI_RUNNER_GOPROXY,
+// CI_RUNNER_NPM_REGISTRY, CI_RUNNER_BAZEL_REMOTE_CACHE), then the caller's
+// input (itself usually the organisation variable CI_GOPROXY,
+// CI_NPM_REGISTRY, CI_BAZEL_REMOTE_CACHE), then nothing. One organisation
+// variable serves every runner of a tier; a pool that reaches the same
+// services by other names (a Fargate task through a private gateway, where an
+// ARC pod uses in-cluster names) exports its own, and wins. With no
+// CI_RUNNER_* set the outputs equal the inputs, so a caller that does not know
+// about this changes nothing.
+//
+// The effective values leave as step outputs, which the nested setup-cache is
+// handed instead of the raw inputs. When the runner's bazel-remote address
+// wins it is also exported as CI_BAZEL_REMOTE_CACHE, replacing the job-level
+// value a workflow sets from the caller's variable, because recipes read that
+// name. A malformed runner value fails the step: the pool would otherwise run
+// on an address nobody chose.
+//
+// Log lines carry the source and the address with any userinfo removed.
+func ResolveEndpoints(e Env) error {
+	e.defaults()
+	type ep struct {
+		what, runnerName, caller, output string
+		export                           string
+	}
+	for _, p := range []ep{
+		{"goproxy", runnerenv.Goproxy, e.Getenv("CALLER_GOPROXY"), "goproxy", ""},
+		{"npm registry", runnerenv.NpmRegistry, e.Getenv("CALLER_NPM_REGISTRY"), "npm-registry", ""},
+		{"bazel-remote", runnerenv.BazelRemote, e.Getenv("CALLER_BAZEL_REMOTE"), "bazel-remote", "CI_BAZEL_REMOTE_CACHE"},
+	} {
+		v, src, err := runnerenv.Pick(p.runnerName, e.Getenv(p.runnerName), p.caller, false)
+		if err != nil {
+			return e.fail("%v", err)
+		}
+		e.printf("%s\n", runnerenv.Describe(p.what, src, v, p.runnerName))
+		if err := e.setOutput(p.output, v); err != nil {
+			return err
+		}
+		if err := e.setOutput(p.output+"-source", string(src)); err != nil {
+			return err
+		}
+		if src == runnerenv.FromRunner && p.export != "" {
+			if err := e.exportEnv(p.export, v); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
