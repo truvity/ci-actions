@@ -155,6 +155,16 @@ has "$log" "::error::setup-remote-builders needs the ci-actions binary" \
   && ok "setup-remote-builders with no binary fails naming itself" \
   || bad "setup-remote-builders with no binary fails naming itself: $log"
 
+runbt() { (cd "$work/ws" && env -i HOME="$work" RUNNER_TEMP="$work/tmp" ACTION_PATH="$here/setup-buildkit-tls" "$@" bash "$here/setup-buildkit-tls/run.sh" 2>&1); }
+log=$(runbt PATH="$work/min" CI_ACTIONS_BIN="$work/stubdir/ci-actions" STUB_EXIT=0)
+has "$log" "stub ran: buildkit-tls LIBRARIES=unset" \
+  && ok "setup-buildkit-tls runs the binary as 'buildkit-tls'" \
+  || bad "setup-buildkit-tls runs the binary as 'buildkit-tls': $log"
+log=$(runbt PATH="$work/min")
+has "$log" "::error::setup-buildkit-tls needs the ci-actions binary" \
+  && ok "setup-buildkit-tls with no binary fails naming itself" \
+  || bad "setup-buildkit-tls with no binary fails naming itself: $log"
+
 runsd() { (cd "$work/ws" && env -i HOME="$work" RUNNER_TEMP="$work/tmp" ACTION_PATH="$here/setup-devbox" "$@" bash "$here/setup-devbox/run.sh" preflight 2>&1); }
 log=$(runsd PATH="$work/min" CI_ACTIONS_BIN="$work/stubdir/ci-actions" STUB_EXIT=0)
 has "$log" "stub ran: setup-devbox preflight LIBRARIES=unset" \

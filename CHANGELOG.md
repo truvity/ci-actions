@@ -4,6 +4,17 @@ Every release of truvity/ci-actions, newest first. Pin the commit of a
 tag (`git rev-parse vX.Y.Z^{commit}`), never the tag object and never
 an untagged commit; `tagged-pins` refuses anything else.
 
+## v3.2.0
+
+### Added
+
+- **`setup-buildkit-tls`: a BuildKit client certificate may be passed as PEM environment variables, not only as files in a directory.** A runner that gets the certificate from a secret store as environment variables (a container task) exports `CI_BUILDKIT_TLS_CA_PEM`, `CI_BUILDKIT_TLS_CERT_PEM` and `CI_BUILDKIT_TLS_KEY_PEM`; a runner with a mounted Secret keeps exporting `CI_BUILDKIT_TLS_DIR`. The new action (and `ci-actions buildkit-tls`) settles which:
+  - `CI_BUILDKIT_TLS_DIR` set: nothing changes.
+  - Unset, all three PEM variables set: each value is checked to be PEM of the right type (certificates for the CA and the client certificate, one unencrypted private key), written to a fresh directory under `$RUNNER_TEMP` (mode 0700) as `ca.pem`, `cert.pem` and `key.pem` (key mode 0600), and the directory is exported as `CI_BUILDKIT_TLS_DIR` to the later steps, so every consumer of the directory form works unchanged.
+  - Only some of the three, a value of the wrong type, an encrypted key or text that is not PEM: the step fails, naming the variable and never the value.
+  - No value is printed. The key is masked with `::add-mask::` line by line before anything else happens, and the log names only which source won.
+  - New package `internal/buildkittls` holds the rule. `setup-remote-builders` is unchanged. Callers run the new action before the step that reads `CI_BUILDKIT_TLS_DIR`.
+
 ## v3.1.0
 
 ### Added

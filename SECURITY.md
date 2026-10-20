@@ -15,7 +15,7 @@ Only the latest release is supported with security updates.
 
 This repository publishes:
 
-- The composite actions: `setup-devbox`, `recipe`, `public-runners`, `tagged-pins`, `policy-conformance`, `cluster`, `setup-remote-builders`, `openbao-secrets`, `fleet-discover`, `caller-parity` and `devbox-parity`.
+- The composite actions: `setup-devbox`, `recipe`, `public-runners`, `tagged-pins`, `policy-conformance`, `cluster`, `setup-remote-builders`, `setup-buildkit-tls`, `openbao-secrets`, `fleet-discover`, `caller-parity` and `devbox-parity`.
 - The kits under `caller-parity/kits/` that repositories are compared against.
 - Shell and script steps inside the actions, which run with the caller's job credentials.
 

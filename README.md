@@ -20,6 +20,7 @@ contract.
 | [`policy-conformance`](policy-conformance/README.md) | Checks a repository against the component contract, rules C1 to C13 and C18, one line per rule | `strict` (`false`), `skip`, `reason`, `runner-code` (`error`) | `check`, opt-in |
 | [`cluster`](cluster/README.md) | Stands up the end-to-end cluster (a disposable kind box, or a shared cluster) behind one set of outputs | `mode` (required), `policy-version`, `namespace`, `background` | `integration` (kind tier) |
 | [`setup-remote-builders`](setup-remote-builders/action.yaml) | Attaches the remote BuildKit builders a cross-architecture image build needs | `remote-builders` (required) | `integration` |
+| [`setup-buildkit-tls`](setup-buildkit-tls/action.yaml) | Settles where the runner's BuildKit client certificate comes from: `CI_BUILDKIT_TLS_DIR` as it is, or three PEM environment variables written to a fresh directory and exported as `CI_BUILDKIT_TLS_DIR` | none (reads the runner's environment) | before the "Plan the remote builders" steps (once adopted) |
 | [`openbao-secrets`](openbao-secrets/action.yaml) | Reads a job's third-party secrets from OpenBao at run time | `issuer`, `address`, `path` (required), `keys` | `release-private` |
 | [`token-exchange`](token-exchange/action.yaml) | Exchanges the job's GitHub identity token at a roster issuer for the clusters, cloud roles and GitHub App tokens its rules grant (curl and jq only, nothing downloaded) | `issuer` (required), `audiences`, `kubeconfig`, `default-profile`, `region`, `github-app`, `repositories`, `permissions` | `auto-release`, `renovate-fleet`, `parity-fleet`, `pkl-fleet` |
 | [`fleet-discover`](fleet-discover/action.yaml) | Decides which repositories a fleet job touches, and whether each default branch is gated | `token` (required), `estate`, `require-check`, `repositories` | `renovate-fleet`, `parity-fleet` |
@@ -117,6 +118,49 @@ Example, for a pool whose gateway serves all four: `CI_RUNNER_GOPROXY=https://ga
 `CI_RUNNER_NPM_REGISTRY=https://gateway.example/npm`,
 `CI_RUNNER_BAZEL_REMOTE_CACHE=grpcs://gateway.example:443`,
 `CI_RUNNER_REMOTE_BUILDERS="linux/amd64=tcp://builder.example:1234"`.
+
+## BuildKit client certificate
+
+The remote builders are dialled with mutual TLS when the runner provides a client
+certificate. The runner provides it in one of two forms, in its own process
+environment:
+
+| the runner exports | form | typical runner |
+| -- | -- | -- |
+| `CI_BUILDKIT_TLS_DIR` | a directory holding `ca.pem`, `cert.pem` and `key.pem` | a Kubernetes pod with a mounted Secret |
+| `CI_BUILDKIT_TLS_CA_PEM`, `CI_BUILDKIT_TLS_CERT_PEM`, `CI_BUILDKIT_TLS_KEY_PEM` | the three PEM documents as values | a container task with secrets injected as environment variables |
+
+`CI_BUILDKIT_TLS_SERVERNAME` (the certificate name the builders are verified
+against, when it is not the endpoint host) is separate and unchanged.
+
+The [`setup-buildkit-tls`](setup-buildkit-tls/action.yaml) action, run before the
+step that reads `CI_BUILDKIT_TLS_DIR`, makes the second form look like the first:
+
+1. `CI_BUILDKIT_TLS_DIR` is set: nothing changes, the PEM variables are ignored.
+2. It is unset and all three PEM variables are set: each value is checked to be
+   PEM of the right type (certificates for the CA and the client certificate, one
+   unencrypted private key), then written to a fresh directory under
+   `$RUNNER_TEMP` (mode 0700) as `ca.pem`, `cert.pem` and `key.pem` (key mode 0600),
+   and that directory is exported as `CI_BUILDKIT_TLS_DIR` to the later steps.
+3. Only some of the three are set: the step fails and names the missing ones. A
+   value of the wrong type, an encrypted key, or text that is not PEM fails it too,
+   naming the variable and never the value.
+4. None is set: nothing happens.
+
+No value is printed. The key is registered with `::add-mask::` line by line before
+anything else is written, the action takes no inputs (so the key never passes
+through an `env:` block that step debug logging would expand), and the log says
+only which source won: `TLS material from runner env` or `TLS material from
+CI_BUILDKIT_TLS_DIR`. The PEM variables stay in the runner's environment for the
+rest of the job; the files stay on the runner's disk for as long as the runner
+lives.
+
+```yaml
+      - uses: truvity/ci-actions/setup-buildkit-tls@<commit of a release tag>
+```
+
+The logic is `ci-actions buildkit-tls` (`internal/buildkittls`, table-tested).
+`setup-remote-builders` is unchanged: it does not read these variables.
 
 ## Git LFS
 
@@ -315,6 +359,7 @@ ci-actions publish-charts              # env CHARTS, CHART_ROOT, REGISTRY, APP_V
 ci-actions publish-nix-flakes          # env FLAKES, FLAKE_DIR, GITHUB_REPOSITORY, GITHUB_REF_NAME
 ci-actions auto-release gate           # env REPO, SHA, GITHUB_OUTPUT, GITHUB_STEP_SUMMARY
 ci-actions auto-release tag            # env PREFIX, BOT, REPO, BASE, HEADING_MODE, CHANGELOG, WAIT_MINUTES, VERSION_BUMP_COMMAND
+ci-actions buildkit-tls                # env CI_BUILDKIT_TLS_DIR, or CI_BUILDKIT_TLS_CA_PEM, _CERT_PEM and _KEY_PEM; RUNNER_TEMP, GITHUB_ENV
 ci-actions cluster kind                # also: fork-guard, wait, shared-connect, shared-finish
 ci-actions fleet pins --org example-org --org other-org \
     --min-setup-devbox v1.6.1 --json pins.json
