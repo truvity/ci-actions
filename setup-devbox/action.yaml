@@ -446,8 +446,13 @@ runs:
         endpoint: ${{ inputs.go-cache-endpoint }}
         path-style: ${{ inputs.go-cache-path-style }}
         goproxy: ${{ steps.endpoints.outputs.goproxy }}
-        npm-registry: ${{ steps.endpoints.outputs.npm-registry }}
-        bazel-remote: ${{ steps.endpoints.outputs.bazel-remote }}
+        # These two stay the caller's: setup-cache only compares them with
+        # the repository's own .yarnrc.yml and .moon/workspace.yml, which
+        # name the estate's address and could never name a runner's private
+        # one, so a runner override would turn a true check into a false
+        # warning. The runner's values reach the job another way (see above).
+        npm-registry: ${{ inputs.npm-registry }}
+        bazel-remote: ${{ inputs.bazel-remote }}
 
     - name: Guard GOPROXY against devbox.json
       if: steps.endpoints.outputs.goproxy != ''
