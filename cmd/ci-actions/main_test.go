@@ -160,3 +160,33 @@ func TestTokenInputsAndEnrolmentCLI(t *testing.T) {
 		t.Errorf("enrolment-list on an absent list: code %d", code)
 	}
 }
+
+func TestBuildkitTLSCLI(t *testing.T) {
+	pemOf := func(typ string) string {
+		return "-----BEGIN " + typ + "-----\nAAECAwQFBgcICQoLDA0ODw==\n-----END " + typ + "-----\n"
+	}
+	temp := t.TempDir()
+	envFile := filepath.Join(temp, "github_env")
+	good := map[string]string{
+		"CI_BUILDKIT_TLS_CA_PEM": pemOf("CERTIFICATE"), "CI_BUILDKIT_TLS_CERT_PEM": pemOf("CERTIFICATE"),
+		"CI_BUILDKIT_TLS_KEY_PEM": pemOf("PRIVATE KEY"), "RUNNER_TEMP": temp, "GITHUB_ENV": envFile,
+	}
+	code, out, errs := runCLI(t, good, "buildkit-tls")
+	if code != 0 || !strings.Contains(errs, "TLS material from runner env") {
+		t.Fatalf("exit %d, out %q, err %q", code, out, errs)
+	}
+	if b, _ := os.ReadFile(envFile); !strings.HasPrefix(string(b), "CI_BUILDKIT_TLS_DIR="+temp+"/buildkit-tls-") {
+		t.Fatalf("GITHUB_ENV = %q", b)
+	}
+	if !strings.Contains(out, "::add-mask::AAECAwQFBgcICQoLDA0ODw==") || strings.Contains(errs+strings.ReplaceAll(out, "::add-mask::AAECAwQFBgcICQoLDA0ODw==", ""), "AAECAwQF") {
+		t.Fatalf("the key must be masked and never printed: %q / %q", out, errs)
+	}
+
+	partial := map[string]string{"CI_BUILDKIT_TLS_KEY_PEM": pemOf("PRIVATE KEY"), "RUNNER_TEMP": temp}
+	if code, out, _ := runCLI(t, partial, "buildkit-tls"); code != 1 || !strings.Contains(out, "::error::the runner sets CI_BUILDKIT_TLS_KEY_PEM but not CI_BUILDKIT_TLS_CA_PEM") {
+		t.Fatalf("partial: exit %d, out %q", code, out)
+	}
+	if code, _, errs := runCLI(t, map[string]string{"CI_BUILDKIT_TLS_DIR": "/etc/tls"}, "buildkit-tls"); code != 0 || !strings.Contains(errs, "TLS material from CI_BUILDKIT_TLS_DIR") {
+		t.Fatalf("dir: exit %d, err %q", code, errs)
+	}
+}

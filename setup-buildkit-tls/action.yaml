@@ -1,0 +1,48 @@
+# Settle where the runner's BuildKit client certificate comes from, so that
+# every consumer of CI_BUILDKIT_TLS_DIR (a directory holding ca.pem, cert.pem
+# and key.pem) works for a runner that has no such directory.
+#
+# A runner provides the certificate for the CI plane's remote builders in one
+# of two forms, in its own process environment (a pod spec, a task definition):
+#
+#   CI_BUILDKIT_TLS_DIR                    a directory with ca.pem, cert.pem
+#                                          and key.pem (a mounted Secret)
+#   CI_BUILDKIT_TLS_CA_PEM,                the three PEM documents as values
+#   CI_BUILDKIT_TLS_CERT_PEM,              (container-task secrets)
+#   CI_BUILDKIT_TLS_KEY_PEM
+#
+#   1. CI_BUILDKIT_TLS_DIR is set: nothing changes.
+#   2. Unset, and all three PEM variables set: each is checked to be PEM of
+#      the right type (certificates, one unencrypted private key), written to
+#      a fresh directory under $RUNNER_TEMP (directory 0700, key 0600) as
+#      ca.pem, cert.pem and key.pem, and the directory is exported as
+#      CI_BUILDKIT_TLS_DIR to the later steps of the job.
+#   3. Only some of the three: the step fails and names which are missing.
+#   4. None of it: nothing happens (the builders are plain TCP).
+#
+# Run it BEFORE the step that reads CI_BUILDKIT_TLS_DIR (ci-workflows' "Plan
+# the remote builders"). CI_BUILDKIT_TLS_SERVERNAME is not touched.
+#
+# The key is registered with ::add-mask:: line by line before anything else is
+# written, and no value of the environment is ever printed; the log names only
+# which source won. The PEM variables stay in the runner's environment for the
+# rest of the job, as CI_BUILDKIT_TLS_DIR's files stay on its disk.
+#
+# The logic is the `ci-actions` binary's `buildkit-tls` command
+# (internal/buildkittls, table-tested); this action is a thin wrapper that
+# finds that binary (release archive of the pinned tag, or built with Go) and
+# runs it. It reads the runner's environment directly: it takes no input, so
+# the key never passes through an `env:` block or a step-debug dump.
+name: Setup BuildKit TLS
+description: Write a BuildKit client certificate passed as PEM environment variables to a directory and export it as CI_BUILDKIT_TLS_DIR
+
+runs:
+  using: composite
+  steps:
+    - name: Settle the BuildKit client certificate
+      shell: bash
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+        ACTION_REPOSITORY: ${{ github.action_repository }}
+        ACTION_REF: ${{ github.action_ref }}
+      run: bash "$ACTION_PATH/run.sh"

@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/truvity/ci-actions/internal/autorelease"
+	"github.com/truvity/ci-actions/internal/buildkittls"
 	"github.com/truvity/ci-actions/internal/callerparity"
 	"github.com/truvity/ci-actions/internal/cluster"
 	"github.com/truvity/ci-actions/internal/devboxparity"
@@ -68,6 +69,9 @@ Commands:
                        GITHUB_REPOSITORY, GITHUB_OUTPUT)
   remote-builders      register BuildKit builders as one buildx builder (env: NODES, CI_RUNNER_REMOTE_BUILDERS wins over it, plus
                        HOME, RUNNER_TEMP, GITHUB_ENV)
+  buildkit-tls         settle where the runner's BuildKit client certificate comes from: CI_BUILDKIT_TLS_DIR as it is, or the
+                       PEM variables CI_BUILDKIT_TLS_CA_PEM, _CERT_PEM and _KEY_PEM written to a fresh directory under
+                       RUNNER_TEMP and exported as CI_BUILDKIT_TLS_DIR (env: those four, plus RUNNER_TEMP, GITHUB_ENV)
   openbao-secrets      read one OpenBAO KV path as the job's own identity (env: ISSUER, ADDRESS,
                        KV_PATH, BAO_NAMESPACE, MOUNT, AUTH_MOUNT, ROLE, AUDIENCE, WANTED, CA_CERT,
                        SLUISCTL_MODE, GITHUB_OUTPUT)
@@ -239,6 +243,19 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, getenv fu
 		default:
 			fmt.Fprintln(stderr, "remote-builders:", err)
 			return runcmd.ExitCode(err)
+		}
+	case "buildkit-tls":
+		_, _, err := buildkittls.Run(buildkittls.Options{
+			Getenv: getenv, RunnerTemp: getenv("RUNNER_TEMP"), GithubEnv: getenv("GITHUB_ENV"), Out: stdout, Err: stderr,
+		})
+		switch {
+		case err == nil:
+			return 0
+		case errors.Is(err, buildkittls.ErrFailed):
+			return 1
+		default:
+			fmt.Fprintln(stderr, "buildkit-tls:", err)
+			return 1
 		}
 	case "openbao-secrets":
 		err := openbaosecrets.Run(ctx, openbaosecrets.Options{
