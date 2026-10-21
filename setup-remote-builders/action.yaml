@@ -36,6 +36,13 @@
 # uses in-cluster names) exports CI_RUNNER_REMOTE_BUILDERS in the same
 # format, and it wins over the input. The step logs which source won.
 #
+# Transport comes from the runner, not from an input: when it provides
+# CI_BUILDKIT_TLS_DIR (a directory with ca.pem, cert.pem and key.pem; run
+# setup-buildkit-tls first when it passes the PEM variables instead) every node
+# is registered with mutual TLS, and CI_BUILDKIT_TLS_SERVERNAME, when set, is the
+# certificate name the builders are verified against. Without it the nodes are
+# plain TCP.
+#
 # The logic is the `ci-actions` binary's `remote-builders` command
 # (internal/remotebuilders, table-tested); this action is a thin wrapper that
 # finds that binary (release archive of the pinned tag, or built with Go) and

@@ -221,3 +221,91 @@ func TestRunnerNodesWithoutCaller(t *testing.T) {
 		t.Fatal(err, x.out.String())
 	}
 }
+
+// tlsDir is a directory holding the three files a runner provides.
+func tlsDir(t *testing.T, files ...string) string {
+	dir := t.TempDir()
+	for _, f := range files {
+		if err := os.WriteFile(filepath.Join(dir, f), []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return dir
+}
+
+// With a client certificate directory every node, the first and the appended
+// ones alike, is registered with it; the server name is added when given.
+func TestMutualTLS(t *testing.T) {
+	dir := tlsDir(t, "ca.pem", "cert.pem", "key.pem")
+	x := newH(t, "linux/arm64=tcp://a:443 linux/amd64=tcp://b:443")
+	x.o.TLSDir = dir
+	x.o.TLSServername = "builders.example"
+	x.fn = inspect("linux/arm64, linux/amd64")
+	if err := Run(context.Background(), x.o); err != nil {
+		t.Fatal(err, x.out.String())
+	}
+	opt := "--driver-opt cacert=" + dir + "/ca.pem,cert=" + dir + "/cert.pem,key=" + dir + "/key.pem,servername=builders.example"
+	want := []string{
+		"docker buildx create --name ci --driver remote tcp://a:443 --platform linux/arm64 " + opt,
+		"docker buildx create --append --name ci --driver remote tcp://b:443 --platform linux/amd64 " + opt,
+	}
+	joined := strings.Join(x.calls, "\n")
+	for _, w := range want {
+		if !strings.Contains(joined, w) {
+			t.Errorf("missing %q in:\n%s", w, joined)
+		}
+	}
+	if !strings.Contains(x.errs.String(), "mutual TLS") {
+		t.Errorf("the log names the transport: %q", x.errs.String())
+	}
+}
+
+// Without a server name only the three files are passed.
+func TestMutualTLSWithoutServername(t *testing.T) {
+	dir := tlsDir(t, "ca.pem", "cert.pem", "key.pem")
+	x := newH(t, "linux/arm64=tcp://a:443")
+	x.o.TLSDir = dir
+	x.fn = inspect("linux/arm64")
+	if err := Run(context.Background(), x.o); err != nil {
+		t.Fatal(err, x.out.String())
+	}
+	joined := strings.Join(x.calls, "\n")
+	if !strings.Contains(joined, "--driver-opt cacert="+dir+"/ca.pem,cert="+dir+"/cert.pem,key="+dir+"/key.pem\n") || strings.Contains(joined, "servername") {
+		t.Errorf("calls:\n%s", joined)
+	}
+}
+
+// Without a directory the registration is exactly what it always was, even
+// when a server name is exported.
+func TestPlainTCPUnchangedWithoutTLSDir(t *testing.T) {
+	x := newH(t, "linux/arm64=tcp://a:1234")
+	x.o.TLSServername = "builders.example"
+	x.fn = inspect("linux/arm64")
+	if err := Run(context.Background(), x.o); err != nil {
+		t.Fatal(err, x.out.String())
+	}
+	joined := strings.Join(x.calls, "\n")
+	if strings.Contains(joined, "driver-opt") || !strings.Contains(joined, "docker buildx create --name ci --driver remote tcp://a:1234 --platform linux/arm64\n") {
+		t.Errorf("calls:\n%s", joined)
+	}
+	if !strings.Contains(x.errs.String(), "plain TCP") {
+		t.Errorf("the log names the transport: %q", x.errs.String())
+	}
+}
+
+func TestMutualTLSRefusals(t *testing.T) {
+	for name, tc := range map[string]struct {
+		dir, servername, msg string
+	}{
+		"relative dir":   {"relative/dir", "", "CI_BUILDKIT_TLS_DIR is not a plain absolute path"},
+		"odd characters": {"/tmp/a b", "", "CI_BUILDKIT_TLS_DIR is not a plain absolute path"},
+		"missing file":   {tlsDir(t, "ca.pem", "cert.pem"), "", "key.pem is not readable"},
+		"bad servername": {tlsDir(t, "ca.pem", "cert.pem", "key.pem"), "a,b=c", "CI_BUILDKIT_TLS_SERVERNAME is not a plain DNS name"},
+	} {
+		x := newH(t, "linux/arm64=tcp://a:443")
+		x.o.TLSDir, x.o.TLSServername = tc.dir, tc.servername
+		if err := Run(context.Background(), x.o); !errors.Is(err, ErrFailed) || !strings.Contains(x.out.String(), tc.msg) || len(x.calls) != 0 {
+			t.Errorf("%s: %v %q calls %v", name, err, x.out.String(), x.calls)
+		}
+	}
+}
