@@ -6,6 +6,11 @@
 // `platforms=endpoint`, whitespace-separated. Each platform builds on the node
 // that declares it, natively, on a hot layer cache. docker and buildx stay the
 // executed commands (through devbox when the project has one).
+//
+// Transport comes from the runner, not from the caller: when the runner
+// provides CI_BUILDKIT_TLS_DIR (a directory holding ca.pem, cert.pem and
+// key.pem, which setup-buildkit-tls writes from the PEM variables) every node
+// is dialled with mutual TLS; without it the nodes are plain TCP.
 package remotebuilders
 
 import (
@@ -15,6 +20,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/truvity/ci-actions/internal/runcmd"
@@ -34,12 +40,24 @@ type Options struct {
 	RunnerNodes string
 	Home        string // where ~/.docker/cli-plugins lives
 	RunnerTemp  string
+	// TLSDir is CI_BUILDKIT_TLS_DIR. Set, every node is registered with the
+	// client certificate in it (ca.pem, cert.pem, key.pem); empty, plain TCP.
+	TLSDir string
+	// TLSServername is CI_BUILDKIT_TLS_SERVERNAME: the certificate name the
+	// builders are verified against when it is not the endpoint host. Only
+	// read when TLSDir is set.
+	TLSServername string
 	GithubEnv   string
 	Dir         string // where devbox.json is looked for; "" is the working directory
 	Out         io.Writer
 	Err         io.Writer
 	Exec        runcmd.Exec
 }
+
+var (
+	plainDirPath    = regexp.MustCompile(`^/[A-Za-z0-9._/-]+$`)
+	plainServername = regexp.MustCompile(`^[A-Za-z0-9.-]+$`)
+)
 
 // ErrFailed marks a failure whose ::error:: line is already written.
 var ErrFailed = errors.New("remote-builders: failed")
@@ -68,6 +86,31 @@ func Run(ctx context.Context, o Options) error {
 		return fail("remote-builders is empty — set the org variable, export " + runnerenv.RemoteBuilder + " from the runner, or skip this step")
 	}
 	fmt.Fprintf(o.Err, "%s\n", runnerenv.Describe("remote builders", src, strings.Join(strings.Fields(nodes), " "), runnerenv.RemoteBuilder))
+
+	// The driver options that make a node mutual TLS. They are the same for
+	// every node, and every node needs them (buildx keeps them per node).
+	var tlsOpts []string
+	if o.TLSDir != "" {
+		if !plainDirPath.MatchString(o.TLSDir) {
+			return fail("CI_BUILDKIT_TLS_DIR is not a plain absolute path")
+		}
+		for _, f := range []string{"ca.pem", "cert.pem", "key.pem"} {
+			if _, err := os.Stat(filepath.Join(o.TLSDir, f)); err != nil {
+				return fail("CI_BUILDKIT_TLS_DIR is set but %s is not readable", filepath.Join(o.TLSDir, f))
+			}
+		}
+		opts := []string{"cacert=" + o.TLSDir + "/ca.pem", "cert=" + o.TLSDir + "/cert.pem", "key=" + o.TLSDir + "/key.pem"}
+		if o.TLSServername != "" {
+			if !plainServername.MatchString(o.TLSServername) {
+				return fail("CI_BUILDKIT_TLS_SERVERNAME is not a plain DNS name")
+			}
+			opts = append(opts, "servername="+o.TLSServername)
+		}
+		tlsOpts = []string{"--driver-opt", strings.Join(opts, ",")}
+		fmt.Fprintf(o.Err, "remote builders: mutual TLS, credentials from %s\n", o.TLSDir)
+	} else {
+		fmt.Fprintf(o.Err, "remote builders: plain TCP (CI_BUILDKIT_TLS_DIR is not set)\n")
+	}
 
 	// docker + buildx resolve from the job's PATH; through devbox when the
 	// project has one (a devbox docker only finds the plugins it can see,
@@ -112,6 +155,7 @@ func Run(ctx context.Context, o Options) error {
 			args = append(args, "--append")
 		}
 		args = append(args, "--name", builder, "--driver", "remote", endpoint, "--platform", platforms)
+		args = append(args, tlsOpts...)
 		if err := run(o.Out, o.Err, args...); err != nil {
 			return fmt.Errorf("docker buildx create: %w", err)
 		}

@@ -68,7 +68,8 @@ Commands:
                        runner (env: BUCKET, REGION, ENDPOINT, PATH_STYLE, PREFIX, KEY, PATHS, RESTORE_KEYS,
                        GITHUB_REPOSITORY, GITHUB_OUTPUT)
   remote-builders      register BuildKit builders as one buildx builder (env: NODES, CI_RUNNER_REMOTE_BUILDERS wins over it, plus
-                       HOME, RUNNER_TEMP, GITHUB_ENV)
+                       HOME, RUNNER_TEMP, GITHUB_ENV; mutual TLS when
+                       CI_BUILDKIT_TLS_DIR is set, with CI_BUILDKIT_TLS_SERVERNAME as the verified name, else plain TCP)
   buildkit-tls         settle where the runner's BuildKit client certificate comes from: CI_BUILDKIT_TLS_DIR as it is, or the
                        PEM variables CI_BUILDKIT_TLS_CA_PEM, _CERT_PEM and _KEY_PEM written to a fresh directory under
                        RUNNER_TEMP and exported as CI_BUILDKIT_TLS_DIR (env: those four, plus RUNNER_TEMP, GITHUB_ENV)
@@ -231,7 +232,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, getenv fu
 		return s3CacheCmd(ctx, args[1:], stdout, stderr, getenv)
 	case "remote-builders":
 		err := remotebuilders.Run(ctx, remotebuilders.Options{
-			Nodes: getenv("NODES"), RunnerNodes: getenv(runnerenv.RemoteBuilder), Home: getenv("HOME"), RunnerTemp: getenv("RUNNER_TEMP"), GithubEnv: getenv("GITHUB_ENV"),
+			Nodes: getenv("NODES"), RunnerNodes: getenv(runnerenv.RemoteBuilder), TLSDir: getenv("CI_BUILDKIT_TLS_DIR"), TLSServername: getenv("CI_BUILDKIT_TLS_SERVERNAME"), Home: getenv("HOME"), RunnerTemp: getenv("RUNNER_TEMP"), GithubEnv: getenv("GITHUB_ENV"),
 			Out: stdout, Err: stderr,
 		})
 		switch {

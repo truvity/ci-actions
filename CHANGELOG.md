@@ -4,6 +4,15 @@ Every release of truvity/ci-actions, newest first. Pin the commit of a
 tag (`git rev-parse vX.Y.Z^{commit}`), never the tag object and never
 an untagged commit; `tagged-pins` refuses anything else.
 
+## v3.4.0
+
+### Added
+
+- **`setup-remote-builders` registers the builders with mutual TLS when the runner provides a client certificate.** The step reads `CI_BUILDKIT_TLS_DIR` (a directory holding `ca.pem`, `cert.pem` and `key.pem`, the same variable `setup-buildkit-tls` exports) and, when it is set, creates every node, the first and the appended ones alike, with `--driver-opt cacert=…,cert=…,key=…`. An optional `CI_BUILDKIT_TLS_SERVERNAME` adds `servername=…`, the certificate name the builders are verified against when it is not the endpoint host (buildx defaults to the endpoint host). This is the registration the "Plan the remote builders" steps of ci-workflows already perform, now available to a caller that uses the action.
+  - With `CI_BUILDKIT_TLS_DIR` unset nothing changes: the nodes are plain TCP exactly as in v3.3.1, and the log says `plain TCP`. The action takes no new input; transport comes from the runner, as everywhere else.
+  - A directory that is not a plain absolute path, one missing any of the three files, or a server name that is not a plain DNS name fails the step before any builder is touched, naming the variable and never a value.
+  - To use it on a runner that provides the certificate as `CI_BUILDKIT_TLS_*_PEM` variables, run `setup-buildkit-tls` before `setup-remote-builders`.
+
 ## v3.3.1
 
 ### Fixed

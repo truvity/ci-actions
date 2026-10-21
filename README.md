@@ -19,7 +19,7 @@ contract.
 | [`tagged-pins`](tagged-pins/action.yaml) | Refuses a pin into the shared CI libraries that is not the commit of a tag | `libraries` (ci-workflows, ci-actions) | `check` |
 | [`policy-conformance`](policy-conformance/README.md) | Checks a repository against the component contract, rules C1 to C13 and C18, one line per rule | `strict` (`false`), `skip`, `reason`, `runner-code` (`error`) | `check`, opt-in |
 | [`cluster`](cluster/README.md) | Stands up the end-to-end cluster (a disposable kind box, or a shared cluster) behind one set of outputs | `mode` (required), `policy-version`, `namespace`, `background` | `integration` (kind tier) |
-| [`setup-remote-builders`](setup-remote-builders/action.yaml) | Attaches the remote BuildKit builders a cross-architecture image build needs | `remote-builders` (required) | `integration` |
+| [`setup-remote-builders`](setup-remote-builders/action.yaml) | Attaches the remote BuildKit builders a cross-architecture image build needs, over mutual TLS when the runner provides a client certificate | `remote-builders` (required) | `integration` |
 | [`setup-buildkit-tls`](setup-buildkit-tls/action.yaml) | Settles where the runner's BuildKit client certificate comes from: `CI_BUILDKIT_TLS_DIR` as it is, or three PEM environment variables written to a fresh directory and exported as `CI_BUILDKIT_TLS_DIR` | none (reads the runner's environment) | before the "Plan the remote builders" steps (once adopted) |
 | [`openbao-secrets`](openbao-secrets/action.yaml) | Reads a job's third-party secrets from OpenBao at run time | `issuer`, `address`, `path` (required), `keys` | `release-private` |
 | [`token-exchange`](token-exchange/action.yaml) | Exchanges the job's GitHub identity token at a roster issuer for the clusters, cloud roles and GitHub App tokens its rules grant (curl and jq only, nothing downloaded) | `issuer` (required), `audiences`, `kubeconfig`, `default-profile`, `region`, `github-app`, `repositories`, `permissions` | `auto-release`, `renovate-fleet`, `parity-fleet`, `pkl-fleet` |
@@ -160,7 +160,13 @@ lives.
 ```
 
 The logic is `ci-actions buildkit-tls` (`internal/buildkittls`, table-tested).
-`setup-remote-builders` is unchanged: it does not read these variables.
+
+[`setup-remote-builders`](setup-remote-builders/action.yaml) reads the result: with
+`CI_BUILDKIT_TLS_DIR` set, every node is registered with
+`--driver-opt cacert=…,cert=…,key=…` (plus `servername=…` from
+`CI_BUILDKIT_TLS_SERVERNAME` when that is set); with it unset the nodes are plain
+TCP, as before. It takes no input for this, so a caller changes nothing but the
+order: `setup-buildkit-tls` first when the runner passes the PEM variables.
 
 ## Git LFS
 
