@@ -10,6 +10,7 @@ require (
 	github.com/aws/smithy-go v1.28.5
 	github.com/klauspost/compress v1.20.3
 	go.yaml.in/yaml/v3 v3.0.5
+	software.sslmate.com/src/go-pkcs12 v0.7.4
 )
 
 require (
@@ -27,4 +28,5 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/sso v1.38.4 // indirect
 	github.com/aws/aws-sdk-go-v2/service/ssooidc v1.43.4 // indirect
 	github.com/aws/aws-sdk-go-v2/service/sts v1.51.4 // indirect
+	golang.org/x/crypto v0.58.0 // indirect
 )

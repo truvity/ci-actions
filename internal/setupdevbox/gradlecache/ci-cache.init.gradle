@@ -1,0 +1,94 @@
+// The estate's CI caches for Gradle, as an init script: this file is installed
+// into $GRADLE_USER_HOME/init.d by `setup-devbox` (truvity/ci-actions, the
+// gradle-cache step) on a runner whose cache answered, and by nothing else.
+//
+// It does nothing unless the runner exports the variables below, so a laptop
+// that finds it, or a build that runs before the step, is untouched.
+//
+//   CI_MAVEN_REGISTRY     the base of the Maven pull-through cache, with one
+//                         path per upstream: <base>/central, <base>/google,
+//                         <base>/gradle-plugins.
+//   CI_GRADLE_BUILD_CACHE the URL of the Gradle remote build cache, ending
+//                         where the key begins (.../gradle/cache/). Only
+//                         exported by a tier that may write it.
+//
+// DEPENDENCIES. The repositories a build DECLARES are rewritten, not
+// supplemented: mavenCentral(), google() and gradlePluginPortal() (and their
+// URLs) now point at the cache, in the build's own order and with the build's
+// own content filters, in buildscript, project, plugin management and
+// dependency resolution management repositories alike. A repository the cache
+// does not mirror (a private one) is left alone. Without a pluginManagement
+// repository Gradle would add the Plugin Portal itself, so it is added here.
+//
+// BUILD CACHE. The remote build cache is registered, with push on. Whether
+// builds USE a build cache stays the repository's decision (org.gradle.caching
+// in its gradle.properties, or --build-cache): this script never turns it on,
+// because a task that is not safe to cache must not become cached by a switch
+// that the repository did not throw.
+
+def trimSlash = { String s -> s.replaceAll('/+$', '') }
+
+def registry = System.getenv('CI_MAVEN_REGISTRY')?.trim()
+def buildCacheUrl = System.getenv('CI_GRADLE_BUILD_CACHE')?.trim()
+
+if (registry) {
+    def base = trimSlash(registry)
+    def insecure = base.startsWith('http://')
+    def mirrors = [
+        'https://repo.maven.apache.org/maven2': base + '/central',
+        'https://repo1.maven.org/maven2'      : base + '/central',
+        'https://dl.google.com/dl/android/maven2': base + '/google',
+        'https://maven.google.com'            : base + '/google',
+        'https://plugins.gradle.org/m2'       : base + '/gradle-plugins',
+    ]
+    def mirror = { repo ->
+        if (repo instanceof MavenArtifactRepository) {
+            def to = mirrors[trimSlash(repo.url.toString())]
+            if (to != null) {
+                repo.url = to
+                if (insecure) {
+                    repo.allowInsecureProtocol = true
+                }
+            }
+        }
+    }
+
+    beforeSettings { settings ->
+        settings.pluginManagement.repositories.all(mirror)
+        settings.dependencyResolutionManagement.repositories.all(mirror)
+        settings.buildscript.repositories.all(mirror)
+    }
+    settingsEvaluated { settings ->
+        if (settings.pluginManagement.repositories.isEmpty()) {
+            settings.pluginManagement.repositories {
+                maven {
+                    name = 'ciCachePluginPortal'
+                    url = base + '/gradle-plugins'
+                    allowInsecureProtocol = insecure
+                }
+            }
+        }
+    }
+    allprojects {
+        buildscript.repositories.all(mirror)
+        repositories.all(mirror)
+    }
+    gradle.rootProject { logger.lifecycle("ci-cache: dependencies and plugins through ${base}") }
+}
+
+if (buildCacheUrl) {
+    def cacheUrl = trimSlash(buildCacheUrl) + '/'
+    def insecureCache = cacheUrl.startsWith('http://')
+    settingsEvaluated { settings ->
+        settings.buildCache {
+            remote(HttpBuildCache) {
+                url = cacheUrl
+                push = true
+                allowInsecureProtocol = insecureCache
+            }
+        }
+    }
+    gradle.rootProject {
+        logger.lifecycle("ci-cache: remote build cache ${cacheUrl} (build cache ${gradle.startParameter.buildCacheEnabled ? 'on' : 'OFF: org.gradle.caching is not set, nothing is read or written'})")
+    }
+}

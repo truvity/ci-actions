@@ -17,6 +17,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"strings"
 	"time"
@@ -36,6 +37,9 @@ type Env struct {
 	Exec   runcmd.Exec
 	Sleep  func(time.Duration)
 	Now    func() time.Time
+	// HTTP is the client of the cache probes; nil is a client with a short
+	// timeout.
+	HTTP *http.Client
 }
 
 // ErrFailed marks a failure whose ::error:: line is already written.

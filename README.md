@@ -105,6 +105,8 @@ spec, a task definition), and that wins:
 | `CI_RUNNER_NPM_REGISTRY` | the `npm-registry` input | the "Point npm and yarn" steps of ci-workflows (`setup-devbox` logs it) |
 | `CI_RUNNER_BAZEL_REMOTE_CACHE` | the `bazel-remote` input | `setup-devbox`, which exports the winner to the job as `CI_BAZEL_REMOTE_CACHE` |
 | `CI_RUNNER_REMOTE_BUILDERS` | the `remote-builders` input | `setup-remote-builders`; the "Plan the remote builders" steps of ci-workflows |
+| `CI_RUNNER_MAVEN_REGISTRY` | the `maven-registry` input | `setup-devbox` ("Wire the Gradle caches"), which exports the winner to the job as `CI_MAVEN_REGISTRY` |
+| `CI_RUNNER_GRADLE_BUILD_CACHE` | the `gradle-build-cache` input | the same step; exported as `CI_GRADLE_BUILD_CACHE`. A tier that must not read a cache its jobs can write does not export it |
 
 Precedence, per value: **runner environment, then the input (the caller's
 organisation variable), then the action's default.** With no `CI_RUNNER_*` set
@@ -118,6 +120,41 @@ Example, for a pool whose gateway serves all four: `CI_RUNNER_GOPROXY=https://ga
 `CI_RUNNER_NPM_REGISTRY=https://gateway.example/npm`,
 `CI_RUNNER_BAZEL_REMOTE_CACHE=grpcs://gateway.example:443`,
 `CI_RUNNER_REMOTE_BUILDERS="linux/amd64=tcp://builder.example:1234"`.
+
+## Gradle caches
+
+`setup-devbox` points the Gradle builds of a job at the estate's caches when the
+runner (or, behind it, the `maven-registry` and `gradle-build-cache` inputs)
+names them: a Maven pull-through cache for the dependencies and plugins, and
+Gradle's remote build cache for task outputs. The step:
+
+1. picks each address as above and **probes it**: a `GET <address>/` must answer
+   200, which the cache does for exactly the front-ends it has enabled. A cache
+   that is down, does not resolve, is not trusted or is an older release is a
+   `::warning::` and nothing else: the job's builds use the public repositories
+   and no remote cache, as before this step existed;
+2. exports the addresses that answered as `CI_MAVEN_REGISTRY` and
+   `CI_GRADLE_BUILD_CACHE`;
+3. writes an **init script** to `$GRADLE_USER_HOME/init.d` (default
+   `~/.gradle/init.d`), which every Gradle build of the job reads, so a
+   repository changes nothing but its own `org.gradle.caching=true`. The script
+   rewrites the repositories the build declares (`mavenCentral()`, `google()`,
+   `gradlePluginPortal()`, in buildscript, project, plugin management and
+   dependency resolution management) to the cache, keeping their order, and
+   registers the HTTP remote build cache with push on. It does nothing without
+   the two variables, and it never turns the build cache on: that stays the
+   repository's decision, because a task that is not safe to cache must not become
+   cached by a switch the repository did not throw;
+4. for an `https` cache, writes a **PKCS12 trust store** made of the runner's OS
+   trust store (which holds the estate's private CA, installed on the image) and
+   names it in `$GRADLE_USER_HOME/gradle.properties` (`systemProp.javax.net.ssl.trustStore*`).
+   A JVM does not read the OS trust store, so without this every request to a cache
+   with a private certificate fails Gradle's TLS handshake although the probe, which
+   uses the OS store, passed. A user home that already names a trust store is left
+   alone, with a warning.
+
+A cache that dies in the middle of a job fails dependency resolution the way an
+unreachable repository does; the cache's pods are replicated for that.
 
 ## BuildKit client certificate
 
