@@ -107,6 +107,8 @@ spec, a task definition), and that wins:
 | `CI_RUNNER_REMOTE_BUILDERS` | the `remote-builders` input | `setup-remote-builders`; the "Plan the remote builders" steps of ci-workflows |
 | `CI_RUNNER_MAVEN_REGISTRY` | the `maven-registry` input | `setup-devbox` ("Wire the Gradle caches"), which exports the winner to the job as `CI_MAVEN_REGISTRY` |
 | `CI_RUNNER_GRADLE_BUILD_CACHE` | the `gradle-build-cache` input | the same step; exported as `CI_GRADLE_BUILD_CACHE`. A runner that names no build cache does not export it; each tier's runner names its own environment's |
+| `CI_RUNNER_GOCACHE_S3_BUCKET`, `CI_RUNNER_GOCACHE_S3_REGION` | the `go-cache-bucket` and `go-cache-region` inputs (the caller's endpoint and path style are dropped with them) | `setup-devbox` (proto cache, and `setup-cache` for the Go build cache), `s3-cache/restore` and `s3-cache/save`; the Go cache plugin also uses the runner's own identity for it, see below |
+| `CI_RUNNER_BUILDX_CACHE` | the `buildx-cache` input (the BuildKit registry cache, `<registry>/<repository>`) | `setup-remote-builders`, which exports the winner as `CI_BUILDX_CACHE`; the "Plan the remote builders" steps of ci-workflows |
 
 Precedence, per value: **runner environment, then the input (the caller's
 organisation variable), then the action's default.** With no `CI_RUNNER_*` set
@@ -115,6 +117,16 @@ override, so they never collide with them. Each step logs which source won and t
 address with any `user:password@` removed. A runner value holding whitespace or a
 control character (a list of builders may hold whitespace between entries) fails
 the step; a malformed value never falls back silently to the caller's.
+
+**One bucket per tier.** An organisation variable names one cache bucket, but an
+organisation can have two tiers of runners (preview and stable), each with a
+bucket and a BuildKit cache in its own account, and a stable job must neither
+read nor write the preview cache. The tier's runner exports its own
+`CI_RUNNER_GOCACHE_S3_*` and `CI_RUNNER_BUILDX_CACHE`; the caller's variable
+stays for runners that export none. A release job exports the keys of the AWS
+role it assumed; for the runner's own bucket the Go cache plugin is started
+without them, so it uses the runner's identity, which is the one the bucket's
+policy names (this applies only when the task has container credentials).
 
 Example, for a pool whose gateway serves all four: `CI_RUNNER_GOPROXY=https://gateway.example/goproxy,direct`,
 `CI_RUNNER_NPM_REGISTRY=https://gateway.example/npm`,

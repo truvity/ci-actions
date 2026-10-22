@@ -37,7 +37,10 @@ inputs:
   go-cache-bucket:
     description: >-
       Fleet Go build cache bucket. Comes from the CALLER's org variable —
-      this repository is public and must never contain it.
+      this repository is public and must never contain it. A runner that
+      exports CI_RUNNER_GOCACHE_S3_BUCKET (and CI_RUNNER_GOCACHE_S3_REGION)
+      overrides it, and then this input may be empty; the caller's endpoint
+      and path style are dropped with it, as they describe the caller's store.
     default: ""
   go-cache-region:
     default: ""
@@ -284,6 +287,32 @@ runs:
         ACTION_REF: ${{ github.action_ref }}
         DEVBOX_CONFIG: ${{ inputs.devbox-config }}
       run: bash "$ACTION_PATH/run.sh" materialize
+    # WHICH cache endpoints and bucket the job uses is decided here, before the first
+    # step that reads one (the proto toolchain cache below), and a RUNNER can decide
+    # it: a pool that reaches the caches by names of its own exports
+    # CI_RUNNER_GOPROXY, CI_RUNNER_NPM_REGISTRY, CI_RUNNER_BAZEL_REMOTE_CACHE, and
+    # a pool that has a cache bucket of its own (a preview and a stable tier each
+    # have one) CI_RUNNER_GOCACHE_S3_BUCKET and CI_RUNNER_GOCACHE_S3_REGION. Each wins
+    # over the input (the caller's organisation variable). With none of them set the
+    # inputs pass through unchanged. The step logs which source won. Resolved here,
+    # not inside setup-cache, so one release carries it: the nested action is pinned
+    # at an earlier release of this repository.
+    - name: Resolve the cache endpoints
+      id: endpoints
+      shell: bash
+      env:
+        CALLER_GOPROXY: ${{ inputs.goproxy }}
+        CALLER_NPM_REGISTRY: ${{ inputs.npm-registry }}
+        CALLER_BAZEL_REMOTE: ${{ inputs.bazel-remote }}
+        CALLER_GO_CACHE_BUCKET: ${{ inputs.go-cache-bucket }}
+        CALLER_GO_CACHE_REGION: ${{ inputs.go-cache-region }}
+        CALLER_GO_CACHE_ENDPOINT: ${{ inputs.go-cache-endpoint }}
+        CALLER_GO_CACHE_PATH_STYLE: ${{ inputs.go-cache-path-style }}
+        ACTION_PATH: ${{ github.action_path }}
+        ACTION_REPOSITORY: ${{ github.action_repository }}
+        ACTION_REF: ${{ github.action_ref }}
+      run: bash "$ACTION_PATH/run.sh" resolve-endpoints
+
     - name: Restore proto toolchains from the CI cache bucket
       id: proto-s3
       # proto downloads toolchains from GitHub releases/upstreams — no
@@ -302,13 +331,13 @@ runs:
       # reaches it through a gateway endpoint, GitHub's cache through the
       # NAT. With no bucket, or when the runner has no usable credentials for
       # it, the next step does what this step used to.
-      if: (inputs.proto == 'true' || (inputs.proto == 'auto' && steps.baked.outputs.prototools == 'true')) && inputs.go-cache-bucket != ''
+      if: (inputs.proto == 'true' || (inputs.proto == 'auto' && steps.baked.outputs.prototools == 'true')) && steps.endpoints.outputs.go-cache-bucket != ''
       shell: bash
       env:
-        BUCKET: ${{ inputs.go-cache-bucket }}
-        REGION: ${{ inputs.go-cache-region }}
-        ENDPOINT: ${{ inputs.go-cache-endpoint }}
-        PATH_STYLE: ${{ inputs.go-cache-path-style }}
+        BUCKET: ${{ steps.endpoints.outputs.go-cache-bucket }}
+        REGION: ${{ steps.endpoints.outputs.go-cache-region }}
+        ENDPOINT: ${{ steps.endpoints.outputs.go-cache-endpoint }}
+        PATH_STYLE: ${{ steps.endpoints.outputs.go-cache-path-style }}
         KEY: proto-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.prototools') }}
         PATHS: .proto
         ACTION_PATH: ${{ github.action_path }}
@@ -317,7 +346,7 @@ runs:
       run: bash "$ACTION_PATH/../s3-cache/run.sh" restore
     - name: Cache proto toolchains
       id: proto-gh
-      if: (inputs.proto == 'true' || (inputs.proto == 'auto' && steps.baked.outputs.prototools == 'true')) && (inputs.go-cache-bucket == '' || steps.proto-s3.outputs.fallback == 'true')
+      if: (inputs.proto == 'true' || (inputs.proto == 'auto' && steps.baked.outputs.prototools == 'true')) && (steps.endpoints.outputs.go-cache-bucket == '' || steps.proto-s3.outputs.fallback == 'true')
       uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: .proto
@@ -344,10 +373,10 @@ runs:
       if: (inputs.proto == 'true' || (inputs.proto == 'auto' && steps.baked.outputs.prototools == 'true')) && steps.proto-s3.outcome == 'success' && steps.proto-s3.outputs.fallback != 'true' && steps.proto-s3.outputs.cache-hit != 'true'
       shell: bash
       env:
-        BUCKET: ${{ inputs.go-cache-bucket }}
-        REGION: ${{ inputs.go-cache-region }}
-        ENDPOINT: ${{ inputs.go-cache-endpoint }}
-        PATH_STYLE: ${{ inputs.go-cache-path-style }}
+        BUCKET: ${{ steps.endpoints.outputs.go-cache-bucket }}
+        REGION: ${{ steps.endpoints.outputs.go-cache-region }}
+        ENDPOINT: ${{ steps.endpoints.outputs.go-cache-endpoint }}
+        PATH_STYLE: ${{ steps.endpoints.outputs.go-cache-path-style }}
         KEY: proto-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.prototools') }}
         PATHS: .proto
         ACTION_PATH: ${{ github.action_path }}
@@ -442,26 +471,6 @@ runs:
     # setup-cache owns the HOW. Callers keep one pin, to this workflow, and
     # never name the cache action themselves.
     #
-    # WHICH goproxy, npm registry and bazel-remote the job uses is decided one
-    # step earlier, and a RUNNER can decide it: a pool that reaches those
-    # services by names of its own exports CI_RUNNER_GOPROXY,
-    # CI_RUNNER_NPM_REGISTRY or CI_RUNNER_BAZEL_REMOTE_CACHE, and that wins
-    # over the input (the caller's organisation variable). With none of them
-    # set the inputs pass through unchanged. The step logs which source won.
-    # Resolved here, not inside setup-cache, so one release carries it: the
-    # nested action is pinned at an earlier release of this repository.
-    - name: Resolve the cache endpoints
-      id: endpoints
-      shell: bash
-      env:
-        CALLER_GOPROXY: ${{ inputs.goproxy }}
-        CALLER_NPM_REGISTRY: ${{ inputs.npm-registry }}
-        CALLER_BAZEL_REMOTE: ${{ inputs.bazel-remote }}
-        ACTION_PATH: ${{ github.action_path }}
-        ACTION_REPOSITORY: ${{ github.action_repository }}
-        ACTION_REF: ${{ github.action_ref }}
-      run: bash "$ACTION_PATH/run.sh" resolve-endpoints
-
     # Gradle: the Maven pull-through cache and the remote build cache, by an init
     # script in the Gradle user home. Probed first and fail-open, like the rest:
     # a cache that does not answer is a warning and the build uses the public
@@ -476,13 +485,16 @@ runs:
         ACTION_REF: ${{ github.action_ref }}
       run: bash "$ACTION_PATH/run.sh" gradle-cache
 
+    # WHICH goproxy, npm registry, bazel-remote and bucket the job uses is decided
+    # by "Resolve the cache endpoints" above, and a RUNNER can decide it (see
+    # there). The bucket and its region go on to setup-cache as resolved.
     - name: Wire the fleet caches
       uses: truvity/ci-actions/setup-cache@d9438a810d56a6443228fba7c8cb814b93bf6bd9 # v3.0.0
       with:
-        bucket: ${{ inputs.go-cache-bucket }}
-        region: ${{ inputs.go-cache-region }}
-        endpoint: ${{ inputs.go-cache-endpoint }}
-        path-style: ${{ inputs.go-cache-path-style }}
+        bucket: ${{ steps.endpoints.outputs.go-cache-bucket }}
+        region: ${{ steps.endpoints.outputs.go-cache-region }}
+        endpoint: ${{ steps.endpoints.outputs.go-cache-endpoint }}
+        path-style: ${{ steps.endpoints.outputs.go-cache-path-style }}
         goproxy: ${{ steps.endpoints.outputs.goproxy }}
         # These two stay the caller's: setup-cache only compares them with
         # the repository's own .yarnrc.yml and .moon/workspace.yml, which

@@ -761,3 +761,63 @@ func TestResolveEndpointsRefusesAMalformedRunnerValue(t *testing.T) {
 		}
 	}
 }
+
+func TestResolveEndpointsStoreIsTheCallersWithoutRunnerEnv(t *testing.T) {
+	out, env, log, err := resolve(t, map[string]string{
+		"CALLER_GO_CACHE_BUCKET": "devel-bucket", "CALLER_GO_CACHE_REGION": "eu-central-1",
+		"CALLER_GO_CACHE_ENDPOINT": "https://r2.example", "CALLER_GO_CACHE_PATH_STYLE": "true",
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for k, want := range map[string]string{
+		"go-cache-bucket": "devel-bucket", "go-cache-bucket-source": "caller", "go-cache-region": "eu-central-1",
+		"go-cache-endpoint": "https://r2.example", "go-cache-path-style": "true",
+	} {
+		if out[k] != want {
+			t.Errorf("%s = %q, want %q", k, out[k], want)
+		}
+	}
+	if env != "" {
+		t.Errorf("nothing is exported: %q", env)
+	}
+	if !strings.Contains(log, "go cache bucket: devel-bucket (from the caller's input or organisation variable)") {
+		t.Errorf("log: %s", log)
+	}
+}
+
+func TestResolveEndpointsRunnerBucketWinsAndDropsTheCallersEndpoint(t *testing.T) {
+	out, _, log, err := resolve(t, map[string]string{
+		"CALLER_GO_CACHE_BUCKET": "devel-bucket", "CALLER_GO_CACHE_REGION": "eu-west-1",
+		"CALLER_GO_CACHE_ENDPOINT": "https://r2.example", "CALLER_GO_CACHE_PATH_STYLE": "true",
+	}, map[string]string{"CI_RUNNER_GOCACHE_S3_BUCKET": "kernel-bucket\n", "CI_RUNNER_GOCACHE_S3_REGION": "eu-central-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for k, want := range map[string]string{
+		"go-cache-bucket": "kernel-bucket", "go-cache-bucket-source": "runner", "go-cache-region": "eu-central-1",
+		"go-cache-endpoint": "", "go-cache-path-style": "",
+	} {
+		if out[k] != want {
+			t.Errorf("%s = %q, want %q", k, out[k], want)
+		}
+	}
+	if !strings.Contains(log, "(from the runner's CI_RUNNER_GOCACHE_S3_BUCKET)") {
+		t.Errorf("log: %s", log)
+	}
+}
+
+func TestResolveEndpointsRunnerBucketWorksWithNoCallerInputs(t *testing.T) {
+	// release-private passes no go-cache inputs at all: the runner's bucket alone wires the cache.
+	out, _, _, err := resolve(t, nil, map[string]string{"CI_RUNNER_GOCACHE_S3_BUCKET": "kernel-bucket", "CI_RUNNER_GOCACHE_S3_REGION": "eu-central-1"})
+	if err != nil || out["go-cache-bucket"] != "kernel-bucket" || out["go-cache-region"] != "eu-central-1" {
+		t.Errorf("%v %v", out, err)
+	}
+}
+
+func TestResolveEndpointsRefusesAMalformedRunnerBucket(t *testing.T) {
+	_, _, log, err := resolve(t, map[string]string{"CALLER_GO_CACHE_BUCKET": "devel-bucket"}, map[string]string{"CI_RUNNER_GOCACHE_S3_BUCKET": "a b"})
+	if !errors.Is(err, ErrFailed) || !strings.Contains(log, "::error::CI_RUNNER_GOCACHE_S3_BUCKET holds whitespace") {
+		t.Errorf("err %v log %q", err, log)
+	}
+}

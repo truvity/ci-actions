@@ -135,6 +135,11 @@ jobs:
       - name: setup-cache cases
         run: ./hack/setup-cases.sh
 
+      # gocacheprog: the runner's own bucket is served by the runner's own
+      # identity, not by the keys a release job exported.
+      - name: gocacheprog runner cases
+        run: ./hack/gocacheprog-runner-cases.sh
+
       # s3-cache: the wrapper against a stub binary, and the fallback wiring
       # of both actions. The cache itself is Go tests above.
       - name: s3-cache cases
