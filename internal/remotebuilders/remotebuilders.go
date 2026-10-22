@@ -55,6 +55,12 @@ type Options struct {
 	// workflow put it.
 	BuildxCache       string
 	RunnerBuildxCache string
+	// RunnerCacheWrites is CI_RUNNER_CACHE_WRITES. With "release-credentials" the
+	// runner's identity only pulls the BuildKit cache, so CI_BUILDX_CACHE (which
+	// consumers turn into both --cache-from and --cache-to) is NOT exported: the
+	// release workflow sets it after it assumed its role. CI_BUILDX_CACHE_FROM,
+	// the read reference, is always exported.
+	RunnerCacheWrites string
 	GithubEnv         string
 	Dir               string // where devbox.json is looked for; "" is the working directory
 	Out               io.Writer
@@ -211,8 +217,12 @@ func Run(ctx context.Context, o Options) error {
 			return err
 		}
 		fmt.Fprintf(ef, "BUILDX_BUILDER=%s\n", builder)
-		if csrc == runnerenv.FromRunner {
-			// Validated above: one line, no whitespace.
+		// Validated above (a runner's value): one line, no whitespace. The
+		// caller's own value is the workflow's business, as before.
+		if from := strings.TrimSpace(cache); csrc != runnerenv.Unset && registryRef.MatchString(from) {
+			fmt.Fprintf(ef, "CI_BUILDX_CACHE_FROM=%s\n", from)
+		}
+		if csrc == runnerenv.FromRunner && !runnerenv.WritesNeedJobCredentials(o.RunnerCacheWrites) {
 			fmt.Fprintf(ef, "CI_BUILDX_CACHE=%s\n", cache)
 		}
 		return ef.Close()

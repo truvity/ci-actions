@@ -318,7 +318,7 @@ func TestRunnerBuildxCacheWinsAndIsExported(t *testing.T) {
 	if err := Run(context.Background(), x.o); err != nil {
 		t.Fatal(err)
 	}
-	if b, _ := os.ReadFile(x.o.GithubEnv); string(b) != "BUILDX_BUILDER=ci\nCI_BUILDX_CACHE=registry-b.example.test/ci/buildkit-cache\n" {
+	if b, _ := os.ReadFile(x.o.GithubEnv); string(b) != "BUILDX_BUILDER=ci\nCI_BUILDX_CACHE_FROM=registry-b.example.test/ci/buildkit-cache\nCI_BUILDX_CACHE=registry-b.example.test/ci/buildkit-cache\n" {
 		t.Errorf("env %q", b)
 	}
 	if !strings.Contains(x.errs.String(), "buildkit cache: registry-b.example.test/ci/buildkit-cache (from the runner's CI_RUNNER_BUILDX_CACHE)") {
@@ -333,8 +333,34 @@ func TestCallersBuildxCacheIsLeftWhereTheWorkflowPutIt(t *testing.T) {
 	if err := Run(context.Background(), x.o); err != nil {
 		t.Fatal(err)
 	}
-	if b, _ := os.ReadFile(x.o.GithubEnv); string(b) != "BUILDX_BUILDER=ci\n" {
+	if b, _ := os.ReadFile(x.o.GithubEnv); string(b) != "BUILDX_BUILDER=ci\nCI_BUILDX_CACHE_FROM=registry-a.example.test/ci/buildkit-cache\n" {
 		t.Errorf("env %q", b)
+	}
+}
+
+func TestReleaseCredentialsRunnerExportsOnlyTheReadReference(t *testing.T) {
+	for name, tc := range map[string]struct{ runner, caller, writes, want string }{
+		"runner cache, writes need release credentials": {"registry-b.example.test/ci/buildkit-cache", "", "release-credentials",
+			"BUILDX_BUILDER=ci\nCI_BUILDX_CACHE_FROM=registry-b.example.test/ci/buildkit-cache\n"},
+		"runner cache over the caller's": {"registry-b.example.test/ci/buildkit-cache", "registry-a.example.test/ci/buildkit-cache", " release-credentials\n",
+			"BUILDX_BUILDER=ci\nCI_BUILDX_CACHE_FROM=registry-b.example.test/ci/buildkit-cache\n"},
+		"an unknown value narrows nothing": {"registry-b.example.test/ci/buildkit-cache", "", "something-else",
+			"BUILDX_BUILDER=ci\nCI_BUILDX_CACHE_FROM=registry-b.example.test/ci/buildkit-cache\nCI_BUILDX_CACHE=registry-b.example.test/ci/buildkit-cache\n"},
+		"no variable, runner cache": {"registry-b.example.test/ci/buildkit-cache", "", "",
+			"BUILDX_BUILDER=ci\nCI_BUILDX_CACHE_FROM=registry-b.example.test/ci/buildkit-cache\nCI_BUILDX_CACHE=registry-b.example.test/ci/buildkit-cache\n"},
+		"the caller's cache only": {"", "registry-a.example.test/ci/buildkit-cache", "release-credentials",
+			"BUILDX_BUILDER=ci\nCI_BUILDX_CACHE_FROM=registry-a.example.test/ci/buildkit-cache\n"},
+		"no cache at all": {"", "", "release-credentials", "BUILDX_BUILDER=ci\n"},
+	} {
+		x := newH(t, "linux/arm64=tcp://a:1")
+		x.fn = inspect("linux/arm64")
+		x.o.RunnerBuildxCache, x.o.BuildxCache, x.o.RunnerCacheWrites = tc.runner, tc.caller, tc.writes
+		if err := Run(context.Background(), x.o); err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if b, _ := os.ReadFile(x.o.GithubEnv); string(b) != tc.want {
+			t.Errorf("%s: env %q, want %q", name, b, tc.want)
+		}
 	}
 }
 

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -22,8 +23,32 @@ type S3Config struct {
 	Region    string
 	Endpoint  string // non-AWS stores only
 	PathStyle bool
+	// TaskIdentityOnly resolves the runner's own identity (container or instance
+	// credentials) and nothing the job brought: the job's keys, profile and
+	// web-identity variables are removed from the process environment first and
+	// the shared config and credentials files are not read. For a bucket whose policy
+	// names the runner's role and a job that holds the keys of another role.
+	TaskIdentityOnly bool
 	// CredentialTimeout bounds the one credential lookup made up front.
 	CredentialTimeout time.Duration
+}
+
+// jobCredentialVars are the variables through which a job hands the AWS SDK an
+// identity of its own. The runner's identity (AWS_CONTAINER_*) is not among them.
+var jobCredentialVars = []string{
+	"AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN", "AWS_CREDENTIAL_EXPIRATION",
+	"AWS_PROFILE", "AWS_DEFAULT_PROFILE", "AWS_ROLE_ARN", "AWS_ROLE_SESSION_NAME", "AWS_WEB_IDENTITY_TOKEN_FILE",
+}
+
+// isolateFromJobCredentials unsets every job credential variable and points the
+// shared config and credentials files at nothing, so no profile in them is read
+// either (the same two settings the Go cache wrapper uses).
+func isolateFromJobCredentials(unset func(string) error, set func(key, value string) error) {
+	for _, v := range jobCredentialVars {
+		_ = unset(v)
+	}
+	_ = set("AWS_CONFIG_FILE", os.DevNull)
+	_ = set("AWS_SHARED_CREDENTIALS_FILE", os.DevNull)
 }
 
 type s3Store struct {
@@ -41,6 +66,9 @@ func NewS3(ctx context.Context, sc S3Config) (Store, error) {
 		return nil, fmt.Errorf("%w: no bucket", ErrNoStore)
 	}
 	opts := []func(*config.LoadOptions) error{}
+	if sc.TaskIdentityOnly {
+		isolateFromJobCredentials(os.Unsetenv, os.Setenv)
+	}
 	if sc.Region != "" {
 		opts = append(opts, config.WithRegion(sc.Region))
 	}

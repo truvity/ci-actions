@@ -67,8 +67,12 @@ inputs:
       of the caller's tier, from its org variable. Optional: the step only
       applies the runner's override. A runner that exports
       CI_RUNNER_BUILDX_CACHE wins over it and the step exports the winner as
-      CI_BUILDX_CACHE for the rest of the job; without one, the caller's value
-      (which the workflow sets itself) is left alone.
+      CI_BUILDX_CACHE_FROM (the read reference, always) and as CI_BUILDX_CACHE
+      (read and write) for the rest of the job, except on a runner that
+      exports CI_RUNNER_CACHE_WRITES=release-credentials: there only
+      CI_BUILDX_CACHE_FROM, and the release workflow sets CI_BUILDX_CACHE after
+      it assumed its role. Without a runner value, the caller's value (which
+      the workflow sets itself) is left alone; CI_BUILDX_CACHE_FROM still names it.
     required: false
     default: ""
 

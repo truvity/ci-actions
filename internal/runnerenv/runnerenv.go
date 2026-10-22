@@ -43,7 +43,49 @@ const (
 	GoCacheBucket = "CI_RUNNER_GOCACHE_S3_BUCKET"
 	GoCacheRegion = "CI_RUNNER_GOCACHE_S3_REGION"
 	BuildxCache   = "CI_RUNNER_BUILDX_CACHE"
+	// CacheWrites says who may WRITE the runner's caches. Its one value,
+	// ReleaseCredentials, means: the runner's own identity (task or pod role)
+	// only reads them, and a write needs the credentials of a role the job
+	// assumed itself (the keys in AWS_ACCESS_KEY_ID). Absent, the runner's own
+	// identity is the writer too. The check an action makes on the job's keys is
+	// a hint for behaviour; the fence is the permission policy behind them.
+	CacheWrites = "CI_RUNNER_CACHE_WRITES"
 )
+
+// ReleaseCredentials is the one value of CacheWrites that changes behaviour.
+const ReleaseCredentials = "release-credentials"
+
+// WritesNeedJobCredentials reports whether the runner's CacheWrites variable
+// says writes need the job's own credentials. Anything but the exact value
+// (after trimming) is "no": an unknown value never narrows what is done.
+func WritesNeedJobCredentials(cacheWrites string) bool {
+	return strings.TrimSpace(cacheWrites) == ReleaseCredentials
+}
+
+// S3Plan is what s3-cache does on a runner, given the runner's CacheWrites
+// variable, who named the bucket and whether the job holds AWS keys.
+type S3Plan struct {
+	// TaskIdentityOnly: the AWS SDK is not offered the job's keys, profile or
+	// web-identity variables; it resolves the runner's own identity.
+	TaskIdentityOnly bool
+	// SkipSave: the save is not attempted, and GitHub's cache does not stand in.
+	SkipSave bool
+}
+
+// PlanS3 decides the plan for one step ("restore" or "save"). It differs from
+// the zero plan only when the runner says writes need the job's credentials AND
+// the bucket in use is the runner's own: a caller's bucket is reached with the
+// caller's credentials, as before.
+func PlanS3(step, cacheWrites string, bucket Source, jobKeys bool) S3Plan {
+	if !WritesNeedJobCredentials(cacheWrites) || bucket != FromRunner {
+		return S3Plan{}
+	}
+	if step == "restore" {
+		return S3Plan{TaskIdentityOnly: true}
+	}
+	// save: the job's keys as they are, or nothing.
+	return S3Plan{SkipSave: !jobKeys}
+}
 
 // Source says where an effective value came from.
 type Source string

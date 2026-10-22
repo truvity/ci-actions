@@ -215,3 +215,31 @@ func TestS3CacheTakesTheRunnersBucketWithNoInput(t *testing.T) {
 		t.Errorf("code %d out %q", code, out)
 	}
 }
+
+func TestS3CacheSaveWithoutJobKeysOnAReleaseCredentialsRunnerIsSkipped(t *testing.T) {
+	outFile := filepath.Join(t.TempDir(), "out")
+	code, out, errs := runCLI(t, map[string]string{
+		"KEY": "k", "PATHS": "x", "GITHUB_OUTPUT": outFile,
+		"CI_RUNNER_GOCACHE_S3_BUCKET": "kernel-bucket", "CI_RUNNER_GOCACHE_S3_REGION": "eu-central-1",
+		"CI_RUNNER_CACHE_WRITES": "release-credentials",
+	}, "s3-cache", "save")
+	got, _ := os.ReadFile(outFile)
+	if code != 0 || !strings.Contains(errs, "::notice::s3-cache: save skipped") || !strings.Contains(string(got), "skipped=true") ||
+		strings.Contains(string(got), "fallback=true") || strings.Contains(errs, "warning") {
+		t.Errorf("code %d out %q err %q outputs %q", code, out, errs, got)
+	}
+}
+
+func TestS3CacheSaveWithJobKeysIsAttemptedOnAReleaseCredentialsRunner(t *testing.T) {
+	outFile := filepath.Join(t.TempDir(), "out")
+	code, _, errs := runCLI(t, map[string]string{
+		"KEY": "k", "PATHS": "x", "GITHUB_OUTPUT": outFile, "TIMEOUT": "2s",
+		"CI_RUNNER_GOCACHE_S3_BUCKET": "kernel-bucket", "CI_RUNNER_GOCACHE_S3_REGION": "eu-central-1",
+		"CI_RUNNER_CACHE_WRITES": "release-credentials",
+		"AWS_ACCESS_KEY_ID":      "x", "AWS_SECRET_ACCESS_KEY": "y", "AWS_EC2_METADATA_DISABLED": "true",
+	}, "s3-cache", "save")
+	got, _ := os.ReadFile(outFile)
+	if code != 0 || strings.Contains(errs, "save skipped") || strings.Contains(string(got), "skipped=true") {
+		t.Errorf("code %d err %q outputs %q", code, errs, got)
+	}
+}

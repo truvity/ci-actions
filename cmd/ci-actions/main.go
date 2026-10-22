@@ -66,9 +66,11 @@ Commands:
                        after a fresh checkout (env: WORKDIR, default GITHUB_WORKSPACE, then the current directory)
   s3-cache <step>      restore | save: actions/cache semantics against the CI cache bucket, for a self-hosted
                        runner (env: BUCKET, REGION, ENDPOINT, PATH_STYLE, PREFIX, KEY, PATHS, RESTORE_KEYS,
-                       GITHUB_REPOSITORY, GITHUB_OUTPUT)
+                       GITHUB_REPOSITORY, GITHUB_OUTPUT; CI_RUNNER_CACHE_WRITES=release-credentials: restore
+                       with the runner's identity, save only with the job's AWS keys)
   remote-builders      register BuildKit builders as one buildx builder (env: NODES, CI_RUNNER_REMOTE_BUILDERS wins over it; BUILDX_CACHE, with
-                       CI_RUNNER_BUILDX_CACHE winning and exported as CI_BUILDX_CACHE; plus
+                       CI_RUNNER_BUILDX_CACHE winning and exported as CI_BUILDX_CACHE_FROM and, unless
+                       CI_RUNNER_CACHE_WRITES=release-credentials, as CI_BUILDX_CACHE; plus
                        HOME, RUNNER_TEMP, GITHUB_ENV; mutual TLS when
                        CI_BUILDKIT_TLS_DIR is set, with CI_BUILDKIT_TLS_SERVERNAME as the verified name, else plain TCP)
   buildkit-tls         settle where the runner's BuildKit client certificate comes from: CI_BUILDKIT_TLS_DIR as it is, or the
@@ -233,7 +235,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, getenv fu
 		return s3CacheCmd(ctx, args[1:], stdout, stderr, getenv)
 	case "remote-builders":
 		err := remotebuilders.Run(ctx, remotebuilders.Options{
-			Nodes: getenv("NODES"), RunnerNodes: getenv(runnerenv.RemoteBuilder), BuildxCache: getenv("BUILDX_CACHE"), RunnerBuildxCache: getenv(runnerenv.BuildxCache), TLSDir: getenv("CI_BUILDKIT_TLS_DIR"), TLSServername: getenv("CI_BUILDKIT_TLS_SERVERNAME"), Home: getenv("HOME"), RunnerTemp: getenv("RUNNER_TEMP"), GithubEnv: getenv("GITHUB_ENV"),
+			Nodes: getenv("NODES"), RunnerNodes: getenv(runnerenv.RemoteBuilder), BuildxCache: getenv("BUILDX_CACHE"), RunnerBuildxCache: getenv(runnerenv.BuildxCache), RunnerCacheWrites: getenv(runnerenv.CacheWrites), TLSDir: getenv("CI_BUILDKIT_TLS_DIR"), TLSServername: getenv("CI_BUILDKIT_TLS_SERVERNAME"), Home: getenv("HOME"), RunnerTemp: getenv("RUNNER_TEMP"), GithubEnv: getenv("GITHUB_ENV"),
 			Out: stdout, Err: stderr,
 		})
 		switch {
@@ -813,11 +815,22 @@ func s3CacheCmd(ctx context.Context, args []string, stdout, stderr io.Writer, ge
 		err = errNoBucket
 	}
 	var store s3cache.Store
+	// On a runner whose identity only reads the caches, restore uses that identity
+	// and save needs the job's own keys; see runnerenv.CacheWrites.
+	var plan runnerenv.S3Plan
 	if err == nil {
 		fmt.Fprintln(stdout, runnerenv.Describe("cache bucket", st.BucketSource, st.Bucket, runnerenv.GoCacheBucket))
+		plan = runnerenv.PlanS3(args[0], getenv(runnerenv.CacheWrites), st.BucketSource, getenv("AWS_ACCESS_KEY_ID") != "")
+		if plan.SkipSave {
+			// Not a fault and not a fallback: GitHub's cache must not stand in for this save.
+			fmt.Fprintf(stderr, "::notice::s3-cache: save skipped: this runner's identity only reads the cache and the job holds no AWS credentials of its own (%s=%s)\n",
+				runnerenv.CacheWrites, runnerenv.ReleaseCredentials)
+			writeS3Outputs(getenv, "skipped=true\n")
+			return 0
+		}
 		store, err = s3cache.NewS3(ctx, s3cache.S3Config{
 			Bucket: st.Bucket, Region: st.Region, Endpoint: st.Endpoint,
-			PathStyle: st.PathStyle == "true",
+			PathStyle: st.PathStyle == "true", TaskIdentityOnly: plan.TaskIdentityOnly,
 		})
 	}
 	if err != nil {
@@ -846,13 +859,21 @@ func s3CacheCmd(ctx context.Context, args []string, stdout, stderr io.Writer, ge
 			*v = ""
 		}
 	}
-	if out := getenv("GITHUB_OUTPUT"); out != "" {
-		f, err := os.OpenFile(out, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0o644)
-		if err == nil {
-			fmt.Fprintf(f, "cache-hit=%t\ncache-primary-key=%s\ncache-matched-key=%s\nfallback=%t\n",
-				res.Hit, res.PrimaryKey, res.Matched, res.Fallback)
-			f.Close()
-		}
-	}
+	writeS3Outputs(getenv, fmt.Sprintf("cache-hit=%t\ncache-primary-key=%s\ncache-matched-key=%s\nfallback=%t\nskipped=false\n",
+		res.Hit, res.PrimaryKey, res.Matched, res.Fallback))
 	return 0
+}
+
+// writeS3Outputs appends lines to the step's GITHUB_OUTPUT file, when there is one.
+func writeS3Outputs(getenv func(string) string, lines string) {
+	out := getenv("GITHUB_OUTPUT")
+	if out == "" {
+		return
+	}
+	f, err := os.OpenFile(out, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0o644)
+	if err != nil {
+		return
+	}
+	fmt.Fprint(f, lines)
+	f.Close()
 }

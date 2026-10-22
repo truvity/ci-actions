@@ -74,3 +74,26 @@ func TestPickStore(t *testing.T) {
 		}
 	}
 }
+
+func TestPlanS3(t *testing.T) {
+	for name, tc := range map[string]struct {
+		step, writes string
+		bucket       Source
+		keys         bool
+		want         S3Plan
+	}{
+		"restore: task identity":                  {"restore", "release-credentials", FromRunner, true, S3Plan{TaskIdentityOnly: true}},
+		"restore: task identity without keys":     {"restore", " release-credentials\n", FromRunner, false, S3Plan{TaskIdentityOnly: true}},
+		"save with the job's keys":                {"save", "release-credentials", FromRunner, true, S3Plan{}},
+		"save without keys is skipped":            {"save", "release-credentials", FromRunner, false, S3Plan{SkipSave: true}},
+		"no variable: nothing changes (restore)":  {"restore", "", FromRunner, true, S3Plan{}},
+		"no variable: nothing changes (save)":     {"save", "", FromRunner, false, S3Plan{}},
+		"unknown value: nothing changes":          {"save", "read-only", FromRunner, false, S3Plan{}},
+		"the caller's bucket: nothing changes":    {"save", "release-credentials", FromCaller, false, S3Plan{}},
+		"the caller's bucket, restore: unchanged": {"restore", "release-credentials", FromCaller, true, S3Plan{}},
+	} {
+		if got := PlanS3(tc.step, tc.writes, tc.bucket, tc.keys); got != tc.want {
+			t.Errorf("%s: %+v, want %+v", name, got, tc.want)
+		}
+	}
+}

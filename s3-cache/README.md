@@ -51,6 +51,11 @@ NAT and stay inside the region.
   job.
 - Credentials are the runner's default AWS chain (pod identity, or the
   profile its config names). The identity needs list/get/put on the prefix.
+- On a runner that exports `CI_RUNNER_CACHE_WRITES=release-credentials` (its own
+  identity only reads the bucket), restore uses the runner's identity only, and
+  save uses the job's AWS keys (a role the job assumed). With no keys the save
+  is skipped: a `::notice::`, output `skipped=true`, and GitHub's cache is not
+  used in its place. The key check is a hint; the bucket's policy is the fence.
 
 ## Limits
 

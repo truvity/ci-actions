@@ -46,6 +46,31 @@ else
   bad "with no binary the step still exits 0 and asks for GitHub's cache (rc=$rc): $log / $(cat "$work/out")"
 fi
 
+# A runner whose own identity only reads (CI_RUNNER_CACHE_WRITES=release-credentials, its own
+# bucket): no binary means a skipped SAVE, never GitHub's cache; restore may still fall back.
+rc_env=(CI_RUNNER_GOCACHE_S3_BUCKET=kernel CI_RUNNER_CACHE_WRITES=release-credentials)
+: >"$work/out"
+log=$(run save PATH="$work/min" "${rc_env[@]}")
+if has "$log" "the save is skipped" && grep -qx 'skipped=true' "$work/out" && ! grep -q 'fallback=true' "$work/out"; then
+  ok "release-credentials runner, no binary: the save is skipped and GitHub's cache is not asked"
+else
+  bad "release-credentials runner, no binary: the save is skipped and GitHub's cache is not asked: $log / $(cat "$work/out")"
+fi
+: >"$work/out"
+log=$(run restore PATH="$work/min" "${rc_env[@]}")
+grep -qx 'fallback=true' "$work/out" && ok "release-credentials runner, no binary: restore still falls back" \
+  || bad "release-credentials runner, no binary: restore still falls back: $log"
+: >"$work/out"
+log=$(run save PATH="$work/min" CI_RUNNER_GOCACHE_S3_BUCKET=kernel)
+grep -qx 'fallback=true' "$work/out" && ! grep -q 'skipped=true' "$work/out" && ok "no variable, no binary: save falls back as before" \
+  || bad "no variable, no binary: save falls back as before: $log"
+
+if grep -q "steps.s3.outputs.skipped != 'true' &&" "$here/s3-cache/save/action.yaml"; then
+  ok "save: the GitHub cache step never runs after a deliberate skip"
+else
+  bad "save: the GitHub cache step is not guarded by steps.s3.outputs.skipped"
+fi
+
 for a in restore save; do
   f="$here/s3-cache/$a/action.yaml"
   if grep -q "steps.s3.outputs.fallback == 'true'" "$f" && ! grep -q "runner.environment" "$f" \
