@@ -84,7 +84,8 @@ inputs:
     description: >-
       Base URL of the Maven pull-through cache, one path per upstream
       (<base>/central, <base>/google, <base>/gradle-plugins), for Gradle
-      builds. Empty leaves the repositories the builds declare. A runner that
+      builds (the estate's is a name of its own with no path of its own,
+      https://maven.cache.build.<env>.truvity.private). Empty leaves the repositories the builds declare. A runner that
       exports CI_RUNNER_MAVEN_REGISTRY overrides it. The cache must answer a GET
       of <base>/ with 200 or it is not used (a warning, never a failed job).
       Used, it is exported to the job as CI_MAVEN_REGISTRY and a Gradle init
@@ -94,7 +95,8 @@ inputs:
   gradle-build-cache:
     description: >-
       URL of Gradle's remote build cache (the HTTP protocol), ending where the
-      key begins (.../gradle/cache). Empty leaves the build without one. A
+      key begins (the estate's is https://gradle.cache.build.<env>.truvity.private,
+      the key follows its root). Empty leaves the build without one. A
       runner that exports CI_RUNNER_GRADLE_BUILD_CACHE overrides it. Only a
       tier that may write the cache gets this from its runner (the stable tier
       reads no cache a job can write). Used, it is exported as
