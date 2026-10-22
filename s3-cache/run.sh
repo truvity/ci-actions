@@ -19,7 +19,18 @@ export ACTION_PATH
 ( ci_actions_run s3-cache s3-cache "$step" )
 rc=$?
 if [ "$rc" -ne 0 ]; then
-  echo "::warning::s3-cache: the ci-actions binary is unavailable (exit $rc); using GitHub's cache for this step"
-  [ -n "${GITHUB_OUTPUT:-}" ] && echo "fallback=true" >> "$GITHUB_OUTPUT"
+  # A runner whose own identity only reads the caches (CI_RUNNER_CACHE_WRITES=
+  # release-credentials, its own bucket in use) never lets GitHub's cache stand in
+  # for a SAVE: without the binary the save is skipped, not handed over. Restore
+  # may still fall back, it only reads.
+  writes="${CI_RUNNER_CACHE_WRITES:-}"
+  writes="${writes//[[:space:]]/}"
+  if [ "$step" = save ] && [ -n "${CI_RUNNER_GOCACHE_S3_BUCKET:-}" ] && [ "$writes" = "release-credentials" ]; then
+    echo "::warning::s3-cache: the ci-actions binary is unavailable (exit $rc); the save is skipped (this runner's cache writes need the job's own AWS credentials)"
+    [ -n "${GITHUB_OUTPUT:-}" ] && echo "skipped=true" >> "$GITHUB_OUTPUT"
+  else
+    echo "::warning::s3-cache: the ci-actions binary is unavailable (exit $rc); using GitHub's cache for this step"
+    [ -n "${GITHUB_OUTPUT:-}" ] && echo "fallback=true" >> "$GITHUB_OUTPUT"
+  fi
 fi
 exit 0

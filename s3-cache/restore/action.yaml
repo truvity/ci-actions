@@ -4,7 +4,9 @@ description: >-
   bucket when the caller passes one; GitHub's cache otherwise. Decided by
   what is configured, not by the kind of runner. Fails open: a bucket that
   cannot be reached is a cache miss, or a hand-off to GitHub's cache when the
-  runner has no credentials. Pair it with s3-cache/save. See ../README.md.
+  runner has no credentials. On a runner whose own identity only reads its
+  caches (CI_RUNNER_CACHE_WRITES=release-credentials) it restores with that
+  identity, never the job's keys. Pair it with s3-cache/save. See ../README.md.
 
 inputs:
   path:

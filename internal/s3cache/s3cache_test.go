@@ -309,3 +309,48 @@ func TestWithinHandlesTheFilesystemRoot(t *testing.T) {
 		}
 	}
 }
+
+func TestTaskIdentityOnlyDropsEveryJobCredentialAndKeepsTheRunners(t *testing.T) {
+	env := map[string]string{
+		"AWS_ACCESS_KEY_ID": "k", "AWS_SECRET_ACCESS_KEY": "s", "AWS_SESSION_TOKEN": "t", "AWS_PROFILE": "p",
+		"AWS_DEFAULT_PROFILE": "p", "AWS_ROLE_ARN": "r", "AWS_WEB_IDENTITY_TOKEN_FILE": "/tok",
+		"AWS_CONFIG_FILE": "/home/x/config", "AWS_SHARED_CREDENTIALS_FILE": "/home/x/credentials",
+		"AWS_CONTAINER_CREDENTIALS_RELATIVE_URI": "/v2/credentials/x", "AWS_REGION": "eu-west-1",
+	}
+	isolateFromJobCredentials(
+		func(k string) error { delete(env, k); return nil },
+		func(k, v string) error { env[k] = v; return nil })
+	for _, k := range []string{"AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN", "AWS_PROFILE",
+		"AWS_DEFAULT_PROFILE", "AWS_ROLE_ARN", "AWS_WEB_IDENTITY_TOKEN_FILE"} {
+		if v, ok := env[k]; ok {
+			t.Errorf("%s survived: %q", k, v)
+		}
+	}
+	for _, k := range []string{"AWS_CONFIG_FILE", "AWS_SHARED_CREDENTIALS_FILE"} {
+		if env[k] != os.DevNull {
+			t.Errorf("%s = %q, want %s", k, env[k], os.DevNull)
+		}
+	}
+	if env["AWS_CONTAINER_CREDENTIALS_RELATIVE_URI"] != "/v2/credentials/x" || env["AWS_REGION"] != "eu-west-1" {
+		t.Errorf("the runner's own identity and the region must stay: %v", env)
+	}
+}
+
+func TestNewS3TaskIdentityOnlyIgnoresTheJobsKeys(t *testing.T) {
+	// With the job's keys in the environment, a plain NewS3 resolves them; with
+	// TaskIdentityOnly it must not: nothing else is configured here, so the
+	// credential lookup fails and ErrNoStore is returned.
+	t.Setenv("AWS_ACCESS_KEY_ID", "job-key")
+	t.Setenv("AWS_SECRET_ACCESS_KEY", "job-secret")
+	t.Setenv("AWS_EC2_METADATA_DISABLED", "true")
+	t.Setenv("AWS_CONTAINER_CREDENTIALS_RELATIVE_URI", "")
+	t.Setenv("AWS_CONTAINER_CREDENTIALS_FULL_URI", "")
+	t.Setenv("AWS_CONFIG_FILE", "") // restored by the test; NewS3 points them at /dev/null
+	t.Setenv("AWS_SHARED_CREDENTIALS_FILE", "")
+	if _, err := NewS3(context.Background(), S3Config{Bucket: "b", Region: "eu-west-1"}); err != nil {
+		t.Fatalf("job keys: %v", err)
+	}
+	if _, err := NewS3(context.Background(), S3Config{Bucket: "b", Region: "eu-west-1", TaskIdentityOnly: true, CredentialTimeout: 2 * time.Second}); !errors.Is(err, ErrNoStore) {
+		t.Fatalf("TaskIdentityOnly with only job keys: err %v, want ErrNoStore", err)
+	}
+}

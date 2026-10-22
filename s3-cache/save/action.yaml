@@ -4,7 +4,9 @@ description: >-
   the caller passes one; GitHub's cache otherwise. Decided by what is
   configured, not by the kind of runner. A key that already exists is left alone
   (caches are immutable). Fails open: a bucket that cannot be written is a
-  warning, never a failed job. Pair it with s3-cache/restore.
+  warning, never a failed job. On a runner whose own identity only reads its
+  caches (CI_RUNNER_CACHE_WRITES=release-credentials) it saves with the job's
+  AWS keys, or is skipped when the job has none. Pair it with s3-cache/restore.
 
 inputs:
   path:
@@ -44,8 +46,14 @@ inputs:
 
 outputs:
   backend:
-    description: "`s3` or `github`: which store this step used."
+    description: "`s3` or `github`: which store this step used (`s3` also when the save was skipped, see `skipped`)."
     value: ${{ steps.gh.outcome == 'success' && 'github' || 's3' }}
+  skipped:
+    description: >-
+      'true' when nothing was saved on purpose: the runner's identity only reads
+      its cache (CI_RUNNER_CACHE_WRITES=release-credentials) and the job holds no
+      AWS credentials of its own. GitHub's cache does not stand in for that save.
+    value: ${{ steps.s3.outputs.skipped == 'true' && 'true' || 'false' }}
 
 runs:
   using: composite
@@ -82,7 +90,9 @@ runs:
       run: bash "$ACTION_PATH/../run.sh" save
 
     - id: gh
-      if: steps.pick.outputs.use-bucket != 'true' || steps.s3.outputs.fallback == 'true'
+      # Never after a deliberate skip: GitHub's cache is no stand-in for a save the
+      # runner's cache policy refused (skipped is set by the binary or by run.sh).
+      if: steps.s3.outputs.skipped != 'true' && (steps.pick.outputs.use-bucket != 'true' || steps.s3.outputs.fallback == 'true')
       uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: ${{ inputs.path }}

@@ -108,7 +108,8 @@ spec, a task definition), and that wins:
 | `CI_RUNNER_MAVEN_REGISTRY` | the `maven-registry` input | `setup-devbox` ("Wire the Gradle caches"), which exports the winner to the job as `CI_MAVEN_REGISTRY` |
 | `CI_RUNNER_GRADLE_BUILD_CACHE` | the `gradle-build-cache` input | the same step; exported as `CI_GRADLE_BUILD_CACHE`. A runner that names no build cache does not export it; each tier's runner names its own environment's |
 | `CI_RUNNER_GOCACHE_S3_BUCKET`, `CI_RUNNER_GOCACHE_S3_REGION` | the `go-cache-bucket` and `go-cache-region` inputs (the caller's endpoint and path style are dropped with them) | `setup-devbox` (proto cache, and `setup-cache` for the Go build cache), `s3-cache/restore` and `s3-cache/save`; the Go cache plugin also uses the runner's own identity for it, see below |
-| `CI_RUNNER_BUILDX_CACHE` | the `buildx-cache` input (the BuildKit registry cache, `<registry>/<repository>`) | `setup-remote-builders`, which exports the winner as `CI_BUILDX_CACHE`; the "Plan the remote builders" steps of ci-workflows |
+| `CI_RUNNER_BUILDX_CACHE` | the `buildx-cache` input (the BuildKit registry cache, `<registry>/<repository>`) | `setup-remote-builders`, which exports the winner as `CI_BUILDX_CACHE_FROM` (always) and as `CI_BUILDX_CACHE` (unless `CI_RUNNER_CACHE_WRITES` says otherwise); the "Plan the remote builders" steps of ci-workflows |
+| `CI_RUNNER_CACHE_WRITES` | none (absent: the runner's identity reads and writes its caches, as before) | `release-credentials`: the runner's identity only READS the caches; writes need the credentials of a role the job assumed. See "Who writes the caches" below |
 
 Precedence, per value: **runner environment, then the input (the caller's
 organisation variable), then the action's default.** With no `CI_RUNNER_*` set
@@ -127,6 +128,33 @@ stays for runners that export none. A release job exports the keys of the AWS
 role it assumed; for the runner's own bucket the Go cache plugin is started
 without them, so it uses the runner's identity, which is the one the bucket's
 policy names (this applies only when the task has container credentials).
+
+**Who writes the caches.** A tier can be reachable by any job of the repositories
+allowed on it, so its runner identity should not be what lets a job WRITE a
+cache. Such a runner exports `CI_RUNNER_CACHE_WRITES=release-credentials`: the
+task or pod role reads the Go build cache, the archive caches and the BuildKit
+registry cache, and a write needs the credentials of a role the job assumed itself
+(the release job assumes one by GitHub OIDC, and `aws-actions/configure-aws-credentials`
+exports its keys as `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`).
+Only when this variable has exactly that value, and only for the runner's own
+bucket or registry cache; otherwise everything is as described above.
+
+| cache | job keys in the environment | no job keys |
+|---|---|---|
+| Go build cache (`setup-cache/gocacheprog`) | the plugin gets them as they are and reads and writes with them | the runner's role, read only: the plugin starts with `GOCACHE_MIN_SIZE` at its maximum, so nothing is uploaded; one line on stderr says so |
+| archive caches (`s3-cache`) | restore: the runner's role (the job's keys, profile and web-identity variables are not offered to the SDK); save: the job's keys | restore: the runner's role; save: **skipped** with a `::notice::`, output `skipped=true`, and GitHub's cache is not used in its place |
+| BuildKit registry cache (`setup-remote-builders`) | the release workflow sets `CI_BUILDX_CACHE` itself, after it assumed its role | only `CI_BUILDX_CACHE_FROM` (the read reference) is exported; there is no `--cache-to` |
+
+`setup-remote-builders` always exports `CI_BUILDX_CACHE_FROM`, the effective read
+reference (the runner's, else the input). `CI_BUILDX_CACHE`, which consumers turn
+into both `--cache-from` and `--cache-to`, is exported as before except on a
+runner with `CI_RUNNER_CACHE_WRITES=release-credentials`. A build that wants to
+read the cache without writing it takes `CI_BUILDX_CACHE_FROM`, falling back to
+`CI_BUILDX_CACHE`.
+
+The presence of keys is a hint for behaviour, not the fence. The fence is IAM: the
+runner's role cannot write the cache bucket or push to the registry cache, and a
+job that fakes the presence of keys gets `AccessDenied`.
 
 Example, for a pool whose gateway serves all four: `CI_RUNNER_GOPROXY=https://gateway.example/goproxy,direct`,
 `CI_RUNNER_NPM_REGISTRY=https://gateway.example/npm`,
