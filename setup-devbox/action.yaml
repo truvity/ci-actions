@@ -489,7 +489,7 @@ runs:
     # by "Resolve the cache endpoints" above, and a RUNNER can decide it (see
     # there). The bucket and its region go on to setup-cache as resolved.
     - name: Wire the fleet caches
-      uses: truvity/ci-actions/setup-cache@d9438a810d56a6443228fba7c8cb814b93bf6bd9 # v3.0.0
+      uses: truvity/ci-actions/setup-cache@bb86ff66cdcbd086a1f7bfdc4bce840d3321b409 # v3.6.0
       with:
         bucket: ${{ steps.endpoints.outputs.go-cache-bucket }}
         region: ${{ steps.endpoints.outputs.go-cache-region }}
