@@ -4,6 +4,12 @@ Every release of truvity/ci-actions, newest first. Pin the commit of a
 tag (`git rev-parse vX.Y.Z^{commit}`), never the tag object and never
 an untagged commit; `tagged-pins` refuses anything else.
 
+## v3.6.1
+
+### Fixed
+
+- **`setup-devbox` pins `setup-cache` at v3.6.0.** The nested action was pinned at v3.0.0, so the `gocacheprog` changes of v3.6.0 (a runner's own cache bucket with the task's container credentials) reached a job only through a caller that named `setup-cache` itself. `setup-devbox` now carries them: a job that passes no cache input gets the runner's `CI_RUNNER_GOCACHE_S3_BUCKET` and `_REGION`. No other change.
+
 ## v3.6.0
 
 ### Added
