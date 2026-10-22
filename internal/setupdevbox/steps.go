@@ -376,5 +376,46 @@ func ResolveEndpoints(e Env) error {
 			}
 		}
 	}
+	return resolveStore(e)
+}
+
+// resolveStore decides the CI cache bucket the job uses: the runner's own
+// (CI_RUNNER_GOCACHE_S3_BUCKET, with CI_RUNNER_GOCACHE_S3_REGION) over the
+// caller's input (the organisation variable CI_GOCACHE_S3_BUCKET). One
+// organisation variable names one bucket, but a preview runner and a stable
+// runner each have the bucket of their own account; the runner knows which it
+// is. The caller's endpoint and path style describe the caller's store, so they
+// are dropped when the runner's bucket wins. The nested setup-cache and the
+// proto cache steps are handed the winners. The bucket is not a secret but names
+// an account's resource, so it is logged by name only (this repository's logs are
+// the job's).
+func resolveStore(e Env) error {
+	st, err := runnerenv.PickStore(
+		e.Getenv(runnerenv.GoCacheBucket), e.Getenv(runnerenv.GoCacheRegion),
+		e.Getenv("CALLER_GO_CACHE_BUCKET"), e.Getenv("CALLER_GO_CACHE_REGION"),
+		e.Getenv("CALLER_GO_CACHE_ENDPOINT"), e.Getenv("CALLER_GO_CACHE_PATH_STYLE"),
+	)
+	if err != nil {
+		return e.fail("%v", err)
+	}
+
+	e.printf("%s\n", runnerenv.Describe("go cache bucket", st.BucketSource, st.Bucket, runnerenv.GoCacheBucket))
+
+	if st.Bucket != "" {
+		e.printf("%s\n", runnerenv.Describe("go cache region", st.RegionSource, st.Region, runnerenv.GoCacheRegion))
+	}
+
+	for _, o := range []struct{ name, value string }{
+		{"go-cache-bucket", st.Bucket},
+		{"go-cache-bucket-source", string(st.BucketSource)},
+		{"go-cache-region", st.Region},
+		{"go-cache-endpoint", st.Endpoint},
+		{"go-cache-path-style", st.PathStyle},
+	} {
+		if err := e.setOutput(o.name, o.value); err != nil {
+			return err
+		}
+	}
+
 	return nil
 }

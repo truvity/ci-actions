@@ -4,6 +4,16 @@ Every release of truvity/ci-actions, newest first. Pin the commit of a
 tag (`git rev-parse vX.Y.Z^{commit}`), never the tag object and never
 an untagged commit; `tagged-pins` refuses anything else.
 
+## Unreleased
+
+### Added
+
+- **A runner can name the cache bucket and the BuildKit cache of its own tier.** Three new runner variables join `CI_RUNNER_GOPROXY` and the others, with the same rule (runner environment, then the input or organisation variable, then nothing):
+  - `CI_RUNNER_GOCACHE_S3_BUCKET` and `CI_RUNNER_GOCACHE_S3_REGION` override `go-cache-bucket` and `go-cache-region` in `setup-devbox` (its "Resolve the cache endpoints" step now runs before the proto toolchain cache and hands the winners to that cache and to `setup-cache`) and in `s3-cache/restore` and `s3-cache/save`. A workflow that passes no cache input at all (the release workflow) gets the cache from the runner alone. When the runner's bucket wins, the caller's `go-cache-endpoint` and `go-cache-path-style` are dropped: they describe the caller's store (an S3-compatible service), not an AWS bucket. Why: one organisation variable names one bucket, but a preview runner and a stable runner each have a bucket in their own account, and a stable job must never read or write the preview bucket.
+  - `CI_RUNNER_BUILDX_CACHE` overrides the BuildKit registry cache: `setup-remote-builders` takes an optional `buildx-cache` input and, when the runner names one, exports it as `CI_BUILDX_CACHE` for the rest of the job (a value that is not `<registry>/<repository>` fails the step before anything runs). Without the runner variable nothing is exported and the workflow's own value stays.
+  - `setup-cache/gocacheprog`: when the runner names its bucket, the job uses that bucket and the task holds container credentials (an ECS task role, a pod identity), the plugin runs with the job's own keys and profile removed from its environment. A release job exports the keys of the role it assumed by OIDC for its whole build; that role has no grant on the runner's bucket, and the keys-first rule gave the plugin to it, so every request was refused and counted as a miss. Without the runner variable, or with another bucket, nothing changes. `setup-devbox` still pins the previous `setup-cache`; a release that moves the pin carries this.
+  - Tests: `runnerenv.PickStore`, `ResolveEndpoints` (runner wins, caller only, no inputs, malformed refused), the `s3-cache` command with no bucket and with the runner's, `remote-builders` (runner wins and is exported, caller left alone, malformed refused before anything runs), and `hack/gocacheprog-runner-cases.sh`.
+
 ## v3.5.0
 
 ### Added

@@ -47,16 +47,26 @@ type Options struct {
 	// builders are verified against when it is not the endpoint host. Only
 	// read when TLSDir is set.
 	TLSServername string
-	GithubEnv   string
-	Dir         string // where devbox.json is looked for; "" is the working directory
-	Out         io.Writer
-	Err         io.Writer
-	Exec        runcmd.Exec
+	// BuildxCache is the caller's BuildKit registry-cache reference (the organisation
+	// variable CI_BUILDX_CACHE / CI_BUILDX_CACHE_STABLE) and RunnerBuildxCache what
+	// the RUNNER exports as CI_RUNNER_BUILDX_CACHE: the cache of the runner's own tier.
+	// The runner's wins, and is then exported as CI_BUILDX_CACHE for the recipes'
+	// `--cache-from/--cache-to type=registry`; the caller's is left where the
+	// workflow put it.
+	BuildxCache       string
+	RunnerBuildxCache string
+	GithubEnv         string
+	Dir               string // where devbox.json is looked for; "" is the working directory
+	Out               io.Writer
+	Err               io.Writer
+	Exec              runcmd.Exec
 }
 
 var (
 	plainDirPath    = regexp.MustCompile(`^/[A-Za-z0-9._/-]+$`)
 	plainServername = regexp.MustCompile(`^[A-Za-z0-9.-]+$`)
+	// registryRef is <registry host>[:port]/<repository>, no tag, no space.
+	registryRef = regexp.MustCompile(`^[a-z0-9][a-z0-9.-]*(:[0-9]+)?/[a-z0-9][a-z0-9._/-]*$`)
 )
 
 // ErrFailed marks a failure whose ::error:: line is already written.
@@ -86,6 +96,19 @@ func Run(ctx context.Context, o Options) error {
 		return fail("remote-builders is empty — set the org variable, export " + runnerenv.RemoteBuilder + " from the runner, or skip this step")
 	}
 	fmt.Fprintf(o.Err, "%s\n", runnerenv.Describe("remote builders", src, strings.Join(strings.Fields(nodes), " "), runnerenv.RemoteBuilder))
+
+	// The BuildKit cache is the runner's when it names one. A value that is no registry
+	// reference never reaches GITHUB_ENV.
+	cache, csrc, err := runnerenv.Pick(runnerenv.BuildxCache, o.RunnerBuildxCache, o.BuildxCache, false)
+	if err != nil {
+		return fail("%v", err)
+	}
+	if csrc == runnerenv.FromRunner && !registryRef.MatchString(cache) {
+		return fail("%s is not a registry reference (<registry>/<repository>, no tag)", runnerenv.BuildxCache)
+	}
+	if csrc != runnerenv.Unset {
+		fmt.Fprintf(o.Err, "%s\n", runnerenv.Describe("buildkit cache", csrc, cache, runnerenv.BuildxCache))
+	}
 
 	// The driver options that make a node mutual TLS. They are the same for
 	// every node, and every node needs them (buildx keeps them per node).
@@ -188,6 +211,10 @@ func Run(ctx context.Context, o Options) error {
 			return err
 		}
 		fmt.Fprintf(ef, "BUILDX_BUILDER=%s\n", builder)
+		if csrc == runnerenv.FromRunner {
+			// Validated above: one line, no whitespace.
+			fmt.Fprintf(ef, "CI_BUILDX_CACHE=%s\n", cache)
+		}
 		return ef.Close()
 	}
 	return nil

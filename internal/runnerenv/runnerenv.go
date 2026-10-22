@@ -36,6 +36,13 @@ const (
 	// environment (the stable tier's jobs write and read the stable one).
 	MavenRegistry    = "CI_RUNNER_MAVEN_REGISTRY"
 	GradleBuildCache = "CI_RUNNER_GRADLE_BUILD_CACHE"
+
+	// GoCacheBucket and GoCacheRegion name the bucket of the runner's own Go build
+	// cache and archive caches (setup-cache, s3-cache); BuildxCache is the registry
+	// reference of its BuildKit cache. A runner of one tier names its tier's.
+	GoCacheBucket = "CI_RUNNER_GOCACHE_S3_BUCKET"
+	GoCacheRegion = "CI_RUNNER_GOCACHE_S3_REGION"
+	BuildxCache   = "CI_RUNNER_BUILDX_CACHE"
 )
 
 // Source says where an effective value came from.
@@ -96,4 +103,42 @@ func Describe(what string, src Source, value, runnerName string) string {
 		return fmt.Sprintf("%s: %s (from the caller's input or organisation variable)", what, Redact(value))
 	}
 	return fmt.Sprintf("%s: unset (neither %s nor the caller's input or organisation variable names one)", what, runnerName)
+}
+
+// Store is the effective cache bucket of a step.
+type Store struct {
+	Bucket, Region, Endpoint, PathStyle string
+	// BucketSource says who named the bucket; RegionSource who named the region.
+	BucketSource, RegionSource Source
+}
+
+// PickStore decides the bucket, region, endpoint and path style of the CI cache
+// bucket. The bucket and the region each follow Pick (runner, then caller). The
+// endpoint and the path style describe the CALLER's store (an S3-compatible
+// service such as R2), not the runner's bucket, so they are dropped when the
+// runner named the bucket: a runner's bucket is an AWS S3 bucket reached by the
+// SDK's own endpoint.
+//
+// A runner exports its region only with its bucket (the runner's configuration
+// holds the pair); a bucket the runner names with no region of its own takes the
+// caller's.
+func PickStore(runnerBucket, runnerRegion, callerBucket, callerRegion, callerEndpoint, callerPathStyle string) (Store, error) {
+	var st Store
+
+	bucket, bsrc, err := Pick(GoCacheBucket, runnerBucket, callerBucket, false)
+	if err != nil {
+		return st, err
+	}
+
+	region, rsrc, err := Pick(GoCacheRegion, runnerRegion, callerRegion, false)
+	if err != nil {
+		return st, err
+	}
+
+	st = Store{Bucket: bucket, Region: region, BucketSource: bsrc, RegionSource: rsrc}
+	if bsrc != FromRunner {
+		st.Endpoint, st.PathStyle = callerEndpoint, callerPathStyle
+	}
+
+	return st, nil
 }

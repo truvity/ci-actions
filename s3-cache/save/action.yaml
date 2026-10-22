@@ -15,8 +15,9 @@ inputs:
     required: true
   bucket:
     description: >-
-      The CI cache bucket, from the CALLER's org variable. Empty uses
-      GitHub's cache. Set, the bucket is tried first, and a runner with no
+      The CI cache bucket, from the CALLER's org variable. A runner that
+      exports CI_RUNNER_GOCACHE_S3_BUCKET overrides it. Empty (and no runner
+      bucket) uses GitHub's cache. Set, the bucket is tried first, and a runner with no
       usable credentials hands the same key to GitHub's cache.
     required: false
     default: ""
@@ -49,8 +50,22 @@ outputs:
 runs:
   using: composite
   steps:
+    # A runner can have a bucket of its own (CI_RUNNER_GOCACHE_S3_BUCKET in its
+    # process environment, which an `if:` cannot see), and that wins over the input.
+    # This step only asks whether any bucket is named; the binary decides which.
+    - id: pick
+      shell: bash
+      env:
+        INPUT_BUCKET: ${{ inputs.bucket }}
+      run: |
+        if [ -n "$INPUT_BUCKET" ] || [ -n "${CI_RUNNER_GOCACHE_S3_BUCKET:-}" ]; then
+          echo "use-bucket=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "use-bucket=false" >> "$GITHUB_OUTPUT"
+        fi
+
     - id: s3
-      if: inputs.bucket != ''
+      if: steps.pick.outputs.use-bucket == 'true'
       shell: bash
       env:
         BUCKET: ${{ inputs.bucket }}
@@ -67,7 +82,7 @@ runs:
       run: bash "$ACTION_PATH/../run.sh" save
 
     - id: gh
-      if: inputs.bucket == '' || steps.s3.outputs.fallback == 'true'
+      if: steps.pick.outputs.use-bucket != 'true' || steps.s3.outputs.fallback == 'true'
       uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: ${{ inputs.path }}

@@ -52,3 +52,25 @@ func TestDescribeNamesTheSource(t *testing.T) {
 		t.Error("empty")
 	}
 }
+
+func TestPickStore(t *testing.T) {
+	for _, c := range []struct {
+		name                   string
+		rb, rr, cb, cr, ce, cp string
+		want                   Store
+		fail                   bool
+	}{
+		{"caller only", "", "", "devel-bucket", "eu-central-1", "", "", Store{Bucket: "devel-bucket", Region: "eu-central-1", BucketSource: FromCaller, RegionSource: FromCaller}, false},
+		{"caller keeps its endpoint", "", "", "r2-bucket", "auto", "https://r2.example", "true", Store{Bucket: "r2-bucket", Region: "auto", Endpoint: "https://r2.example", PathStyle: "true", BucketSource: FromCaller, RegionSource: FromCaller}, false},
+		{"runner bucket wins and drops the caller's endpoint", "kernel-bucket", "eu-central-1", "devel-bucket", "eu-west-1", "https://r2.example", "true", Store{Bucket: "kernel-bucket", Region: "eu-central-1", BucketSource: FromRunner, RegionSource: FromRunner}, false},
+		{"runner bucket without region takes the caller's region", "kernel-bucket", "", "devel-bucket", "eu-central-1", "", "", Store{Bucket: "kernel-bucket", Region: "eu-central-1", BucketSource: FromRunner, RegionSource: FromCaller}, false},
+		{"runner bucket and no caller at all", "kernel-bucket", "eu-central-1", "", "", "", "", Store{Bucket: "kernel-bucket", Region: "eu-central-1", BucketSource: FromRunner, RegionSource: FromRunner}, false},
+		{"nothing", "", "", "", "", "", "", Store{BucketSource: Unset, RegionSource: Unset}, false},
+		{"malformed runner bucket is refused", "a b", "", "devel-bucket", "", "", "", Store{}, true},
+	} {
+		got, err := PickStore(c.rb, c.rr, c.cb, c.cr, c.ce, c.cp)
+		if (err != nil) != c.fail || (err == nil && got != c.want) {
+			t.Errorf("%s: got (%+v, %v), want (%+v, fail=%v)", c.name, got, err, c.want, c.fail)
+		}
+	}
+}

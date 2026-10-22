@@ -61,6 +61,17 @@ inputs:
     required: false
     default: ""
 
+  buildx-cache:
+    description: >-
+      The BuildKit registry-cache reference (`<registry>/<repository>`, no tag)
+      of the caller's tier, from its org variable. Optional: the step only
+      applies the runner's override. A runner that exports
+      CI_RUNNER_BUILDX_CACHE wins over it and the step exports the winner as
+      CI_BUILDX_CACHE for the rest of the job; without one, the caller's value
+      (which the workflow sets itself) is left alone.
+    required: false
+    default: ""
+
 runs:
   using: composite
   steps:
@@ -68,6 +79,7 @@ runs:
       shell: bash
       env:
         NODES: ${{ inputs.remote-builders }}
+        BUILDX_CACHE: ${{ inputs.buildx-cache }}
         ACTION_PATH: ${{ github.action_path }}
         ACTION_REPOSITORY: ${{ github.action_repository }}
         ACTION_REF: ${{ github.action_ref }}

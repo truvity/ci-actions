@@ -190,3 +190,28 @@ func TestBuildkitTLSCLI(t *testing.T) {
 		t.Fatalf("dir: exit %d, err %q", code, errs)
 	}
 }
+
+func TestS3CacheNamesNoBucketHandsOverToGitHubQuietly(t *testing.T) {
+	outFile := filepath.Join(t.TempDir(), "out")
+	code, out, errs := runCLI(t, map[string]string{"KEY": "k", "PATHS": "x", "GITHUB_OUTPUT": outFile}, "s3-cache", "restore")
+	got, _ := os.ReadFile(outFile)
+	if code != 0 || strings.Contains(errs, "warning") || out != "" || !strings.Contains(string(got), "fallback=true") {
+		t.Errorf("code %d out %q err %q outputs %q", code, out, errs, got)
+	}
+}
+
+func TestS3CacheTakesTheRunnersBucketWithNoInput(t *testing.T) {
+	// The runner names the bucket, the caller passes none (a workflow with no go-cache inputs): the
+	// step must try the runner's bucket and say so, not fall back silently. Credentials are absent here,
+	// so the store may still be refused, but the log shows which bucket was chosen.
+	outFile := filepath.Join(t.TempDir(), "out")
+	code, out, _ := runCLI(t, map[string]string{
+		"KEY": "k", "PATHS": "x", "GITHUB_OUTPUT": outFile,
+		"CI_RUNNER_GOCACHE_S3_BUCKET": "kernel-bucket", "CI_RUNNER_GOCACHE_S3_REGION": "eu-central-1",
+		"AWS_ACCESS_KEY_ID": "x", "AWS_SECRET_ACCESS_KEY": "y", "AWS_EC2_METADATA_DISABLED": "true",
+		"TIMEOUT": "2s",
+	}, "s3-cache", "restore")
+	if code != 0 || !strings.Contains(out, "cache bucket: kernel-bucket (from the runner's CI_RUNNER_GOCACHE_S3_BUCKET)") {
+		t.Errorf("code %d out %q", code, out)
+	}
+}

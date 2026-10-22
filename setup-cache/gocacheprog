@@ -52,6 +52,26 @@ local_only() {
         "$plugin" "$@"
 }
 
+# The runner's OWN bucket is served by the runner's OWN identity. A runner that
+# names a bucket of its own (CI_RUNNER_GOCACHE_S3_BUCKET: a preview or a stable
+# tier, each with a bucket in its own account) and holds a task or pod identity
+# (container credentials) is the identity that bucket's policy was written for.
+# A release job exports the keys of the role it assumed by OIDC for the whole of
+# its build; that role is another identity, usually of another account, with no
+# grant on this bucket, and the keys-in-the-environment rule below would hand the
+# plugin to it: every request refused, counted as a miss, nothing failing. So for
+# this bucket, and only when the runner provides that identity, the job's keys and
+# profile are not offered to the plugin. Without the runner's variable, or with a
+# bucket that is not the runner's, nothing changes.
+if [ -n "${CI_RUNNER_GOCACHE_S3_BUCKET:-}" ] && [ "${GOCACHE_S3_BUCKET:-}" = "$CI_RUNNER_GOCACHE_S3_BUCKET" ] \
+    && { [ -n "${AWS_CONTAINER_CREDENTIALS_RELATIVE_URI:-}" ] || [ -n "${AWS_CONTAINER_CREDENTIALS_FULL_URI:-}" ]; }; then
+    exec env \
+        -u AWS_ACCESS_KEY_ID -u AWS_SECRET_ACCESS_KEY -u AWS_SESSION_TOKEN \
+        -u AWS_PROFILE -u AWS_DEFAULT_PROFILE -u AWS_ROLE_ARN -u AWS_WEB_IDENTITY_TOKEN_FILE \
+        AWS_CONFIG_FILE=/dev/null AWS_SHARED_CREDENTIALS_FILE=/dev/null \
+        "$plugin" "$@"
+fi
+
 # Keys in the environment win over every profile, and cannot be slow.
 if [ -n "${AWS_ACCESS_KEY_ID:-}" ]; then
     exec "$plugin" "$@"

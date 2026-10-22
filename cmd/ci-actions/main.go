@@ -67,7 +67,8 @@ Commands:
   s3-cache <step>      restore | save: actions/cache semantics against the CI cache bucket, for a self-hosted
                        runner (env: BUCKET, REGION, ENDPOINT, PATH_STYLE, PREFIX, KEY, PATHS, RESTORE_KEYS,
                        GITHUB_REPOSITORY, GITHUB_OUTPUT)
-  remote-builders      register BuildKit builders as one buildx builder (env: NODES, CI_RUNNER_REMOTE_BUILDERS wins over it, plus
+  remote-builders      register BuildKit builders as one buildx builder (env: NODES, CI_RUNNER_REMOTE_BUILDERS wins over it; BUILDX_CACHE, with
+                       CI_RUNNER_BUILDX_CACHE winning and exported as CI_BUILDX_CACHE; plus
                        HOME, RUNNER_TEMP, GITHUB_ENV; mutual TLS when
                        CI_BUILDKIT_TLS_DIR is set, with CI_BUILDKIT_TLS_SERVERNAME as the verified name, else plain TCP)
   buildkit-tls         settle where the runner's BuildKit client certificate comes from: CI_BUILDKIT_TLS_DIR as it is, or the
@@ -232,7 +233,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, getenv fu
 		return s3CacheCmd(ctx, args[1:], stdout, stderr, getenv)
 	case "remote-builders":
 		err := remotebuilders.Run(ctx, remotebuilders.Options{
-			Nodes: getenv("NODES"), RunnerNodes: getenv(runnerenv.RemoteBuilder), TLSDir: getenv("CI_BUILDKIT_TLS_DIR"), TLSServername: getenv("CI_BUILDKIT_TLS_SERVERNAME"), Home: getenv("HOME"), RunnerTemp: getenv("RUNNER_TEMP"), GithubEnv: getenv("GITHUB_ENV"),
+			Nodes: getenv("NODES"), RunnerNodes: getenv(runnerenv.RemoteBuilder), BuildxCache: getenv("BUILDX_CACHE"), RunnerBuildxCache: getenv(runnerenv.BuildxCache), TLSDir: getenv("CI_BUILDKIT_TLS_DIR"), TLSServername: getenv("CI_BUILDKIT_TLS_SERVERNAME"), Home: getenv("HOME"), RunnerTemp: getenv("RUNNER_TEMP"), GithubEnv: getenv("GITHUB_ENV"),
 			Out: stdout, Err: stderr,
 		})
 		switch {
@@ -779,6 +780,9 @@ func releasePkl(ctx context.Context, step string, stdout, stderr io.Writer, gete
 	return errUsage
 }
 
+// errNoBucket: neither the runner nor the caller named a bucket.
+var errNoBucket = errors.New("no bucket is configured")
+
 // s3CacheCmd runs one step of s3-cache. It exits 0 whatever the bucket does:
 // a cache that did not work is a miss, reported on the step's outputs.
 func s3CacheCmd(ctx context.Context, args []string, stdout, stderr io.Writer, getenv func(string) string) int {
@@ -801,12 +805,26 @@ func s3CacheCmd(ctx context.Context, args []string, stdout, stderr io.Writer, ge
 		Workdir: getenv("GITHUB_WORKSPACE"), Out: stdout, Err: stderr,
 	}
 	res := s3cache.Result{PrimaryKey: o.Key}
-	store, err := s3cache.NewS3(ctx, s3cache.S3Config{
-		Bucket: getenv("BUCKET"), Region: getenv("REGION"), Endpoint: getenv("ENDPOINT"),
-		PathStyle: getenv("PATH_STYLE") == "true",
-	})
+	// The runner's own bucket (CI_RUNNER_GOCACHE_S3_BUCKET) wins over the caller's
+	// input: a preview and a stable runner each have the bucket of their own account.
+	st, err := runnerenv.PickStore(getenv(runnerenv.GoCacheBucket), getenv(runnerenv.GoCacheRegion),
+		getenv("BUCKET"), getenv("REGION"), getenv("ENDPOINT"), getenv("PATH_STYLE"))
+	if err == nil && st.Bucket == "" {
+		err = errNoBucket
+	}
+	var store s3cache.Store
+	if err == nil {
+		fmt.Fprintln(stdout, runnerenv.Describe("cache bucket", st.BucketSource, st.Bucket, runnerenv.GoCacheBucket))
+		store, err = s3cache.NewS3(ctx, s3cache.S3Config{
+			Bucket: st.Bucket, Region: st.Region, Endpoint: st.Endpoint,
+			PathStyle: st.PathStyle == "true",
+		})
+	}
 	if err != nil {
-		fmt.Fprintf(stderr, "::warning::s3-cache: %v; using GitHub's cache for this step\n", err)
+		// No bucket at all is a configuration, not a fault: GitHub's cache serves the step, quietly.
+		if !errors.Is(err, errNoBucket) {
+			fmt.Fprintf(stderr, "::warning::s3-cache: %v; using GitHub's cache for this step\n", err)
+		}
 		res.Fallback = true
 	} else {
 		o.Store = store

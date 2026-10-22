@@ -309,3 +309,41 @@ func TestMutualTLSRefusals(t *testing.T) {
 		}
 	}
 }
+
+func TestRunnerBuildxCacheWinsAndIsExported(t *testing.T) {
+	x := newH(t, "linux/arm64=tcp://a:1")
+	x.fn = inspect("linux/arm64")
+	x.o.BuildxCache = "registry-a.example.test/ci/buildkit-cache"
+	x.o.RunnerBuildxCache = "registry-b.example.test/ci/buildkit-cache\n"
+	if err := Run(context.Background(), x.o); err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := os.ReadFile(x.o.GithubEnv); string(b) != "BUILDX_BUILDER=ci\nCI_BUILDX_CACHE=registry-b.example.test/ci/buildkit-cache\n" {
+		t.Errorf("env %q", b)
+	}
+	if !strings.Contains(x.errs.String(), "buildkit cache: registry-b.example.test/ci/buildkit-cache (from the runner's CI_RUNNER_BUILDX_CACHE)") {
+		t.Errorf("log %q", x.errs.String())
+	}
+}
+
+func TestCallersBuildxCacheIsLeftWhereTheWorkflowPutIt(t *testing.T) {
+	x := newH(t, "linux/arm64=tcp://a:1")
+	x.fn = inspect("linux/arm64")
+	x.o.BuildxCache = "registry-a.example.test/ci/buildkit-cache"
+	if err := Run(context.Background(), x.o); err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := os.ReadFile(x.o.GithubEnv); string(b) != "BUILDX_BUILDER=ci\n" {
+		t.Errorf("env %q", b)
+	}
+}
+
+func TestMalformedRunnerBuildxCacheIsRefusedBeforeAnythingRuns(t *testing.T) {
+	for _, v := range []string{"has space/x", "no-slash", "reg.example/repo:tag", "reg.example/repo\nX=1", "https://reg.example/repo"} {
+		x := newH(t, "linux/arm64=tcp://a:1")
+		x.o.RunnerBuildxCache = v
+		if err := Run(context.Background(), x.o); !errors.Is(err, ErrFailed) || len(x.calls) != 0 {
+			t.Errorf("%q: err %v calls %v", v, err, x.calls)
+		}
+	}
+}
