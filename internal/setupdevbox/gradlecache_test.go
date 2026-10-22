@@ -76,6 +76,30 @@ func TestGradleCacheWiresBothCaches(t *testing.T) {
 	}
 }
 
+// The estate gives each cache a name of its own (maven.cache.build.<env>...,
+// gradle.cache.build.<env>...) whose gateway rewrites the root onto the cache's
+// path, so the address is a bare origin: the probe is a GET of "/" and the
+// exported value is the origin, with nothing appended.
+func TestGradleCacheAcceptsCachesNamedByTheirRoot(t *testing.T) {
+	maven := cacheServer(t, false, "/")
+	gradle := cacheServer(t, false, "/")
+	x := newH(t)
+	x.env["CI_RUNNER_MAVEN_REGISTRY"] = maven.URL
+	x.env["CI_RUNNER_GRADLE_BUILD_CACHE"] = gradle.URL + "/"
+	if err := runGradleCache(x, maven.Client()); err != nil {
+		t.Fatal(err)
+	}
+	env := x.file("github_env")
+	for _, want := range []string{"\n" + maven.URL + "\n", "\n" + gradle.URL + "\n"} {
+		if !strings.Contains(env, want) {
+			t.Errorf("GITHUB_ENV lacks %q:\n%s", want, env)
+		}
+	}
+	if log := x.out.String(); strings.Contains(log, "::warning::") {
+		t.Errorf("log: %s", log)
+	}
+}
+
 func TestGradleCacheTrustsTheSystemStoreForHTTPS(t *testing.T) {
 	s := cacheServer(t, true, "/maven/")
 	x := newH(t)

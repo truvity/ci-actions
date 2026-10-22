@@ -9,7 +9,8 @@
 //                         path per upstream: <base>/central, <base>/google,
 //                         <base>/gradle-plugins.
 //   CI_GRADLE_BUILD_CACHE the URL of the Gradle remote build cache, ending
-//                         where the key begins (.../gradle/cache/). Only
+//                         where the key begins (the estate's is the root of
+//                         gradle.cache.build.<env>.truvity.private). Only
 //                         exported by a tier that may write it.
 //
 // DEPENDENCIES. The repositories a build DECLARES are rewritten, not
