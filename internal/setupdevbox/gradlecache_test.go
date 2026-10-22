@@ -194,7 +194,7 @@ func TestGradleCacheFailsOpenWhenTheCacheDoesNotServe(t *testing.T) {
 	}
 }
 
-func TestGradleCacheStableTierHasNoBuildCache(t *testing.T) {
+func TestGradleCacheRunnerWithNoBuildCacheWiresDependenciesOnly(t *testing.T) {
 	s := cacheServer(t, false, "/maven/")
 	x := newH(t)
 	x.env["CI_RUNNER_MAVEN_REGISTRY"] = s.URL + "/maven"

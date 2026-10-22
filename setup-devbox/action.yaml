@@ -97,9 +97,10 @@ inputs:
       URL of Gradle's remote build cache (the HTTP protocol), ending where the
       key begins (the estate's is https://gradle.cache.build.<env>.truvity.private,
       the key follows its root). Empty leaves the build without one. A
-      runner that exports CI_RUNNER_GRADLE_BUILD_CACHE overrides it. Only a
-      tier that may write the cache gets this from its runner (the stable tier
-      reads no cache a job can write). Used, it is exported as
+      runner that exports CI_RUNNER_GRADLE_BUILD_CACHE overrides it. Every
+      tier's runner names the build cache of its own environment (preview and
+      stable each have their own, and read only what their own jobs wrote).
+      Used, it is exported as
       CI_GRADLE_BUILD_CACHE; a build still has to turn the build cache on
       (org.gradle.caching=true), the init script never does.
     default: ""
