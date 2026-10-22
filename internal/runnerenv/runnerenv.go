@@ -28,6 +28,13 @@ const (
 	NpmRegistry   = "CI_RUNNER_NPM_REGISTRY"
 	BazelRemote   = "CI_RUNNER_BAZEL_REMOTE_CACHE"
 	RemoteBuilder = "CI_RUNNER_REMOTE_BUILDERS"
+	// MavenRegistry is the base of the Maven pull-through cache, one path per
+	// upstream (<base>/central, <base>/google, <base>/gradle-plugins), and
+	// GradleBuildCache the URL of Gradle's remote build cache, ending where the
+	// key begins. A tier that must not read a cache its jobs can write exports
+	// only the first.
+	MavenRegistry    = "CI_RUNNER_MAVEN_REGISTRY"
+	GradleBuildCache = "CI_RUNNER_GRADLE_BUILD_CACHE"
 )
 
 // Source says where an effective value came from.

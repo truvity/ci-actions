@@ -80,6 +80,27 @@ inputs:
       exports CI_RUNNER_BAZEL_REMOTE_CACHE overrides it, and the winning value
       is exported to the job as CI_BAZEL_REMOTE_CACHE.
     default: ""
+  maven-registry:
+    description: >-
+      Base URL of the Maven pull-through cache, one path per upstream
+      (<base>/central, <base>/google, <base>/gradle-plugins), for Gradle
+      builds. Empty leaves the repositories the builds declare. A runner that
+      exports CI_RUNNER_MAVEN_REGISTRY overrides it. The cache must answer a GET
+      of <base>/ with 200 or it is not used (a warning, never a failed job).
+      Used, it is exported to the job as CI_MAVEN_REGISTRY and a Gradle init
+      script in the Gradle user home points mavenCentral(), google() and
+      gradlePluginPortal() at it.
+    default: ""
+  gradle-build-cache:
+    description: >-
+      URL of Gradle's remote build cache (the HTTP protocol), ending where the
+      key begins (.../gradle/cache). Empty leaves the build without one. A
+      runner that exports CI_RUNNER_GRADLE_BUILD_CACHE overrides it. Only a
+      tier that may write the cache gets this from its runner (the stable tier
+      reads no cache a job can write). Used, it is exported as
+      CI_GRADLE_BUILD_CACHE; a build still has to turn the build cache on
+      (org.gradle.caching=true), the init script never does.
+    default: ""
   github-token:
     description: Token for proto's GitHub API resolution (rate limits).
     default: ""
@@ -437,6 +458,20 @@ runs:
         ACTION_REPOSITORY: ${{ github.action_repository }}
         ACTION_REF: ${{ github.action_ref }}
       run: bash "$ACTION_PATH/run.sh" resolve-endpoints
+
+    # Gradle: the Maven pull-through cache and the remote build cache, by an init
+    # script in the Gradle user home. Probed first and fail-open, like the rest:
+    # a cache that does not answer is a warning and the build uses the public
+    # repositories. See internal/setupdevbox/gradlecache.go.
+    - name: Wire the Gradle caches
+      shell: bash
+      env:
+        CALLER_MAVEN_REGISTRY: ${{ inputs.maven-registry }}
+        CALLER_GRADLE_BUILD_CACHE: ${{ inputs.gradle-build-cache }}
+        ACTION_PATH: ${{ github.action_path }}
+        ACTION_REPOSITORY: ${{ github.action_repository }}
+        ACTION_REF: ${{ github.action_ref }}
+      run: bash "$ACTION_PATH/run.sh" gradle-cache
 
     - name: Wire the fleet caches
       uses: truvity/ci-actions/setup-cache@d9438a810d56a6443228fba7c8cb814b93bf6bd9 # v3.0.0
