@@ -31,8 +31,9 @@ const (
 	// MavenRegistry is the base of the Maven pull-through cache, one path per
 	// upstream (<base>/central, <base>/google, <base>/gradle-plugins), and
 	// GradleBuildCache the URL of Gradle's remote build cache, ending where the
-	// key begins. A tier that must not read a cache its jobs can write exports
-	// only the first.
+	// key begins. A runner that names no build cache exports only the first;
+	// each environment names its own, and a tier reads only the cache of its own
+	// environment (the stable tier's jobs write and read the stable one).
 	MavenRegistry    = "CI_RUNNER_MAVEN_REGISTRY"
 	GradleBuildCache = "CI_RUNNER_GRADLE_BUILD_CACHE"
 )

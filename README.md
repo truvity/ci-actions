@@ -106,7 +106,7 @@ spec, a task definition), and that wins:
 | `CI_RUNNER_BAZEL_REMOTE_CACHE` | the `bazel-remote` input | `setup-devbox`, which exports the winner to the job as `CI_BAZEL_REMOTE_CACHE` |
 | `CI_RUNNER_REMOTE_BUILDERS` | the `remote-builders` input | `setup-remote-builders`; the "Plan the remote builders" steps of ci-workflows |
 | `CI_RUNNER_MAVEN_REGISTRY` | the `maven-registry` input | `setup-devbox` ("Wire the Gradle caches"), which exports the winner to the job as `CI_MAVEN_REGISTRY` |
-| `CI_RUNNER_GRADLE_BUILD_CACHE` | the `gradle-build-cache` input | the same step; exported as `CI_GRADLE_BUILD_CACHE`. A tier that must not read a cache its jobs can write does not export it |
+| `CI_RUNNER_GRADLE_BUILD_CACHE` | the `gradle-build-cache` input | the same step; exported as `CI_GRADLE_BUILD_CACHE`. A runner that names no build cache does not export it; each tier's runner names its own environment's |
 
 Precedence, per value: **runner environment, then the input (the caller's
 organisation variable), then the action's default.** With no `CI_RUNNER_*` set
