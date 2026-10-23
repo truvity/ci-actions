@@ -4,6 +4,12 @@ Every release of truvity/ci-actions, newest first. Pin the commit of a
 tag (`git rev-parse vX.Y.Z^{commit}`), never the tag object and never
 an untagged commit; `tagged-pins` refuses anything else.
 
+## v3.6.3
+
+### Fixed
+
+- **`require-green-checks` ignores GitHub's dependency-graph jobs.** On any push that touches a manifest GitHub runs the Dependabot graph-submission job as a check run named `update-<ecosystem>-graph` (`update-go_modules-graph`, `update-npm_and_yarn-graph`, ...), posted by the `github-actions` app. Without a Dependabot token it fails with "Dependabot job token is not set", and the gate refused the tag for it (it killed the release of `eudi/v1.9.1`). The gate now drops a check run when its app is `github-actions` or `dependabot` and its name is `update-*-graph`; a check of that name from any other app, or any other name from those apps, still counts. The check-runs response's `app.slug` is now read for this.
+
 ## v3.6.2
 
 ### Fixed

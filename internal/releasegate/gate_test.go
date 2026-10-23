@@ -17,6 +17,13 @@ func cr(id int64, name, url string, conclusion *string) checkRun {
 	return checkRun{ID: id, Name: name, DetailsURL: url, Conclusion: conclusion}
 }
 
+// crApp is cr with the app that posted the check run.
+func crApp(id int64, name, app, url string, conclusion *string) checkRun {
+	c := cr(id, name, url, conclusion)
+	c.App.Slug = app
+	return c
+}
+
 func s(v string) *string { return &v }
 
 func run(runID string) string { return fmt.Sprintf("https://x/actions/runs/%s/job/1", runID) }
@@ -59,6 +66,19 @@ func TestLines(t *testing.T) {
 		{"a run id that is a prefix of another is not excluded", [][]checkRun{{cr(1, "build", run("9999"), s("success"))}}, "build\tsuccess"},
 		{"release-shaped names are dropped, lookalikes are kept", [][]checkRun{{cr(1, "release", run("1"), nil), cr(2, "release / x", run("1"), nil), cr(3, "releases", run("1"), s("success")), cr(4, "pre-release / x", run("1"), s("success"))}}, "pre-release / x\tsuccess releases\tsuccess"},
 		{"bot runs are dropped", [][]checkRun{{cr(1, "renovate / renovate", run("1"), s("failure")), cr(2, "update / update", run("1"), nil), cr(3, "renovate", run("1"), s("success"))}}, "renovate\tsuccess"},
+		{"dependency-graph jobs of github-actions and dependabot are dropped", [][]checkRun{{
+			crApp(1, "update-go_modules-graph", "github-actions", run("1"), s("failure")),
+			crApp(2, "update-npm_and_yarn-graph", "github-actions", run("1"), nil),
+			crApp(3, "update-github_actions-graph", "dependabot", run("1"), s("failure")),
+			crApp(4, "check", "github-actions", run("1"), s("success"))}}, "check\tsuccess"},
+		{"a similar name from another app or without an app is kept", [][]checkRun{{
+			crApp(1, "update-go_modules-graph", "some-ci", run("1"), s("failure")),
+			cr(2, "update-npm-graph", run("1"), s("failure"))}}, "update-go_modules-graph\tfailure update-npm-graph\tfailure"},
+		{"a github-actions check that is not the graph shape is kept", [][]checkRun{{
+			crApp(1, "update-docs", "github-actions", run("1"), s("failure")),
+			crApp(2, "update--graph", "github-actions", run("1"), s("failure")),
+			crApp(3, "graph", "github-actions", run("1"), s("failure")),
+			crApp(4, "update-go_modules-graph / x", "github-actions", run("1"), s("failure"))}}, "graph\tfailure update--graph\tfailure update-docs\tfailure update-go_modules-graph / x\tfailure"},
 		{"an empty conclusion string is a conclusion, null is pending", [][]checkRun{{cr(1, "a", run("1"), s("")), cr(2, "b", run("1"), nil)}}, "a\t b\tpending"},
 		{"sorted by name", [][]checkRun{{cr(1, "b", run("1"), s("success")), cr(2, "a", run("1"), s("success")), cr(3, "B", run("1"), s("success"))}}, "B\tsuccess a\tsuccess b\tsuccess"},
 	} {
@@ -105,6 +125,12 @@ func gate(t *testing.T, runs []checkRun) (string, error, []string) {
 }
 
 func TestRun(t *testing.T) {
+	t.Run("a red dependency-graph job does not refuse (the app survives the JSON round trip)", func(t *testing.T) {
+		out, err, _ := gate(t, []checkRun{cr(1, "check", run("1"), s("success")), crApp(2, "update-go_modules-graph", "github-actions", run("2"), s("failure"))})
+		if err != nil || !strings.Contains(out, "all checks green on abc123") || strings.Contains(out, "graph") {
+			t.Errorf("err=%v out=%q", err, out)
+		}
+	})
 	t.Run("green", func(t *testing.T) {
 		out, err, asked := gate(t, []checkRun{cr(1, "check", run("1"), s("success")), cr(2, "suite", run("1"), s("skipped")), cr(3, "lint", run("1"), s("neutral")), cr(4, "release / release", run("999"), nil)})
 		want := "checks on abc123:\n  check\tsuccess\n  lint\tneutral\n  suite\tskipped\nall checks green on abc123\n"
