@@ -45,6 +45,24 @@ type checkRun struct {
 	Name       string  `json:"name"`
 	DetailsURL string  `json:"details_url"`
 	Conclusion *string `json:"conclusion"`
+	App        struct {
+		Slug string `json:"slug"`
+	} `json:"app"`
+}
+
+// isDependencyGraphJob reports whether c is GitHub's own dependency-graph
+// submission job: the Dependabot "update-<ecosystem>-graph" job
+// (update-go_modules-graph, update-npm_and_yarn-graph, ...) that GitHub runs
+// on any push touching a manifest. It is posted by the github-actions app (or
+// dependabot), and fails with "Dependabot job token is not set" when the
+// repository has no Dependabot token; it says nothing about the commit. The
+// match needs both the app and the name shape, so a user's check that only
+// looks similar, from any other app, still counts.
+func isDependencyGraphJob(c checkRun) bool {
+	if c.App.Slug != "github-actions" && c.App.Slug != "dependabot" {
+		return false
+	}
+	return strings.HasPrefix(c.Name, "update-") && strings.HasSuffix(c.Name, "-graph") && len(c.Name) > len("update--graph")
 }
 
 type page struct {
@@ -56,7 +74,7 @@ type page struct {
 // `name<TAB>conclusion` lines sorted by name. The newest run of each name
 // counts (max id and never started_at: a QUEUED run has started_at=null, which
 // sorts lowest, and the gate would pick an older COMPLETED run and release on
-// stale green). Three exclusions, all load-bearing:
+// stale green). Four exclusions, all load-bearing:
 //
 //  1. Its own run, BY RUN ID, not by name: the check run is named
 //     "<caller-job> / <called-job>" once the job lives in a reusable
@@ -82,6 +100,9 @@ func Lines(pages [][]checkRun, runID string) []string {
 				continue
 			}
 			if strings.HasPrefix(c.Name, "renovate /") || strings.HasPrefix(c.Name, "update /") {
+				continue
+			}
+			if isDependencyGraphJob(c) {
 				continue
 			}
 			if cur, ok := newest[c.Name]; !ok || c.ID >= cur.ID {
