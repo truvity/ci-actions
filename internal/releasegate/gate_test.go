@@ -74,6 +74,19 @@ func TestLines(t *testing.T) {
 		{"a similar name from another app or without an app is kept", [][]checkRun{{
 			crApp(1, "update-go_modules-graph", "some-ci", run("1"), s("failure")),
 			cr(2, "update-npm-graph", run("1"), s("failure"))}}, "update-go_modules-graph\tfailure update-npm-graph\tfailure"},
+		{"dependabot update jobs of github-actions and dependabot are dropped", [][]checkRun{{
+			crApp(1, "Dependabot", "github-actions", run("1"), s("failure")),
+			crApp(2, "Dependabot Updates", "github-actions", run("1"), nil),
+			crApp(3, "Dependabot", "dependabot", run("1"), s("failure")),
+			crApp(4, "check", "github-actions", run("1"), s("success"))}}, "check\tsuccess"},
+		{"a Dependabot-named check from another app or without an app is kept", [][]checkRun{{
+			crApp(1, "Dependabot", "some-ci", run("1"), s("failure")),
+			crApp(2, "Dependabot Updates", "some-ci", run("1"), nil),
+			cr(3, "Dependabot", run("1"), s("failure"))}}, "Dependabot\tfailure Dependabot Updates\tpending"},
+		{"a github-actions check that only resembles the Dependabot name is kept", [][]checkRun{{
+			crApp(1, "dependabot", "github-actions", run("1"), s("failure")),
+			crApp(2, "Dependabot / x", "github-actions", run("1"), s("failure")),
+			crApp(3, "Dependabot Updates / x", "github-actions", run("1"), s("failure"))}}, "Dependabot / x\tfailure Dependabot Updates / x\tfailure dependabot\tfailure"},
 		{"a github-actions check that is not the graph shape is kept", [][]checkRun{{
 			crApp(1, "update-docs", "github-actions", run("1"), s("failure")),
 			crApp(2, "update--graph", "github-actions", run("1"), s("failure")),

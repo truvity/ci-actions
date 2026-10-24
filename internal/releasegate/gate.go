@@ -50,17 +50,26 @@ type checkRun struct {
 	} `json:"app"`
 }
 
-// isDependencyGraphJob reports whether c is GitHub's own dependency-graph
-// submission job: the Dependabot "update-<ecosystem>-graph" job
-// (update-go_modules-graph, update-npm_and_yarn-graph, ...) that GitHub runs
-// on any push touching a manifest. It is posted by the github-actions app (or
-// dependabot), and fails with "Dependabot job token is not set" when the
-// repository has no Dependabot token; it says nothing about the commit. The
-// match needs both the app and the name shape, so a user's check that only
-// looks similar, from any other app, still counts.
-func isDependencyGraphJob(c checkRun) bool {
+// isDependabotJob reports whether c is one of GitHub's own Dependabot jobs,
+// which run as check runs on whatever commit Dependabot touches and say
+// nothing about the commit's quality:
+//
+//   - the dependency-graph submission job "update-<ecosystem>-graph"
+//     (update-go_modules-graph, update-npm_and_yarn-graph, ...) that GitHub
+//     runs on any push touching a manifest;
+//   - the security- and version-update job, named "Dependabot" (the job of the
+//     "Dependabot Updates" workflow; "Dependabot Updates" is dropped too).
+//
+// They are posted by the github-actions app (or dependabot) and fail, for
+// example, with "Dependabot job token is not set" when the repository has no
+// Dependabot token. The match needs both the app and the name, so a user's
+// check that only looks similar, from any other app, still counts.
+func isDependabotJob(c checkRun) bool {
 	if c.App.Slug != "github-actions" && c.App.Slug != "dependabot" {
 		return false
+	}
+	if c.Name == "Dependabot" || c.Name == "Dependabot Updates" {
+		return true
 	}
 	return strings.HasPrefix(c.Name, "update-") && strings.HasSuffix(c.Name, "-graph") && len(c.Name) > len("update--graph")
 }
@@ -102,7 +111,7 @@ func Lines(pages [][]checkRun, runID string) []string {
 			if strings.HasPrefix(c.Name, "renovate /") || strings.HasPrefix(c.Name, "update /") {
 				continue
 			}
-			if isDependencyGraphJob(c) {
+			if isDependabotJob(c) {
 				continue
 			}
 			if cur, ok := newest[c.Name]; !ok || c.ID >= cur.ID {
