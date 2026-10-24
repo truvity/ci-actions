@@ -4,6 +4,12 @@ Every release of truvity/ci-actions, newest first. Pin the commit of a
 tag (`git rev-parse vX.Y.Z^{commit}`), never the tag object and never
 an untagged commit; `tagged-pins` refuses anything else.
 
+## v3.6.4
+
+### Fixed
+
+- **`require-green-checks` also ignores Dependabot's own update jobs.** Security- and version-update runs post a check run named `Dependabot` (job of the `Dependabot Updates` workflow) from the `github-actions` app on the commit they touch, and it fails when the repository has no Dependabot token (the `truvity/docs` Node 24 commit `0b45f7d` carries one, and `v0.42.5` was refused for it). The gate now drops a check run when its app is `github-actions` or `dependabot` and its name is `Dependabot` or `Dependabot Updates`, alongside the `update-*-graph` jobs from v3.6.3. A check of the same name from any other app, or without an app, still counts.
+
 ## v3.6.3
 
 ### Fixed
