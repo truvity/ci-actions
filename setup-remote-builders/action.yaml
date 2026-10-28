@@ -43,6 +43,13 @@
 # certificate name the builders are verified against. Without it the nodes are
 # plain TCP.
 #
+# Builders may be STOPPED while idle and started on demand by a TCP wake proxy
+# in front of them. The proxy holds the first connection while the builder
+# boots (35-60 s), longer than buildx waits (two 20 s attempts; its --timeout
+# flag does not change that), so `docker buildx inspect --bootstrap` is retried
+# every 10 s until `wake-timeout` (default 240 s) and each attempt and the total
+# wait are logged. A builder that is already up answers the first try.
+#
 # The logic is the `ci-actions` binary's `remote-builders` command
 # (internal/remotebuilders, table-tested); this action is a thin wrapper that
 # finds that binary (release archive of the pinned tag, or built with Go) and
@@ -76,6 +83,17 @@ inputs:
     required: false
     default: ""
 
+  wake-timeout:
+    description: >-
+      Seconds a builder that does not answer is retried (every 10 s) before the
+      step fails, naming the builder. A stopped builder is started on demand by
+      a wake proxy that holds the connection while it boots (35-60 s), and
+      buildx gives up after about 40 s, so the first job after an idle period
+      needs the retry. A builder that is up answers the first try, with no
+      wait. 0 is a single attempt.
+    required: false
+    default: "240"
+
 runs:
   using: composite
   steps:
@@ -84,6 +102,7 @@ runs:
       env:
         NODES: ${{ inputs.remote-builders }}
         BUILDX_CACHE: ${{ inputs.buildx-cache }}
+        WAKE_TIMEOUT: ${{ inputs.wake-timeout }}
         ACTION_PATH: ${{ github.action_path }}
         ACTION_REPOSITORY: ${{ github.action_repository }}
         ACTION_REF: ${{ github.action_ref }}

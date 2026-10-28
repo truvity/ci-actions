@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/truvity/ci-actions/internal/runcmd"
 )
@@ -141,6 +142,7 @@ func TestFailures(t *testing.T) {
 		t.Error("BUILDX_BUILDER is not exported for a builder that is missing a platform")
 	}
 	// rm is the only tolerated failure; a registration that fails fails the step
+	// the inspect failure is a plain error (no retry) while WakeTimeout is zero
 	for _, failing := range []string{"create", "use", "inspect"} {
 		x := newH(t, "linux/arm64=tcp://a:1")
 		x.fn = func(c runcmd.Cmd) error {
@@ -371,5 +373,97 @@ func TestMalformedRunnerBuildxCacheIsRefusedBeforeAnythingRuns(t *testing.T) {
 		if err := Run(context.Background(), x.o); !errors.Is(err, ErrFailed) || len(x.calls) != 0 {
 			t.Errorf("%q: err %v calls %v", v, err, x.calls)
 		}
+	}
+}
+
+// clock is a fake time: Sleep advances it.
+type clock struct {
+	now    time.Time
+	sleeps []time.Duration
+}
+
+func (c *clock) wire(o *Options) {
+	o.Now = func() time.Time { return c.now }
+	o.Sleep = func(_ context.Context, d time.Duration) error {
+		c.sleeps = append(c.sleeps, d)
+		c.now = c.now.Add(d)
+		return nil
+	}
+}
+
+func TestWakeRetriesUntilTheBuilderAnswers(t *testing.T) {
+	x := newH(t, "linux/arm64=tcp://a:1")
+	var c clock
+	c.wire(&x.o)
+	x.o.WakeTimeout = 240 * time.Second
+	tries := 0
+	x.fn = func(cmd runcmd.Cmd) error {
+		a := strings.Join(cmd.Args, " ")
+		if strings.Contains(a, "inspect --bootstrap ci") {
+			tries++
+			if tries < 4 {
+				return errors.New("exit status 1")
+			}
+			fmt.Fprintln(cmd.Stdout, "Platforms: linux/arm64")
+		}
+		return nil
+	}
+	if err := Run(context.Background(), x.o); err != nil {
+		t.Fatal(err, x.out.String())
+	}
+	if tries != 4 || len(c.sleeps) != 3 || c.sleeps[0] != 10*time.Second {
+		t.Errorf("tries %d sleeps %v", tries, c.sleeps)
+	}
+	if !strings.Contains(x.errs.String(), "attempt 1, waited 0s of 4m0s") || !strings.Contains(x.errs.String(), "answered on attempt 4 after 30s") {
+		t.Errorf("log: %q", x.errs.String())
+	}
+}
+
+func TestWakeFirstTryDoesNotSleep(t *testing.T) {
+	x := newH(t, "linux/arm64=tcp://a:1")
+	var c clock
+	c.wire(&x.o)
+	x.o.WakeTimeout = 240 * time.Second
+	x.fn = inspect("linux/arm64")
+	if err := Run(context.Background(), x.o); err != nil {
+		t.Fatal(err)
+	}
+	if len(c.sleeps) != 0 || strings.Contains(x.errs.String(), "not ready") {
+		t.Errorf("sleeps %v log %q", c.sleeps, x.errs.String())
+	}
+}
+
+func TestWakeDeadlineNamesTheBuilder(t *testing.T) {
+	x := newH(t, "linux/arm64=tcp://a:1 linux/amd64=tcp://b:1")
+	var c clock
+	c.wire(&x.o)
+	x.o.WakeTimeout = 60 * time.Second
+	x.fn = func(cmd runcmd.Cmd) error {
+		if strings.Contains(strings.Join(cmd.Args, " "), "inspect --bootstrap ci") {
+			return errors.New("exit status 1")
+		}
+		return nil
+	}
+	err := Run(context.Background(), x.o)
+	if !errors.Is(err, ErrFailed) || !strings.Contains(x.out.String(), "::error::builder ci (tcp://a:1 tcp://b:1) did not answer within 1m0s (6 attempts)") {
+		t.Errorf("%v %q", err, x.out.String())
+	}
+	if c.now.Sub(time.Time{}) > 60*time.Second {
+		t.Errorf("waited past the deadline: %v", c.now)
+	}
+}
+
+func TestWakeZeroIsOneAttempt(t *testing.T) {
+	x := newH(t, "linux/arm64=tcp://a:1")
+	var c clock
+	c.wire(&x.o)
+	x.fn = func(cmd runcmd.Cmd) error {
+		if strings.Contains(strings.Join(cmd.Args, " "), "inspect") {
+			return errors.New("exit status 1")
+		}
+		return nil
+	}
+	if err := Run(context.Background(), x.o); err == nil || len(c.sleeps) != 0 {
+		t.Errorf("%v %v", err, c.sleeps)
 	}
 }

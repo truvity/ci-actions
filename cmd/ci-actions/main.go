@@ -72,7 +72,8 @@ Commands:
                        CI_RUNNER_BUILDX_CACHE winning and exported as CI_BUILDX_CACHE_FROM and, unless
                        CI_RUNNER_CACHE_WRITES=release-credentials, as CI_BUILDX_CACHE; plus
                        HOME, RUNNER_TEMP, GITHUB_ENV; mutual TLS when
-                       CI_BUILDKIT_TLS_DIR is set, with CI_BUILDKIT_TLS_SERVERNAME as the verified name, else plain TCP)
+                       CI_BUILDKIT_TLS_DIR is set, with CI_BUILDKIT_TLS_SERVERNAME as the verified name, else plain TCP;
+                       WAKE_TIMEOUT, whole seconds, default 240, 0 = one try: how long a builder that is still booting is retried)
   buildkit-tls         settle where the runner's BuildKit client certificate comes from: CI_BUILDKIT_TLS_DIR as it is, or the
                        PEM variables CI_BUILDKIT_TLS_CA_PEM, _CERT_PEM and _KEY_PEM written to a fresh directory under
                        RUNNER_TEMP and exported as CI_BUILDKIT_TLS_DIR (env: those four, plus RUNNER_TEMP, GITHUB_ENV)
@@ -236,7 +237,8 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, getenv fu
 	case "remote-builders":
 		err := remotebuilders.Run(ctx, remotebuilders.Options{
 			Nodes: getenv("NODES"), RunnerNodes: getenv(runnerenv.RemoteBuilder), BuildxCache: getenv("BUILDX_CACHE"), RunnerBuildxCache: getenv(runnerenv.BuildxCache), RunnerCacheWrites: getenv(runnerenv.CacheWrites), TLSDir: getenv("CI_BUILDKIT_TLS_DIR"), TLSServername: getenv("CI_BUILDKIT_TLS_SERVERNAME"), Home: getenv("HOME"), RunnerTemp: getenv("RUNNER_TEMP"), GithubEnv: getenv("GITHUB_ENV"),
-			Out: stdout, Err: stderr,
+			WakeTimeout: wakeTimeout(getenv("WAKE_TIMEOUT")),
+			Out:         stdout, Err: stderr,
 		})
 		switch {
 		case err == nil:
@@ -879,4 +881,14 @@ func writeS3Outputs(getenv func(string) string, lines string) {
 	}
 	fmt.Fprint(f, lines)
 	f.Close()
+}
+
+// wakeTimeout reads the remote-builders WAKE_TIMEOUT (whole seconds): empty or
+// malformed is the default of 240 s, 0 is a single attempt.
+func wakeTimeout(v string) time.Duration {
+	n, err := strconv.Atoi(strings.TrimSpace(v))
+	if err != nil || n < 0 {
+		return 240 * time.Second
+	}
+	return time.Duration(n) * time.Second
 }

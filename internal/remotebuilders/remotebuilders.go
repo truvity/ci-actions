@@ -22,6 +22,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/truvity/ci-actions/internal/runcmd"
 	"github.com/truvity/ci-actions/internal/runnerenv"
@@ -62,10 +63,19 @@ type Options struct {
 	// the read reference, is always exported.
 	RunnerCacheWrites string
 	GithubEnv         string
-	Dir               string // where devbox.json is looked for; "" is the working directory
-	Out               io.Writer
-	Err               io.Writer
-	Exec              runcmd.Exec
+	// WakeTimeout is how long `docker buildx inspect --bootstrap` is retried
+	// while a builder does not answer: a stopped builder is started on demand by
+	// a wake proxy, and buildx itself gives up after about 40 s. Zero is one
+	// attempt, no retry. WakeInterval is the pause between attempts (default
+	// 10 s); Sleep and Now are replaceable for tests.
+	WakeTimeout  time.Duration
+	WakeInterval time.Duration
+	Sleep        func(context.Context, time.Duration) error
+	Now          func() time.Time
+	Dir          string // where devbox.json is looked for; "" is the working directory
+	Out          io.Writer
+	Err          io.Writer
+	Exec         runcmd.Exec
 }
 
 var (
@@ -193,14 +203,52 @@ func Run(ctx context.Context, o Options) error {
 		return fmt.Errorf("docker buildx use: %w", err)
 	}
 	report := filepath.Join(o.RunnerTemp, "buildx-"+builder+".txt")
-	f, err := os.Create(report)
-	if err != nil {
-		return err
+	if o.Now == nil {
+		o.Now = time.Now
 	}
-	err = run(io.MultiWriter(o.Out, f), o.Err, "docker", "buildx", "inspect", "--bootstrap", builder)
-	f.Close()
-	if err != nil {
-		return fmt.Errorf("docker buildx inspect: %w", err)
+	if o.Sleep == nil {
+		o.Sleep = func(ctx context.Context, d time.Duration) error {
+			select {
+			case <-time.After(d):
+				return nil
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+		}
+	}
+	if o.WakeInterval <= 0 {
+		o.WakeInterval = 10 * time.Second
+	}
+	// A sleeping builder is held by its wake proxy while it boots (35-60 s),
+	// longer than buildx waits. Retry until the deadline; a builder that is up
+	// answers the first try and nothing sleeps.
+	start := o.Now()
+	for attempt := 1; ; attempt++ {
+		f, err := os.Create(report)
+		if err != nil {
+			return err
+		}
+		err = run(io.MultiWriter(o.Out, f), o.Err, "docker", "buildx", "inspect", "--bootstrap", builder)
+		f.Close()
+		if err == nil {
+			if attempt > 1 {
+				fmt.Fprintf(o.Err, "remote builders: builder %s answered on attempt %d after %s\n", builder, attempt, o.Now().Sub(start).Round(time.Second))
+			}
+			break
+		}
+		if o.WakeTimeout <= 0 {
+			return fmt.Errorf("docker buildx inspect: %w", err)
+		}
+		waited := o.Now().Sub(start)
+		if waited+o.WakeInterval >= o.WakeTimeout {
+			return fail("builder %s (%s) did not answer within %s (%d attempts): a stopped builder may still be booting; last error: %v",
+				builder, strings.Join(endpoints(entries), " "), o.WakeTimeout, attempt, err)
+		}
+		fmt.Fprintf(o.Err, "remote builders: builder %s not ready (attempt %d, waited %s of %s): %v; retrying in %s\n",
+			builder, attempt, waited.Round(time.Second), o.WakeTimeout, err, o.WakeInterval)
+		if err := o.Sleep(ctx, o.WakeInterval); err != nil {
+			return err
+		}
 	}
 	b, _ := os.ReadFile(report)
 	for _, entry := range entries {
@@ -228,6 +276,16 @@ func Run(ctx context.Context, o Options) error {
 		return ef.Close()
 	}
 	return nil
+}
+
+// endpoints are the node endpoints of the entries, for messages.
+func endpoints(entries []string) []string {
+	var out []string
+	for _, e := range entries {
+		_, ep := splitEntry(e)
+		out = append(out, ep)
+	}
+	return out
 }
 
 // splitEntry is `${entry%%=*}` and `${entry#*=}`: with no `=` both are the
