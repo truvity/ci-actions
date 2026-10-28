@@ -4,6 +4,12 @@ Every release of truvity/ci-actions, newest first. Pin the commit of a
 tag (`git rev-parse vX.Y.Z^{commit}`), never the tag object and never
 an untagged commit; `tagged-pins` refuses anything else.
 
+## Unreleased
+
+### Added
+
+- **`setup-remote-builders` waits for a waking builder.** Builders that are stopped while idle are started on demand by a TCP wake proxy that holds the first connection for the 35-60 s the builder takes to boot; the buildx `remote` driver gives up after about 40 s (two 20 s attempts, and `--timeout` does not change that), so the first job after an idle period failed. `docker buildx inspect --bootstrap` is now retried every 10 s until the new input `wake-timeout` (seconds, default 240; 0 is a single attempt) runs out. Each attempt and the total wait are logged, and a builder that never answers fails the step naming it and its endpoints. A builder that is up answers the first try, with no sleep.
+
 ## v3.6.4
 
 ### Fixed
