@@ -6,7 +6,7 @@
 // builders in one of two forms:
 //
 //	CI_BUILDKIT_TLS_DIR                      a directory holding ca.pem,
-//	                                         cert.pem and key.pem (an ARC pod
+//	                                         cert.pem and key.pem (a Kubernetes pod
 //	                                         mounts a Secret there)
 //	CI_BUILDKIT_TLS_CA_PEM, _CERT_PEM,       the three PEM documents as
 //	CI_BUILDKIT_TLS_KEY_PEM                  values (an ECS task secret)

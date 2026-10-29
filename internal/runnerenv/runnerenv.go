@@ -4,7 +4,7 @@
 // The caller's value is an input, itself usually an organisation variable.
 // It is the same for every runner of a tier. A runner pool that lives
 // somewhere else, with other names for the same services (an ECS Fargate task
-// reaching a cache through a private gateway, where an ARC pod reaches it by
+// reaching a cache through a private gateway, where a Kubernetes pod reaches it by
 // in-cluster name), would otherwise need a variable per pool. So a value the
 // runner itself exports, in the process environment of the runner (a pod
 // spec, a task definition), wins over the caller's:

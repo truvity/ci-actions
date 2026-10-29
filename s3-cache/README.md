@@ -5,7 +5,7 @@ its Go build cache, instead of GitHub's cache. Whether it applies is decided
 by what is configured (a `bucket`, then credentials the runner can use), never
 by the kind of runner.
 
-GitHub's cache is blob storage on the internet: on an ARC runner every restore
+GitHub's cache is blob storage on the internet: on a self-hosted runner every restore
 is downloaded through the NAT, every save uploaded through it. The bucket is
 reached through an S3 gateway endpoint, so the same bytes cost nothing on the
 NAT and stay inside the region.

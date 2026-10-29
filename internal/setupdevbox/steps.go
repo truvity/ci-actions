@@ -211,7 +211,7 @@ func CodeArtifact(ctx context.Context, e Env) error {
 	args := []string{"codeartifact", "get-authorization-token", "--domain", domain,
 		"--domain-owner", e.Getenv("CA_OWNER"), "--region", e.Getenv("CA_REGION"),
 		"--query", "authorizationToken", "--output", "text"}
-	// The CLI comes from the PATH on a hosted runner and from devbox on an ARC
+	// The CLI comes from the PATH on a hosted runner and from devbox on a self-hosted
 	// runner, whose image ships no aws at all (everything but nix arrives
 	// through the project's devbox). devbox prefixes Info lines to stdout, so
 	// only the last line is the token and CRs are stripped.
@@ -335,8 +335,8 @@ func GuardAWS(e Env) error {
 // input (itself usually the organisation variable CI_GOPROXY,
 // CI_NPM_REGISTRY, CI_BAZEL_REMOTE_CACHE), then nothing. One organisation
 // variable serves every runner of a tier; a pool that reaches the same
-// services by other names (a Fargate task through a private gateway, where an
-// ARC pod uses in-cluster names) exports its own, and wins. With no
+// services by other names (a Fargate task through a private gateway, where a
+// Kubernetes pod uses in-cluster names) exports its own, and wins. With no
 // CI_RUNNER_* set the outputs equal the inputs, so a caller that does not know
 // about this changes nothing.
 //

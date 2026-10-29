@@ -252,7 +252,7 @@ No action here checks out the repository: the caller does, with
 checkout (`lfs: true`), because a repository that tracks images or other
 binaries in LFS otherwise builds from pointer files. The reusable workflows
 in truvity/ci-workflows do this by default through an `lfs` input (default
-`true`; `false` opts out). It needs `git-lfs` on the runner: the ARC image
+`true`; `false` opts out). It needs `git-lfs` on the runner: the self-hosted runner image
 has it since ci-plane v6.7.0, and GitHub-hosted runners ship it. This
 repository's own workflows follow the convention; it holds no LFS objects.
 
@@ -332,7 +332,7 @@ container with `--user 1001:1001 --security-opt no-new-privileges
   [ci-cache](https://github.com/truvity/ci-cache) (archived) held the cache
   engine and the go-cache-plugin client releases that `setup-cache` downloads;
   [ci-plane](https://github.com/truvity/ci-plane) is where work executes
-  (runner and nix-worker images, `arc-runners`, `ci-builders`).
+  (runner and nix-worker images, `ci-builders`).
 - **[policy](https://github.com/truvity/policy)**: the component contract
   `policy-conformance` checks, and the `hack/kind/` box `cluster` runs at
   a pinned release.

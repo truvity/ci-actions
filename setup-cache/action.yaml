@@ -97,7 +97,7 @@ runs:
         fi
 
         # The estate cache applies exactly when a bucket is configured. The
-        # kind of runner is not asked: an ARC pod, an ECS Fargate task and a
+        # kind of runner is not asked: a Kubernetes pod, an ECS Fargate task and a
         # GitHub-hosted runner differ in what they are CONFIGURED with (a
         # bucket, credentials, the client binary), and each of those is
         # checked where it is used -- an empty bucket here, no go-cache-plugin
@@ -111,10 +111,10 @@ runs:
         fi
 
         # The node-persistent directory is a RUNNER mount (ci-plane's
-        # arc-runners chart) serving a CACHE need (this action). Two owners,
+        # runner chart) serving a CACHE need (this action). Two owners,
         # one path, so neither hard-codes it: the chart exports
         # CI_CACHE_NODE_DIR and this reads it. Absent -- a hosted runner, or
-        # a scale set without the mount -- falls back to the job's own temp,
+        # a runner without the mount -- falls back to the job's own temp,
         # which is correct and merely cold.
         if [ -n "${CI_CACHE_NODE_DIR:-}" ] && [ -d "${CI_CACHE_NODE_DIR}" ]; then
           dir="${CI_CACHE_NODE_DIR}"; dirkind=node-persistent
@@ -139,7 +139,7 @@ runs:
     # Pin a plugin build without touching ci-plane.
     #
     # The runner image is where go-cache-plugin comes from today, and that
-    # ties every plugin change to a ci-plane release plus an ARC rollout of
+    # ties every plugin change to a ci-plane release plus a runner rollout of
     # the whole fleet. `client-version` is truvity/ci-cache's OWN release
     # (goreleaser publishes go-cache-plugin_<version>_<os>_<arch>.tar.gz
     # alongside ci-cache -- see .goreleaser.yaml for why the archive is

@@ -10,7 +10,7 @@ import (
 
 // C18 · workflow and action YAML is runner-agnostic
 //
-// The same workflow has to run on an ARC runner, a GitHub-hosted one and
+// The same workflow has to run on a self-hosted runner, a GitHub-hosted one and
 // whatever pool comes next, so nothing in it may know which one it is on. In
 // the workflow files and the action files of the checkout it names three
 // constructs that tie a job to one runner:
