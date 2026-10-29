@@ -111,7 +111,7 @@ Findings the exemption covers are dropped and the line says how many.
 ### C18
 
 Workflow and action YAML must not know which runner it is on: the same file
-has to run on an ARC runner, a GitHub-hosted one and whatever pool comes
+has to run on a self-hosted runner, a GitHub-hosted one and whatever pool comes
 next. It reads tracked `.github/workflows/*.yaml|yml` and every tracked
 `action.yaml|yml` (not under `tests/`, `test/`, `testdata/`, `fixtures/`,
 `golden/`, `node_modules/` or `vendor/`; comments are not read), and flags

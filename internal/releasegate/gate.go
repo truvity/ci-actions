@@ -140,7 +140,7 @@ func Lines(pages [][]checkRun, runID string) []string {
 // first waits, polling, for pending checks to settle: it returns as soon as
 // `check` is green and nothing is pending, refuses at once when any check has
 // concluded red, and refuses with the usual message once Wait has elapsed. curl,
-// not gh: the ARC runner image ships no gh; the API is read directly.
+// not gh: the self-hosted runner image ships no gh; the API is read directly.
 func Run(ctx context.Context, o Options) error {
 	if o.API == "" {
 		o.API = "https://api.github.com"

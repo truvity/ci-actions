@@ -1,4 +1,4 @@
-# Register the CI plane's warm BuildKit builders as one buildx builder
+# Register the remote BuildKit builders as one buildx builder
 # (on the development and the stable tiers alike). Rootless buildkitd
 # StatefulSets live in the ci-cache namespace of the cluster the runner
 # runs in; registered client-side as nodes of a single builder, a
@@ -32,7 +32,7 @@
 # log in BEFORE building, not before registering.
 #
 # WHICH nodes can also be the RUNNER's: a pool that reaches the builders by
-# names of its own (a Fargate task through a private gateway, where an ARC pod
+# names of its own (a Fargate task through a private gateway, where a Kubernetes pod
 # uses in-cluster names) exports CI_RUNNER_REMOTE_BUILDERS in the same
 # format, and it wins over the input. The step logs which source won.
 #

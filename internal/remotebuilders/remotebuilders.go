@@ -1,5 +1,5 @@
 // Package remotebuilders is the port of the setup-remote-builders action:
-// register the CI plane's warm BuildKit builders as one buildx builder.
+// register the remote BuildKit builders as one buildx builder.
 //
 // WHICH nodes is the caller's, an org variable and never a literal here (this
 // repository is public; internal DNS is a particular). One entry per node,

@@ -117,7 +117,7 @@ usable_case "self-hosted with a bucket" yes RUNNER_ENVIRONMENT=self-hosted  INPU
 usable_case "github-hosted, no bucket"  no  RUNNER_ENVIRONMENT=github-hosted INPUT_BUCKET=  INPUT_LANGUAGES=
 usable_case "no bucket"                 no  RUNNER_ENVIRONMENT=self-hosted  INPUT_BUCKET=  INPUT_LANGUAGES=
 # Decided by the bucket, not by the kind of runner: the same input gives the
-# same answer wherever the job runs (ARC, ECS Fargate, GitHub-hosted).
+# same answer wherever the job runs (Kubernetes pod, ECS Fargate, GitHub-hosted).
 usable_case "github-hosted with a bucket" yes RUNNER_ENVIRONMENT=github-hosted INPUT_BUCKET=b INPUT_LANGUAGES=
 usable_case "runner type unset, bucket" yes INPUT_BUCKET=b INPUT_LANGUAGES=
 
@@ -152,7 +152,7 @@ dir_case() {
 node="$(mktemp -d)"
 dir_case "node dir present" node-persistent "$node"
 dir_case "node dir unset"   job-local       ""
-# A named directory that does not exist is a scale set that lost its mount.
+# A named directory that does not exist is a runner that lost its mount.
 # Falling back is right; pretending it is there is not.
 dir_case "node dir missing" job-local       "/nonexistent/ci-cache-$$"
 rm -rf "$node"

@@ -5,6 +5,10 @@ tag (`git rev-parse vX.Y.Z^{commit}`), never the tag object and never
 an untagged commit; `tagged-pins` refuses anything else.
 
 ## v3.7.0
+## Unreleased
+
+- Docs: descriptions no longer name ARC; behaviour unchanged.
+
 
 ### Added
 

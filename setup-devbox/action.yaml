@@ -6,7 +6,7 @@
 #
 # ONE root step remains, and only on a runner that has no nix: "Install nix"
 # below runs the nix installer, which needs root. It is skipped wherever nix
-# is already on PATH (a runner image that bakes it: the ARC pool, an ECS
+# is already on PATH (a runner image that bakes it: a Kubernetes pool, an ECS
 # Fargate task, a restricted runner), so in practice it runs on GitHub-hosted
 # runners, and preflight says so out loud and refuses early when the runner
 # has no nix and cannot escalate.
@@ -233,7 +233,7 @@ runs:
       # practice is a GitHub-hosted runner; a runner that cannot escalate must
       # bake nix, and preflight fails early, naming that, when it does not.
       #
-      # Where nix is baked (ARC, ECS Fargate) its nix.conf carries the
+      # Where nix is baked (Kubernetes pod, ECS Fargate) its nix.conf carries the
       # estate's substituter; where it is installed here, the upstream cache
       # is used directly.
       #
