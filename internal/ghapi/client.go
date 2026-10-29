@@ -24,6 +24,9 @@ import (
 type Client struct {
 	BaseURL string // https://api.github.com
 	Token   string
+	// Version is the X-GitHub-Api-Version header. Empty means 2022-11-28;
+	// a newer endpoint (workflow dispatch with return_run_details) sets its own.
+	Version string
 	HTTP    *http.Client
 }
 
@@ -69,7 +72,11 @@ func (c *Client) newRequest(ctx context.Context, method, rawURL, accept string, 
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
-	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
+	version := c.Version
+	if version == "" {
+		version = "2022-11-28"
+	}
+	req.Header.Set("X-GitHub-Api-Version", version)
 	req.Header.Set("User-Agent", "ci-actions")
 	if c.Token != "" {
 		req.Header.Set("Authorization", "Bearer "+c.Token)

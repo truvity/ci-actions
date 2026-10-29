@@ -19,6 +19,7 @@ import (
 	"github.com/truvity/ci-actions/internal/buildkittls"
 	"github.com/truvity/ci-actions/internal/callerparity"
 	"github.com/truvity/ci-actions/internal/cluster"
+	"github.com/truvity/ci-actions/internal/companyvalidation"
 	"github.com/truvity/ci-actions/internal/devboxparity"
 	"github.com/truvity/ci-actions/internal/fleet"
 	"github.com/truvity/ci-actions/internal/fleetdiscover"
@@ -87,6 +88,12 @@ Commands:
   caller-parity        compare each repository's shared caller workflows with the canonical kits
                        (env: TOKEN, REPOSITORIES, KITS or ACTION_PATH/kits, FAIL_ON_DIFF, API,
                        GITHUB_OUTPUT, GITHUB_STEP_SUMMARY)
+  company-validation   dispatch a private platform validation for a company pull request, wait for
+                       that exact run, and accept only its exactly correlated successful check
+                       (env: TOKEN, DISPATCH_TOKEN, COMPANY, COMPANY_REPOSITORY, PLATFORM_REPOSITORY,
+                       PLATFORM_WORKFLOW, PLATFORM_REF, PULL_REQUEST, HEAD_SHA, BASE_BRANCH, CHECK_NAME,
+                       CHECK_APP_SLUG, WAIT_TIMEOUT_SECONDS, POLL_INTERVAL_SECONDS, API_URL,
+                       GITHUB_RUN_ID, GITHUB_RUN_ATTEMPT, GITHUB_STEP_SUMMARY, GITHUB_OUTPUT)
   devbox-parity        refresh devbox, align the go toolchain and playwright followers, open one PR
                        (env: TOKEN, WORKDIR, BASE, LABEL, MODE, FULL_DAY, MODULE_DIRS, GIT_USER, GIT_EMAIL)
   fleet discover       which repositories of a GitHub App installation a fleet job works on
@@ -171,6 +178,37 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, getenv fu
 			return 1
 		default:
 			fmt.Fprintln(stderr, "caller-parity:", err)
+			return 1
+		}
+	case "company-validation":
+		wait, err := seconds("WAIT_TIMEOUT_SECONDS", getenv, 2100)
+		if err != nil {
+			fmt.Fprintln(stderr, "company-validation:", err)
+			return 2
+		}
+		poll, err := seconds("POLL_INTERVAL_SECONDS", getenv, 15)
+		if err != nil {
+			fmt.Fprintln(stderr, "company-validation:", err)
+			return 2
+		}
+		err = companyvalidation.Run(ctx, companyvalidation.Options{
+			Token: getenv("TOKEN"), DispatchToken: getenv("DISPATCH_TOKEN"),
+			Company: getenv("COMPANY"), CompanyRepository: getenv("COMPANY_REPOSITORY"),
+			PlatformRepository: getenv("PLATFORM_REPOSITORY"), PlatformWorkflow: getenv("PLATFORM_WORKFLOW"),
+			PlatformRef: getenv("PLATFORM_REF"), PullRequest: getenv("PULL_REQUEST"), HeadSHA: getenv("HEAD_SHA"),
+			BaseBranch: getenv("BASE_BRANCH"), CheckName: getenv("CHECK_NAME"), CheckAppSlug: getenv("CHECK_APP_SLUG"),
+			RunID: getenv("GITHUB_RUN_ID"), RunAttempt: getenv("GITHUB_RUN_ATTEMPT"),
+			WaitSeconds: wait, PollSeconds: poll, APIURL: getenv("API_URL"),
+			SummaryPath: getenv("GITHUB_STEP_SUMMARY"), OutputPath: getenv("GITHUB_OUTPUT"),
+			Out: stdout,
+		})
+		switch {
+		case err == nil:
+			return 0
+		case errors.Is(err, companyvalidation.ErrFailed):
+			return 1
+		default:
+			fmt.Fprintln(stderr, "company-validation:", err)
 			return 1
 		}
 	case "devbox-parity":
@@ -881,6 +919,20 @@ func writeS3Outputs(getenv func(string) string, lines string) {
 	}
 	fmt.Fprint(f, lines)
 	f.Close()
+}
+
+// seconds reads a whole-second environment value; empty takes the default and
+// a negative or malformed value is a usage error.
+func seconds(name string, getenv func(string) string, def int) (int, error) {
+	v := strings.TrimSpace(getenv(name))
+	if v == "" {
+		return def, nil
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil || n < 0 {
+		return 0, fmt.Errorf("%s %q is not a non-negative whole number of seconds", name, v)
+	}
+	return n, nil
 }
 
 // wakeTimeout reads the remote-builders WAKE_TIMEOUT (whole seconds): empty or

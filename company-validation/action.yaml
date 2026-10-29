@@ -1,0 +1,106 @@
+name: company-validation
+description: >-
+  Dispatch a company's private platform validation, wait for that exact run,
+  and accept only the check result the platform correlated with the request.
+  The company pull request is re-read before dispatch and again before the
+  result is accepted, so a fork, a close, a moved head or a moved base fails
+  the gate. Nothing is checked out and no company or platform code runs: the
+  platform performs the validation, and this action only proves the answer
+  belongs to this candidate. The rules are the `ci-actions` binary's
+  `company-validation` command; this action is a thin wrapper that finds that
+  binary (release archive of the pinned tag, or built with Go) and runs it.
+
+inputs:
+  token:
+    description: >-
+      A token for the company repository with `checks: read` and
+      `pull-requests: read` (the caller's `github.token` is enough).
+    required: true
+  dispatch-token:
+    description: >-
+      A token for the platform repository with `actions: write` (normally from
+      the `token-exchange` action).
+    required: true
+  company:
+    description: Fleet/company name, as the platform expects it.
+    required: true
+  company-repository:
+    description: The company repository, `owner/name`.
+    required: true
+  platform-repository:
+    description: The platform repository, `owner/name`.
+    required: true
+  platform-workflow:
+    description: The platform validation workflow's filename, name or ID.
+    required: true
+  platform-ref:
+    description: The ref the platform workflow is dispatched on.
+    required: false
+    default: master
+  pull-request:
+    description: The company pull request number, as a string.
+    required: true
+  head-sha:
+    description: The immutable pull request head SHA (40 lowercase hex).
+    required: true
+  base-branch:
+    description: The pull request's base branch.
+    required: false
+    default: master
+  check-name:
+    description: The check run name the platform publishes.
+    required: false
+    default: platform-validation
+  check-app-slug:
+    description: The slug of the App that publishes the check run.
+    required: true
+  wait-timeout-seconds:
+    description: How long to wait for the dispatched run to complete.
+    required: false
+    default: "2100"
+  poll-interval-seconds:
+    description: How often to read the dispatched run while it is not complete.
+    required: false
+    default: "15"
+  api-url:
+    description: The REST API base. Override only for a test double.
+    required: false
+    default: https://api.github.com
+
+outputs:
+  run-id:
+    description: The platform workflow run ID that was dispatched and accepted.
+    value: ${{ steps.validate.outputs.run-id }}
+  run-url:
+    description: The platform workflow run URL.
+    value: ${{ steps.validate.outputs.run-url }}
+  request-id:
+    description: The request ID that binds this candidate to the dispatch.
+    value: ${{ steps.validate.outputs.request-id }}
+
+runs:
+  using: composite
+  steps:
+    - name: Dispatch, wait and verify
+      id: validate
+      shell: bash
+      env:
+        TOKEN: ${{ inputs.token }}
+        DISPATCH_TOKEN: ${{ inputs.dispatch-token }}
+        COMPANY: ${{ inputs.company }}
+        COMPANY_REPOSITORY: ${{ inputs.company-repository }}
+        PLATFORM_REPOSITORY: ${{ inputs.platform-repository }}
+        PLATFORM_WORKFLOW: ${{ inputs.platform-workflow }}
+        PLATFORM_REF: ${{ inputs.platform-ref }}
+        PULL_REQUEST: ${{ inputs.pull-request }}
+        HEAD_SHA: ${{ inputs.head-sha }}
+        BASE_BRANCH: ${{ inputs.base-branch }}
+        CHECK_NAME: ${{ inputs.check-name }}
+        CHECK_APP_SLUG: ${{ inputs.check-app-slug }}
+        WAIT_TIMEOUT_SECONDS: ${{ inputs.wait-timeout-seconds }}
+        POLL_INTERVAL_SECONDS: ${{ inputs.poll-interval-seconds }}
+        API_URL: ${{ inputs.api-url }}
+        ACTION_PATH: ${{ github.action_path }}
+        ACTION_REPOSITORY: ${{ github.action_repository }}
+        ACTION_REF: ${{ github.action_ref }}
+      run: bash "$ACTION_PATH/run.sh"

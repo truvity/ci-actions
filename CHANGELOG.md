@@ -6,6 +6,10 @@ an untagged commit; `tagged-pins` refuses anything else.
 
 ## Unreleased
 
+### Added
+
+- **`company-validation` dispatches a private platform validation and accepts only its exactly correlated result.** A company repository's gate becomes a thin caller: the action validates the inputs and the current pull request (open, same repository, expected base branch and head SHA), dispatches the platform workflow with a request ID that binds the company, repository, pull request, head, base and run identity, waits for the exact run returned by the dispatch, and accepts only a completed successful run. It then reads the company commit's check runs and selects the newest one that names the expected check, head SHA, request ID and App slug, and requires the platform's JSON summary to echo the request exactly and name the same candidate, platform repository and run revision. The pull request is re-read before the result is accepted, so a fork, a close, a moved head or a moved base fails the gate. Every API failure, timeout, foreign or stale check and mismatched tuple fails closed. The action checks out and executes nothing. The command is `ci-actions company-validation` (`internal/companyvalidation`), table-tested against a stub API. Inputs: `token`, `dispatch-token`, `company`, `company-repository`, `platform-repository`, `platform-workflow`, `platform-ref` (`master`), `pull-request`, `head-sha`, `base-branch` (`master`), `check-name` (`platform-validation`), `check-app-slug`, `wait-timeout-seconds` (`2100`), `poll-interval-seconds` (`15`), `api-url`; outputs: `run-id`, `run-url`, `request-id`.
+
 - Docs: descriptions no longer name ARC; behaviour unchanged.
 
 ## v3.7.0
