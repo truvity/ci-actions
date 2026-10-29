@@ -7,8 +7,8 @@ an untagged commit; `tagged-pins` refuses anything else.
 ## Unreleased
 
 - Docs: descriptions no longer name ARC; behaviour unchanged.
-## v3.7.0
 
+## v3.7.0
 
 ### Added
 
