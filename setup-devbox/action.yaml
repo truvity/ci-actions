@@ -154,6 +154,25 @@ inputs:
   module-app-private-key:
     description: Private key for module-app-client-id.
     default: ""
+  module-app:
+    description: >-
+      A catalogue App of the roster issuer to read private repositories
+      with, by its catalogue id: the job exchanges its own identity token
+      for a short-lived installation token, and holds no key. The
+      replacement for module-app-client-id and module-app-private-key;
+      give one or the other, never both. The job needs `id-token: write`.
+      The token reaches git and the recipes exactly as the client-id one
+      does.
+    default: ""
+  module-app-repositories:
+    description: >-
+      The repositories of the App's organization to narrow the module-app
+      token to, by name, comma, space or newline separated. The grant must
+      name each of them.
+    default: ""
+  access-roster-issuer:
+    description: The roster issuer module-app is exchanged at, e.g. https://access.example.
+    default: ""
   devbox-version:
     description: >-
       The devbox release to install when the runner does not bake one: a tag
@@ -396,14 +415,32 @@ runs:
     # wearing different clothes. A caller supplying the App but no
     # go-private now gets a token and no git rewrite, which is exactly
     # what a contracts fetch wants.
+    - name: Refuse two sources for the module token
+      if: inputs.module-app != '' && (inputs.module-app-client-id != '' || inputs.access-roster-issuer == '' || inputs.module-app-repositories == '')
+      shell: bash
+      run: |
+        echo "::error::module-app needs access-roster-issuer and module-app-repositories, and replaces module-app-client-id: give one source of the module token, not both" >&2
+        exit 1
     - name: Mint a token for reading private repositories
       if: inputs.module-app-client-id != ''
-      id: module-token
+      id: module-key-token
       uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
       with:
         client-id: ${{ inputs.module-app-client-id }}
         private-key: ${{ inputs.module-app-private-key }}
         owner: ${{ github.repository_owner }}
+    # The same token by exchange: the job's identity token, the issuer's
+    # catalogue grant for it, read-only and narrowed to the named
+    # repositories. Nothing long-lived is in the job.
+    - name: Exchange a token for reading private repositories
+      if: inputs.module-app != ''
+      id: module-roster-token
+      uses: truvity/ci-actions/token-exchange@1cb80aafbf111e79a09c202651c3865e09c964d9 # v3.7.0
+      with:
+        issuer: ${{ inputs.access-roster-issuer }}
+        github-app: ${{ inputs.module-app }}
+        repositories: ${{ inputs.module-app-repositories }}
+        permissions: contents:read
 
     # Hand the token to the recipes as well as to git. A recipe that curls
     # the GitHub API needs the token itself; the credential rewrite below
@@ -419,10 +456,10 @@ runs:
       # every unrelated gh call in every recipe at a token scoped to other
       # repositories.
     - name: Expose the token to recipes
-      if: steps.module-token.outputs.token != ''
+      if: steps.module-key-token.outputs.token != '' || steps.module-roster-token.outputs.github-token != ''
       shell: bash
       env:
-        MODULE_TOKEN: ${{ steps.module-token.outputs.token }}
+        MODULE_TOKEN: ${{ steps.module-key-token.outputs.token || steps.module-roster-token.outputs.github-token }}
         ACTION_PATH: ${{ github.action_path }}
         ACTION_REPOSITORY: ${{ github.action_repository }}
         ACTION_REF: ${{ github.action_ref }}
@@ -437,7 +474,7 @@ runs:
       shell: bash
       env:
         GO_PRIVATE: ${{ inputs.go-private }}
-        MODULE_TOKEN: ${{ steps.module-token.outputs.token }}
+        MODULE_TOKEN: ${{ steps.module-key-token.outputs.token || steps.module-roster-token.outputs.github-token }}
         ACTION_PATH: ${{ github.action_path }}
         ACTION_REPOSITORY: ${{ github.action_repository }}
         ACTION_REF: ${{ github.action_ref }}
