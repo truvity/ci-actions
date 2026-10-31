@@ -521,7 +521,7 @@ func TestGoPrivate(t *testing.T) {
 	}
 	x = newH(t)
 	x.env["GO_PRIVATE"] = "github.com/example"
-	if err := GoPrivate(context.Background(), x.e()); !errors.Is(err, ErrFailed) || x.out.String() != "::add-mask::\n::error::go-private is set but no module token was minted — check module-app-client-id and module-app-private-key\n" {
+	if err := GoPrivate(context.Background(), x.e()); !errors.Is(err, ErrFailed) || x.out.String() != "::add-mask::\n::error::go-private is set but no module token was minted — check module-app (or module-app-client-id and module-app-private-key)\n" {
 		t.Errorf("%v %q", err, x.out.String())
 	}
 }

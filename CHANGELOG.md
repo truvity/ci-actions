@@ -4,6 +4,12 @@ Every release of truvity/ci-actions, newest first. Pin the commit of a
 tag (`git rev-parse vX.Y.Z^{commit}`), never the tag object and never
 an untagged commit; `tagged-pins` refuses anything else.
 
+## Unreleased
+
+### Added
+
+- **`setup-devbox` reads private repositories by token exchange: `module-app`, `module-app-repositories`, `access-roster-issuer`.** With `module-app` (a roster catalogue App id) the job exchanges its own identity token at `access-roster-issuer` for a read-only installation token narrowed to `module-app-repositories`, through `token-exchange`; nothing long-lived is in the job. The token reaches git (`go-private`) and the recipes (`CI_CONTENTS_TOKEN`) exactly as the `module-app-client-id` one does. The two sources are exclusive: `module-app` with `module-app-client-id`, or without an issuer or repositories, fails the step. The job needs `permissions: id-token: write`. `module-app-client-id` and `module-app-private-key` still work, for callers not yet moved.
+
 ## v3.8.0
 
 ### Added

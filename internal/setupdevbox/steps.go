@@ -174,7 +174,7 @@ func GoPrivate(ctx context.Context, e Env) error {
 	// Mask FIRST, so anything below that echoes the token is redacted.
 	e.printf("::add-mask::%s\n", token)
 	if token == "" {
-		return e.fail("go-private is set but no module token was minted — check module-app-client-id and module-app-private-key")
+		return e.fail("go-private is set but no module token was minted — check module-app (or module-app-client-id and module-app-private-key)")
 	}
 	// GITHUB_ENV is line-oriented: a value carrying a newline writes a SECOND
 	// variable of the attacker's choosing. This input comes from a caller's
