@@ -12,6 +12,11 @@
 //                         where the key begins (the estate's is the root of
 //                         gradle.cache.build.<env>.truvity.private). Only
 //                         exported by a tier that may write it.
+//   CI_RUNNER_GRADLE_BUILD_CACHE_TOKEN
+//                         the runner's credential for writing ITS OWN build
+//                         cache (the one CI_RUNNER_GRADLE_BUILD_CACHE names),
+//                         read from the runner's environment, never exported
+//                         by the step.
 //
 // DEPENDENCIES. The repositories a build DECLARES are rewritten, not
 // supplemented: mavenCentral(), google() and gradlePluginPortal() (and their
@@ -26,11 +31,29 @@
 // in its gradle.properties, or --build-cache): this script never turns it on,
 // because a task that is not safe to cache must not become cached by a switch
 // that the repository did not throw.
+//
+// WRITE CREDENTIAL. A cache that refuses anonymous writes takes the token as
+// the password of Basic credentials (any user name). It is set only when the
+// cache in use is the runner's own (CI_GRADLE_BUILD_CACHE is
+// CI_RUNNER_GRADLE_BUILD_CACHE, trailing slashes aside) and https: a caller's
+// cache never receives the runner's credential, and Gradle sends the
+// credentials on every request, reads included, so plain http would expose
+// them on the path. Gradle scopes them to the cache URL's host and port: the
+// redirect of a hit to an object store (a presigned URL, which carries its own
+// signature) is followed WITHOUT them. Nothing here prints the token or the
+// cache's path; the log names the cache by its scheme and host.
 
 def trimSlash = { String s -> s.replaceAll('/+$', '') }
 
 def registry = System.getenv('CI_MAVEN_REGISTRY')?.trim()
 def buildCacheUrl = System.getenv('CI_GRADLE_BUILD_CACHE')?.trim()
+def runnerBuildCacheUrl = System.getenv('CI_RUNNER_GRADLE_BUILD_CACHE')?.trim()
+def buildCacheToken = System.getenv('CI_RUNNER_GRADLE_BUILD_CACHE_TOKEN')?.trim()
+// The scheme and host (and port) of an address: what a log line names a cache by.
+def originOf = { String u ->
+    def x = new URI(u)
+    x.scheme + '://' + x.host + (x.port > 0 ? ':' + x.port : '')
+}
 
 if (registry) {
     def base = trimSlash(registry)
@@ -74,22 +97,32 @@ if (registry) {
         buildscript.repositories.all(mirror)
         repositories.all(mirror)
     }
-    gradle.rootProject { logger.lifecycle("ci-cache: dependencies and plugins through ${base}") }
+    gradle.rootProject { logger.lifecycle("ci-cache: dependencies and plugins through ${originOf(base)}") }
 }
 
 if (buildCacheUrl) {
     def cacheUrl = trimSlash(buildCacheUrl) + '/'
     def insecureCache = cacheUrl.startsWith('http://')
+    def ownCache = runnerBuildCacheUrl && trimSlash(runnerBuildCacheUrl) == trimSlash(buildCacheUrl)
+    def sendToken = buildCacheToken && ownCache && cacheUrl.startsWith('https://')
+    def writes = sendToken ? 'writes authenticated' :
+        (buildCacheToken ? "writes anonymous: the runner's credential is ${ownCache ? 'not sent over plain http' : 'for its own cache only'}" : 'writes anonymous')
     settingsEvaluated { settings ->
         settings.buildCache {
             remote(HttpBuildCache) {
                 url = cacheUrl
                 push = true
                 allowInsecureProtocol = insecureCache
+                if (sendToken) {
+                    credentials {
+                        username = 'ci'
+                        password = buildCacheToken
+                    }
+                }
             }
         }
     }
     gradle.rootProject {
-        logger.lifecycle("ci-cache: remote build cache ${cacheUrl} (build cache ${gradle.startParameter.buildCacheEnabled ? 'on' : 'OFF: org.gradle.caching is not set, nothing is read or written'})")
+        logger.lifecycle("ci-cache: remote build cache on ${originOf(cacheUrl)}, ${writes} (build cache ${gradle.startParameter.buildCacheEnabled ? 'on' : 'OFF: org.gradle.caching is not set, nothing is read or written'})")
     }
 }

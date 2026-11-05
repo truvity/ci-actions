@@ -4,6 +4,16 @@ Every release of truvity/ci-actions, newest first. Pin the commit of a
 tag (`git rev-parse vX.Y.Z^{commit}`), never the tag object and never
 an untagged commit; `tagged-pins` refuses anything else.
 
+## Unreleased
+
+### Added
+
+- **`setup-devbox` authenticates Gradle build cache writes with the runner's credential: `CI_RUNNER_GRADLE_BUILD_CACHE_TOKEN`.** A runner that exports it (a task secret) has its builds send it to the build cache as the password of Basic credentials (user name `ci`), which a cache that refuses anonymous writes accepts. It is sent only to the build cache the runner itself names (`CI_RUNNER_GRADLE_BUILD_CACHE`, never a caller's `gradle-build-cache`) and only over https, because Gradle sends the credentials on every request, reads included. The step masks it (`::add-mask::`), never exports or writes it, and says whether it is used. The init script reads it from the runner's environment. Gradle scopes the credentials to the cache's host and port, so the redirect of a hit to an object store on another host (a presigned URL) is followed without them. An end-to-end test runs a real Gradle against a cache that redirects hits to another host, and checks that the object store sees no `Authorization` header and the task comes back `FROM-CACHE`; it runs where a Gradle is on `PATH` (or `GRADLE` names one). A token with whitespace or control characters fails the step, as every malformed runner value does.
+
+### Changed
+
+- **The Gradle init script names the caches by origin only.** Its log lines give the scheme and host of the Maven and build caches, not their full URLs, and say whether build cache writes are authenticated.
+
 ## v3.9.0
 
 ### Added
