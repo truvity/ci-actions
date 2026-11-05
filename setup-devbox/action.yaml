@@ -81,7 +81,10 @@ inputs:
       CI_BAZEL_REMOTE_CACHE). Empty leaves moon's own configuration alone.
       Checked against .moon/workspace.yml, never written. A runner that
       exports CI_RUNNER_BAZEL_REMOTE_CACHE overrides it, and the winning value
-      is exported to the job as CI_BAZEL_REMOTE_CACHE.
+      is exported to the job as CI_BAZEL_REMOTE_CACHE. When the winner is
+      grpcs:// and the runner provides a BuildKit client certificate, moon is
+      also given it as its mTLS client identity (MOON_REMOTE_MTLS_*; see
+      "Wire moon's remote cache mTLS").
     default: ""
   maven-registry:
     description: >-
@@ -356,6 +359,27 @@ runs:
         ACTION_REPOSITORY: ${{ github.action_repository }}
         ACTION_REF: ${{ github.action_ref }}
       run: bash "$ACTION_PATH/run.sh" resolve-endpoints
+    # moon's remote cache presents the runner's BuildKit client certificate,
+    # for a bazel-remote that wants a client certificate for writes: the step
+    # exports MOON_REMOTE_MTLS_CA_CERT, _CLIENT_CERT and _CLIENT_KEY (the
+    # names moon reads) pointing at ca.pem, cert.pem and key.pem, ONLY when
+    # the address above is grpcs://, the repository uses moon, the job set
+    # none of them itself and all three files exist and are not empty. moon
+    # turns a partial or dangling set into no remote cache at all, so it is all
+    # or nothing, and fail-open: anything else is one log line (a warning for
+    # a broken certificate) and the job runs as before. The certificate is
+    # CI_BUILDKIT_TLS_DIR, or the CI_BUILDKIT_TLS_*_PEM variables written to a
+    # fresh directory exactly as setup-buildkit-tls does, but without
+    # exporting CI_BUILDKIT_TLS_DIR. The PEM values are read from the
+    # runner's environment, never through env: here.
+    - name: Wire moon's remote cache mTLS
+      shell: bash
+      env:
+        BAZEL_REMOTE: ${{ steps.endpoints.outputs.bazel-remote }}
+        ACTION_PATH: ${{ github.action_path }}
+        ACTION_REPOSITORY: ${{ github.action_repository }}
+        ACTION_REF: ${{ github.action_ref }}
+      run: bash "$ACTION_PATH/run.sh" moon-remote-mtls
 
     - name: Restore proto toolchains from the CI cache bucket
       id: proto-s3

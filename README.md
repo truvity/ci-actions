@@ -273,6 +273,48 @@ The logic is `ci-actions buildkit-tls` (`internal/buildkittls`, table-tested).
 TCP, as before. It takes no input for this, so a caller changes nothing but the
 order: `setup-buildkit-tls` first when the runner passes the PEM variables.
 
+### moon's remote cache
+
+`setup-devbox` ("Wire moon's remote cache mTLS") hands the same client
+certificate to moon, for a bazel-remote that wants a client certificate before it
+accepts writes. It exports the three variables moon reads for `remote.mtls`
+(moon 2.5 and 2.6: `RemoteMtlsConfig` carries `env_prefix = "MOON_REMOTE_MTLS_"`
+and each name is that prefix plus the field name):
+
+| exported | points at |
+| -- | -- |
+| `MOON_REMOTE_MTLS_CA_CERT` | `ca.pem` |
+| `MOON_REMOTE_MTLS_CLIENT_CERT` | `cert.pem` |
+| `MOON_REMOTE_MTLS_CLIENT_KEY` | `key.pem` |
+
+all three or none, and only when every one of these holds:
+
+1. the bazel-remote address the job resolved (the runner's
+   `CI_RUNNER_BAZEL_REMOTE_CACHE`, else the `bazel-remote` input) is `grpcs://`;
+2. the repository uses moon (`.moon` in the workspace);
+3. the job has set none of the three itself (a job's own setting is left alone);
+4. the runner provides the certificate, as `CI_BUILDKIT_TLS_DIR` or as the three
+   PEM variables. The PEM form is checked and written to a fresh directory under
+   `$RUNNER_TEMP` by the same code as `setup-buildkit-tls`, but that directory is
+   **not** exported as `CI_BUILDKIT_TLS_DIR`: how the remote builders are dialled
+   stays `setup-buildkit-tls`'s decision, so no workflow has to run it first for
+   moon's sake;
+5. `ca.pem`, `cert.pem` and `key.pem` are regular, non-empty files.
+
+All or nothing because moon treats a partial set as a configuration error, and a
+set that names a missing file as a failed connection that turns the remote cache
+off for the whole run. Anything else is one log line, `moon remote mTLS: off
+(<the reason>)`, and the job runs exactly as before; a certificate that is broken
+(a missing or empty file, only some of the PEM variables, a value that is not PEM
+of the right type) is also a `::warning::`, never a failed step. The log names the
+source and the paths, never a value; the key is masked before anything is written.
+
+moon verifies the server against the OS trust store **plus** `ca.pem` (its gRPC
+client is built with native roots), so passing the BuildKit CA never narrows which
+server certificate is accepted. moon still has to be pointed at the address
+(`MOON_REMOTE_HOST`, typically from `CI_BAZEL_REMOTE_CACHE` in `devbox.json`, or
+`remote.host`); this step only adds the client identity.
+
 ## Git LFS
 
 No action here checks out the repository: the caller does, with
