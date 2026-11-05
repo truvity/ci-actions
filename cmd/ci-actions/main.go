@@ -61,7 +61,8 @@ Commands:
                        still a verbatim copy of the policy repository's, at its pinned tag)
   setup-devbox <step>  the setup-devbox action's steps: preflight, aws-config, detect-baked, strip-tools,
                        install-devbox, materialize, proto, expose-token, go-private, codeartifact,
-                       resolve-endpoints, gradle-cache, guard-goproxy, guard-aws (env: see setup-devbox/action.yaml)
+                       resolve-endpoints, moon-remote-mtls, gradle-cache, guard-goproxy, guard-aws (env: see
+                       setup-devbox/action.yaml)
   recipe               run one task-runner recipe in devbox and assert a clean tree (env: RECIPE, COMMAND, DEVBOX_CONFIG)
   stable-mtimes        give every tracked file a content-derived modification time so Go's test cache can hit
                        after a fresh checkout (env: WORKDIR, default GITHUB_WORKSPACE, then the current directory)
@@ -729,6 +730,8 @@ func setupDevbox(ctx context.Context, args []string, stdout, stderr io.Writer, g
 		err = setupdevbox.CodeArtifact(ctx, e)
 	case "resolve-endpoints":
 		err = setupdevbox.ResolveEndpoints(e)
+	case "moon-remote-mtls":
+		err = setupdevbox.MoonRemoteMTLS(e)
 	case "gradle-cache":
 		err = setupdevbox.GradleCache(ctx, e)
 	case "guard-goproxy":

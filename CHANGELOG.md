@@ -4,6 +4,14 @@ Every release of truvity/ci-actions, newest first. Pin the commit of a
 tag (`git rev-parse vX.Y.Z^{commit}`), never the tag object and never
 an untagged commit; `tagged-pins` refuses anything else.
 
+## Unreleased
+
+### Added
+
+- **`setup-devbox` gives moon's remote cache the runner's BuildKit client certificate (mTLS).** A new step, "Wire moon's remote cache mTLS" (`ci-actions setup-devbox moon-remote-mtls`, `internal/setupdevbox`), exports `MOON_REMOTE_MTLS_CA_CERT`, `MOON_REMOTE_MTLS_CLIENT_CERT` and `MOON_REMOTE_MTLS_CLIENT_KEY` (the names moon 2.5 and 2.6 read for `remote.mtls`) pointing at `ca.pem`, `cert.pem` and `key.pem`, so a bazel-remote that wants a client certificate for writes accepts the job's. All three or none, and only when the resolved bazel-remote address is `grpcs://`, the repository has `.moon`, the job set none of them itself, and the runner provides the certificate with all three files present and non-empty. The certificate is `CI_BUILDKIT_TLS_DIR`, or the `CI_BUILDKIT_TLS_*_PEM` variables written to a fresh directory under `$RUNNER_TEMP` by the same code as `setup-buildkit-tls`, without exporting `CI_BUILDKIT_TLS_DIR` (the remote builders' transport does not change).
+  - Fail-open: every other case is one log line, `moon remote mTLS: off (<reason>)`, and a broken certificate is also a `::warning::`; nothing is exported, so moon's remote cache works as before. No value is logged and the key is masked first.
+  - Nothing changes for a plain `grpc://` address, a repository without moon, or a runner without a client certificate.
+
 ## v3.9.0
 
 ### Added
