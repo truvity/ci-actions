@@ -72,6 +72,11 @@ var systemCABundles = []string{"/etc/ssl/certs/ca-certificates.crt", "/etc/pki/t
 //     store, passed.
 func GradleCache(ctx context.Context, e Env) error {
 	e.defaults()
+	// Masked before anything else is printed and before anything can fail, so
+	// no path out of this step leaves it unmasked for a later step that prints
+	// the environment. The action's first step has masked it already; this
+	// covers the step run on its own.
+	maskLines(e, e.Getenv(runnerenv.GradleBuildCacheToken))
 	type cache struct {
 		what, runnerName, caller, output, export string
 	}
@@ -156,10 +161,12 @@ func GradleCache(ctx context.Context, e Env) error {
 	return nil
 }
 
-// gradleCacheToken masks the runner's build cache credential and says whether
-// Gradle sends it. It is never exported, written or printed: the init script
-// reads CI_RUNNER_GRADLE_BUILD_CACHE_TOKEN from the runner's environment, which
-// every step inherits, and makes the same decision as this function:
+// gradleCacheToken says whether Gradle sends the runner's build cache
+// credential, which GradleCache masked first. It is never exported, written or
+// printed: the init script reads CI_RUNNER_GRADLE_BUILD_CACHE_TOKEN from the
+// runner's environment, which every step inherits, and makes the same decision
+// as this function, which only reports it (the init script's decision is what
+// TestGradleWithholdsTheTokenFromAnyOtherCache checks, with a real Gradle):
 //
 //   - the build cache in use is the one the runner named itself
 //     (CI_GRADLE_BUILD_CACHE equals CI_RUNNER_GRADLE_BUILD_CACHE, trailing
@@ -188,9 +195,6 @@ func (e Env) gradleCacheToken(buildCache, buildCacheRunner string) error {
 	if token == "" {
 		return nil
 	}
-	// Masked before anything else is printed: a later step that prints the
-	// environment shows *** instead.
-	e.printf("::add-mask::%s\n", token)
 	switch {
 	case buildCache == "":
 		e.printf("gradle-cache: the runner gives a build cache write credential (%s), but no build cache is in use; it is not sent\n", runnerenv.GradleBuildCacheToken)
@@ -202,6 +206,17 @@ func (e Env) gradleCacheToken(buildCache, buildCacheRunner string) error {
 		e.printf("gradle-cache: build cache writes are authenticated with the runner's credential (%s), sent to %s only\n", runnerenv.GradleBuildCacheToken, originOf(buildCache))
 	}
 	return nil
+}
+
+// maskLines registers a secret with the runner, one ::add-mask:: per line
+// (the command takes one line), each without its surrounding whitespace: a
+// malformed value is masked too, before the step refuses it.
+func maskLines(e Env, secret string) {
+	for _, line := range strings.Split(secret, "\n") {
+		if line = strings.TrimSpace(line); line != "" {
+			e.printf("::add-mask::%s\n", line)
+		}
+	}
 }
 
 // originOf is the scheme and host (and port) of a cache address, with no path:

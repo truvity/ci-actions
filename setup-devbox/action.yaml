@@ -107,8 +107,11 @@ inputs:
       CI_GRADLE_BUILD_CACHE; a build still has to turn the build cache on
       (org.gradle.caching=true), the init script never does. A runner that
       also exports CI_RUNNER_GRADLE_BUILD_CACHE_TOKEN has its builds write
-      its own https build cache with that credential (masked, never
-      exported); a cache named here by the caller never receives it.
+      its own https build cache with that credential; a cache named here
+      by the caller never receives it. The first step of this action
+      masks it and it is never exported, but steps that run before this
+      action, and jobs that never use it, can print it: the runner's
+      environment is the boundary (see the README).
     default: ""
   github-token:
     description: Token for proto's GitHub API resolution (rate limits).
@@ -213,7 +216,26 @@ inputs:
 runs:
   using: composite
   steps:
-    # First, so a runner that cannot do what the rest of this action
+    # The very first step, before anything prints a line (the binary's
+    # fetch included) and on every path: a runner's secret variables are
+    # in the environment of every step of the job, and the masks
+    # registered here hide them from every later line of this job's log.
+    # Plain bash with nothing to fetch, so it cannot fail before it masks.
+    # One mask per line (::add-mask:: takes one line), each without its
+    # surrounding whitespace, which a later step may strip before printing.
+    # What ran BEFORE this step, and a job that never uses setup-devbox,
+    # are not covered (see the README).
+    - name: Mask the runner's secrets
+      shell: bash
+      run: |
+        while IFS= read -r line; do
+          line="${line#"${line%%[![:space:]]*}"}"
+          line="${line%"${line##*[![:space:]]}"}"
+          if [ -n "$line" ]; then
+            printf '::add-mask::%s\n' "$line"
+          fi
+        done <<<"${CI_RUNNER_GRADLE_BUILD_CACHE_TOKEN:-}"
+    # Then preflight, so a runner that cannot do what the rest of this action
     # needs fails here with one message naming the fix, not forty
     # seconds later as a cryptic error from nix or devbox.
     - name: Preflight

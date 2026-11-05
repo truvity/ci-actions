@@ -108,7 +108,7 @@ spec, a task definition), and that wins:
 | `CI_RUNNER_REMOTE_BUILDERS` | the `remote-builders` input | `setup-remote-builders`; the "Plan the remote builders" steps of ci-workflows |
 | `CI_RUNNER_MAVEN_REGISTRY` | the `maven-registry` input | `setup-devbox` ("Wire the Gradle caches"), which exports the winner to the job as `CI_MAVEN_REGISTRY` |
 | `CI_RUNNER_GRADLE_BUILD_CACHE` | the `gradle-build-cache` input | the same step; exported as `CI_GRADLE_BUILD_CACHE`. A runner that names no build cache does not export it; each tier's runner names its own environment's |
-| `CI_RUNNER_GRADLE_BUILD_CACHE_TOKEN` | none (a secret; absent: writes are anonymous) | the same step and its Gradle init script: the credential for writing the runner's OWN build cache (`CI_RUNNER_GRADLE_BUILD_CACHE`), sent as Basic credentials over https only and never to a caller's cache. Masked, never exported or printed |
+| `CI_RUNNER_GRADLE_BUILD_CACHE_TOKEN` | none (a secret; absent: writes are anonymous) | the same step and its Gradle init script: the credential for writing the runner's OWN build cache (`CI_RUNNER_GRADLE_BUILD_CACHE`), sent as Basic credentials over https only and never to a caller's cache. Masked by the first step of `setup-devbox`, never exported or printed; see "The build cache write credential" below for what the mask does not cover |
 | `CI_RUNNER_GOCACHE_S3_BUCKET`, `CI_RUNNER_GOCACHE_S3_REGION` | the `go-cache-bucket` and `go-cache-region` inputs (the caller's endpoint and path style are dropped with them) | `setup-devbox` (proto cache, and `setup-cache` for the Go build cache), `s3-cache/restore` and `s3-cache/save`; the Go cache plugin also uses the runner's own identity for it, see below |
 | `CI_RUNNER_BUILDX_CACHE` | the `buildx-cache` input (the BuildKit registry cache, `<registry>/<repository>`) | `setup-remote-builders`, which exports the winner as `CI_BUILDX_CACHE_FROM` (always) and as `CI_BUILDX_CACHE` (unless `CI_RUNNER_CACHE_WRITES` says otherwise); the "Plan the remote builders" steps of ci-workflows |
 | `CI_RUNNER_CACHE_WRITES` | none (absent: the runner's identity reads and writes its caches, as before) | `release-credentials`: the runner's identity only READS the caches; writes need the credentials of a role the job assumed. See "Who writes the caches" below |
@@ -197,6 +197,32 @@ Gradle's remote build cache for task outputs. The step:
 
 A cache that dies in the middle of a job fails dependency resolution the way an
 unreachable repository does; the cache's pods are replicated for that.
+
+### The build cache write credential
+
+A runner that exports `CI_RUNNER_GRADLE_BUILD_CACHE_TOKEN` has its builds write
+its own build cache with it. The init script reads it from the runner's
+environment and sends it as Basic credentials (user name `ci`) only when the
+build cache in use is the runner's own (`CI_GRADLE_BUILD_CACHE` equals
+`CI_RUNNER_GRADLE_BUILD_CACHE`, trailing slashes aside) and https. A caller's
+`gradle-build-cache` and a plain http cache never receive it. Tests run a real
+Gradle against both cases and check that the cache sees no `Authorization`
+header.
+
+The value is in the environment of **every step of every job** on that runner,
+because the runner puts it there; it is not a GitHub secret, so GitHub does not
+mask it by itself. `setup-devbox` masks it (`::add-mask::`, one per line) in its
+very first step, a plain bash one, before it prints anything and before anything
+can fail. From then on the job's log shows `***` in its place. The mask does
+**not** cover:
+
+- steps that run **before** `setup-devbox` in the same job;
+- jobs that **never use** `setup-devbox`.
+
+Either can print the value, for example with `env` or `printenv`. The boundary
+is the runner's environment: give the variable only to runners whose jobs may
+hold the cache's write credential, and keep steps that dump the environment out
+of jobs on those runners, or after `setup-devbox`.
 
 ## BuildKit client certificate
 
