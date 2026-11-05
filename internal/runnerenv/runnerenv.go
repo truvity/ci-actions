@@ -36,6 +36,11 @@ const (
 	// environment (the stable tier's jobs write and read the stable one).
 	MavenRegistry    = "CI_RUNNER_MAVEN_REGISTRY"
 	GradleBuildCache = "CI_RUNNER_GRADLE_BUILD_CACHE"
+	// GradleBuildCacheToken is the credential Gradle writes the runner's own
+	// build cache with (a secret: the task injects it, nothing logs it). It is
+	// sent to the cache GradleBuildCache names and to nothing else: never to a
+	// caller's build cache, and never over plain http.
+	GradleBuildCacheToken = "CI_RUNNER_GRADLE_BUILD_CACHE_TOKEN"
 
 	// GoCacheBucket and GoCacheRegion name the bucket of the runner's own Go build
 	// cache and archive caches (setup-cache, s3-cache); BuildxCache is the registry

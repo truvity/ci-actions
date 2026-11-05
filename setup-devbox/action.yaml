@@ -105,7 +105,10 @@ inputs:
       stable each have their own, and read only what their own jobs wrote).
       Used, it is exported as
       CI_GRADLE_BUILD_CACHE; a build still has to turn the build cache on
-      (org.gradle.caching=true), the init script never does.
+      (org.gradle.caching=true), the init script never does. A runner that
+      also exports CI_RUNNER_GRADLE_BUILD_CACHE_TOKEN has its builds write
+      its own https build cache with that credential (masked, never
+      exported); a cache named here by the caller never receives it.
     default: ""
   github-token:
     description: Token for proto's GitHub API resolution (rate limits).

@@ -46,7 +46,12 @@ var systemCABundles = []string{"/etc/ssl/certs/ca-certificates.crt", "/etc/pki/t
 //   - the Maven pull-through cache (CI_RUNNER_MAVEN_REGISTRY, else the
 //     maven-registry input), exported to the job as CI_MAVEN_REGISTRY;
 //   - the Gradle remote build cache (CI_RUNNER_GRADLE_BUILD_CACHE, else the
-//     gradle-build-cache input), exported as CI_GRADLE_BUILD_CACHE.
+//     gradle-build-cache input), exported as CI_GRADLE_BUILD_CACHE;
+//   - the credential the runner writes its own build cache with
+//     (CI_RUNNER_GRADLE_BUILD_CACHE_TOKEN), which is masked, never exported
+//     and never printed: the init script reads it from the runner's
+//     environment and sends it to the runner's own https build cache only
+//     (gradleCacheToken).
 //
 // The precedence is that of ResolveEndpoints (the runner wins). A value is used
 // only if its cache ANSWERS: a GET of <value>/ must return 200, which the cache
@@ -81,6 +86,7 @@ func GradleCache(ctx context.Context, e Env) error {
 
 	var usable []string // the https ones decide whether the JVM needs a trust store
 	var answered int
+	var buildCache, buildCacheRunner string // the build cache in use, and the runner's own value when it won
 	for _, c := range caches {
 		v, src, err := runnerenv.Pick(c.runnerName, e.Getenv(c.runnerName), c.caller, false)
 		if err != nil {
@@ -114,6 +120,15 @@ func GradleCache(ctx context.Context, e Env) error {
 		}
 		answered++
 		usable = append(usable, base)
+		if c.export == "CI_GRADLE_BUILD_CACHE" {
+			buildCache = base
+			if src == runnerenv.FromRunner {
+				buildCacheRunner = v
+			}
+		}
+	}
+	if err := e.gradleCacheToken(buildCache, buildCacheRunner); err != nil {
+		return err
 	}
 	if answered == 0 {
 		return nil
@@ -139,6 +154,64 @@ func GradleCache(ctx context.Context, e Env) error {
 		}
 	}
 	return nil
+}
+
+// gradleCacheToken masks the runner's build cache credential and says whether
+// Gradle sends it. It is never exported, written or printed: the init script
+// reads CI_RUNNER_GRADLE_BUILD_CACHE_TOKEN from the runner's environment, which
+// every step inherits, and makes the same decision as this function:
+//
+//   - the build cache in use is the one the runner named itself
+//     (CI_GRADLE_BUILD_CACHE equals CI_RUNNER_GRADLE_BUILD_CACHE, trailing
+//     slashes aside), so a caller's cache never receives the runner's
+//     credential;
+//   - over https only: with credentials set, Gradle sends Basic credentials on
+//     every request, reads too, so on plain http the token would be readable on
+//     the path.
+//
+// Gradle scopes the credentials to the cache URL's host and port, so the
+// redirect of a hit to another host (a presigned object store URL, which
+// carries its own signature) is followed without them
+// (TestGradleSendsTheTokenToTheCacheOnly).
+//
+// A token with whitespace or control characters is operator configuration
+// gone wrong, and an error, as every malformed runner value is here.
+func (e Env) gradleCacheToken(buildCache, buildCacheRunner string) error {
+	raw := e.Getenv(runnerenv.GradleBuildCacheToken)
+	if raw == "" {
+		return nil
+	}
+	token, _, err := runnerenv.Pick(runnerenv.GradleBuildCacheToken, raw, "", false)
+	if err != nil {
+		return e.fail("%v", err)
+	}
+	if token == "" {
+		return nil
+	}
+	// Masked before anything else is printed: a later step that prints the
+	// environment shows *** instead.
+	e.printf("::add-mask::%s\n", token)
+	switch {
+	case buildCache == "":
+		e.printf("gradle-cache: the runner gives a build cache write credential (%s), but no build cache is in use; it is not sent\n", runnerenv.GradleBuildCacheToken)
+	case buildCacheRunner == "" || strings.TrimRight(strings.TrimSpace(buildCacheRunner), "/") != buildCache:
+		e.printf("gradle-cache: the build cache in use is not the runner's own; the runner's write credential (%s) is not sent to it\n", runnerenv.GradleBuildCacheToken)
+	case !strings.HasPrefix(buildCache, "https://"):
+		e.printf("::warning::gradle-cache: the runner's build cache is plain http; its write credential (%s) is not sent, so writes are anonymous (and refused by a cache that requires one)\n", runnerenv.GradleBuildCacheToken)
+	default:
+		e.printf("gradle-cache: build cache writes are authenticated with the runner's credential (%s), sent to %s only\n", runnerenv.GradleBuildCacheToken, originOf(buildCache))
+	}
+	return nil
+}
+
+// originOf is the scheme and host (and port) of a cache address, with no path:
+// what a log line names a cache by.
+func originOf(base string) string {
+	u, err := url.Parse(base)
+	if err != nil || u.Host == "" {
+		return "the cache"
+	}
+	return u.Scheme + "://" + u.Host
 }
 
 // gradleUserHome is where Gradle reads its user-level files from.
