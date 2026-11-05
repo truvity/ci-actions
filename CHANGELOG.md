@@ -4,6 +4,12 @@ Every release of truvity/ci-actions, newest first. Pin the commit of a
 tag (`git rev-parse vX.Y.Z^{commit}`), never the tag object and never
 an untagged commit; `tagged-pins` refuses anything else.
 
+## Unreleased
+
+### Fixed
+
+- **A failed release download no longer reads as a wrong pin.** When an action is pinned at a release but GitHub's release download fails (2026-11-05: 504s from one GitHub edge while its status page said all was well), `lib/ci-actions-bin.sh` used to fall through to "pinned at …, which names no release archive", sending people to look for a pin mistake that was not there. The archive and `checksums.txt` are now retried for up to two minutes (`curl --retry 6 --retry-delay 5 --retry-max-time 120`, was `--retry 2`). After that a `::warning::` names the URL and curl's exit code, the action still builds from source when Go is on PATH, and without Go the error says the download failed and to re-run the job. A pin that is not a release keeps its old message.
+
 ## v3.10.0
 
 ### Added

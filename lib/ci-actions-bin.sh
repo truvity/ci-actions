@@ -42,6 +42,8 @@ ci_actions_run() {
   [ "$rc" = 0 ] && exec "$bin" "$@"
   # 2 is a checksum mismatch: never fall through to another binary after it.
   [ "$rc" = 2 ] && exit 1
+  # 3: the pin IS a release, but its archive could not be downloaded (the
+  # fetch said why). Building from source with Go is still a fine answer.
 
   if command -v go >/dev/null 2>&1 && [ -f "$action_path/../go.mod" ]; then
     bin="$tmp/ci-actions"
@@ -55,7 +57,11 @@ ci_actions_run() {
     exec "$bin" "$@"
   fi
 
-  echo "::error::${name} needs the ci-actions binary: this action is pinned at ${ref:-a local path}, which names no release archive, and Go is not on PATH to build it. Pin the commit of a release tag, or put Go on PATH."
+  if [ "$rc" = 3 ]; then
+    echo "::error::${name} needs the ci-actions binary: this action is pinned at a release (${ref}), but its archive could not be downloaded from GitHub (see the warning above), and Go is not on PATH to build it. GitHub release downloads fail now and then: re-run the job."
+  else
+    echo "::error::${name} needs the ci-actions binary: this action is pinned at ${ref:-a local path}, which names no release archive, and Go is not on PATH to build it. Pin the commit of a release tag, or put Go on PATH."
+  fi
   exit 1
 }
 
@@ -86,8 +92,19 @@ _ci_actions_fetch_release() {
     return 0
   fi
   mkdir -p "$dir"
-  curl -fsSL --retry 2 -o "$dir/$name" "$base/$name" || return 1
-  curl -fsSL --retry 2 -o "$dir/checksums.txt" "$base/checksums.txt" || return 1
+  # GitHub's release downloads answer 5xx for minutes at a time (2026-11-05:
+  # 504s from one edge while the status page said all was well), so retry
+  # for up to two minutes. Past that, say it was the DOWNLOAD that failed:
+  # falling through to "names no release archive" sent people looking for a
+  # wrong pin that was not there.
+  local f url
+  for f in "$name" checksums.txt; do
+    url="$base/$f"
+    curl -fsSL --retry 6 --retry-delay 5 --retry-max-time 120 -o "$dir/$f" "$url" || {
+      echo "::warning::could not download ${url} (curl exit $?)" >&2
+      return 3
+    }
+  done
   (cd "$dir" && grep -F " $name" checksums.txt | sha256sum -c - >/dev/null) || {
     echo "::error::checksum mismatch for $name; refusing to run it" >&2
     return 2
