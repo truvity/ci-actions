@@ -2,7 +2,8 @@
 # Thin wrapper: find the ci-actions binary and run one step of `setup-devbox`
 # with it (preflight | aws-config | detect-baked | strip-tools | install-devbox
 # | materialize | proto | expose-token | go-private | codeartifact |
-# gradle-cache | guard-goproxy | guard-aws). The logic lives in
+# resolve-endpoints | moon-remote-mtls | gradle-cache | guard-goproxy |
+# guard-aws). The logic lives in
 # cmd/ci-actions (internal/setupdevbox); which binary is chosen is
 # lib/ci-actions-bin.sh's job, shared by every wrapper.
 set -euo pipefail
