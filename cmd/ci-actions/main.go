@@ -18,6 +18,7 @@ import (
 	"github.com/truvity/ci-actions/internal/autorelease"
 	"github.com/truvity/ci-actions/internal/buildkittls"
 	"github.com/truvity/ci-actions/internal/callerparity"
+	"github.com/truvity/ci-actions/internal/chartauth"
 	"github.com/truvity/ci-actions/internal/cluster"
 	"github.com/truvity/ci-actions/internal/companyboundary"
 	"github.com/truvity/ci-actions/internal/companyvalidation"
@@ -96,6 +97,10 @@ Commands:
                        and (delivery) infrastructure projects, a tenant tree and a malformed pins/values envelope
                        (--kind config|delivery, --dir, --forbidden-import-prefixes; env: KIND, DIR,
                        FORBIDDEN_IMPORT_PREFIXES)
+  chart-auth           turn a token-exchange AWS profile into a chart-read registry credential kept under RUNNER_TEMP:
+                       refuses a long-lived AWS key, fails a missing profile, and fails (never skips) a failed
+                       login under GitHub Actions (env: PROFILE, PROFILES, REGISTRY, REGION, EXPORT_ENV,
+                       AWS_CONFIG_FILE, RUNNER_TEMP, GITHUB_ACTIONS, GITHUB_ENV, GITHUB_OUTPUT)
   company-validation   dispatch a private platform validation for a company pull request, wait for
                        that exact run, and accept only its exactly correlated successful check
                        (env: TOKEN, DISPATCH_TOKEN, COMPANY, COMPANY_REPOSITORY, PLATFORM_REPOSITORY,
@@ -211,6 +216,22 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, getenv fu
 		default:
 			fmt.Fprintln(stderr, "company-boundary:", err)
 			return 2
+		}
+	case "chart-auth":
+		err := chartauth.Run(ctx, chartauth.Options{
+			Profile: getenv("PROFILE"), Profiles: getenv("PROFILES"), Registry: getenv("REGISTRY"), Region: getenv("REGION"),
+			Environ: os.Environ(), ConfigFile: getenv("AWS_CONFIG_FILE"), CredentialsFile: getenv("AWS_SHARED_CREDENTIALS_FILE"), RunnerTemp: getenv("RUNNER_TEMP"),
+			GithubEnv: getenv("GITHUB_ENV"), GithubOutput: getenv("GITHUB_OUTPUT"),
+			InCI: getenv("GITHUB_ACTIONS") == "true", ExportEnv: getenv("EXPORT_ENV") == "true", Out: stdout,
+		})
+		switch {
+		case err == nil:
+			return 0
+		case errors.Is(err, chartauth.ErrFailed):
+			return 1
+		default:
+			fmt.Fprintln(stderr, "chart-auth:", err)
+			return 1
 		}
 	case "company-validation":
 		wait, err := seconds("WAIT_TIMEOUT_SECONDS", getenv, 2100)

@@ -187,6 +187,17 @@ has "$log" "::error::tenant-inputs needs the ci-actions binary" \
   && ok "tenant-inputs with no binary fails naming itself" \
   || bad "tenant-inputs with no binary fails naming itself: $log"
 
+runca() { (cd "$work/ws" && env -i HOME="$work" RUNNER_TEMP="$work/tmp" ACTION_PATH="$here/chart-auth" "$@" bash "$here/chart-auth/run.sh" 2>&1); }
+log=$(runca PATH="$work/min" CI_ACTIONS_BIN="$work/stubdir/ci-actions" STUB_EXIT=1)
+rc=$?
+[ $rc = 1 ] && has "$log" "stub ran: chart-auth LIBRARIES=unset cwd=ws" \
+  && ok "chart-auth runs the binary as 'chart-auth' in the caller's directory and returns its status" \
+  || bad "chart-auth runs the binary as 'chart-auth' (rc=$rc): $log"
+log=$(runca PATH="$work/min")
+has "$log" "::error::chart-auth needs the ci-actions binary" \
+  && ok "chart-auth with no binary fails naming itself" \
+  || bad "chart-auth with no binary fails naming itself: $log"
+
 runsd() { (cd "$work/ws" && env -i HOME="$work" RUNNER_TEMP="$work/tmp" ACTION_PATH="$here/setup-devbox" "$@" bash "$here/setup-devbox/run.sh" preflight 2>&1); }
 log=$(runsd PATH="$work/min" CI_ACTIONS_BIN="$work/stubdir/ci-actions" STUB_EXIT=0)
 has "$log" "stub ran: setup-devbox preflight LIBRARIES=unset" \

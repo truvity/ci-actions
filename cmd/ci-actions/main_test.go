@@ -311,3 +311,19 @@ func TestTenantInputsCLI(t *testing.T) {
 		}
 	}
 }
+
+func TestChartAuthCLI(t *testing.T) {
+	t.Setenv("AWS_ACCESS_KEY_ID", "")
+	base := map[string]string{"REGISTRY": "registry.example", "PROFILE": "reader@account-1", "RUNNER_TEMP": t.TempDir(), "GITHUB_ACTIONS": "true"}
+	// No AWS config at all: the profile cannot be found, which fails in CI.
+	base["AWS_CONFIG_FILE"] = filepath.Join(t.TempDir(), "absent")
+	code, out, _ := runCLI(t, base, "chart-auth")
+	if code != 1 || !strings.Contains(out, "::error::chart-auth: profile-missing:") {
+		t.Errorf("missing profile: code %d out %q", code, out)
+	}
+	t.Setenv("AWS_ACCESS_KEY_ID", "AKIAEXAMPLEEXAMPLE")
+	code, out, _ = runCLI(t, base, "chart-auth")
+	if code != 1 || !strings.Contains(out, "::error::chart-auth: static-credentials:") || strings.Contains(out, "AKIAEXAMPLEEXAMPLE") {
+		t.Errorf("long-lived key: code %d out %q", code, out)
+	}
+}
