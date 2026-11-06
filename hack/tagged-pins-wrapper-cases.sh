@@ -176,6 +176,17 @@ has "$log" "::error::company-boundary needs the ci-actions binary" \
   && ok "company-boundary with no binary fails naming itself" \
   || bad "company-boundary with no binary fails naming itself: $log"
 
+runti() { (cd "$work/ws" && env -i HOME="$work" RUNNER_TEMP="$work/tmp" ACTION_PATH="$here/tenant-inputs" "$@" bash "$here/tenant-inputs/run.sh" 2>&1); }
+log=$(runti PATH="$work/min" CI_ACTIONS_BIN="$work/stubdir/ci-actions" STUB_EXIT=1)
+rc=$?
+[ $rc = 1 ] && has "$log" "stub ran: tenant-inputs LIBRARIES=unset cwd=ws" \
+  && ok "tenant-inputs runs the binary as 'tenant-inputs' in the caller's directory and returns its status" \
+  || bad "tenant-inputs runs the binary as 'tenant-inputs' (rc=$rc): $log"
+log=$(runti PATH="$work/min")
+has "$log" "::error::tenant-inputs needs the ci-actions binary" \
+  && ok "tenant-inputs with no binary fails naming itself" \
+  || bad "tenant-inputs with no binary fails naming itself: $log"
+
 runsd() { (cd "$work/ws" && env -i HOME="$work" RUNNER_TEMP="$work/tmp" ACTION_PATH="$here/setup-devbox" "$@" bash "$here/setup-devbox/run.sh" preflight 2>&1); }
 log=$(runsd PATH="$work/min" CI_ACTIONS_BIN="$work/stubdir/ci-actions" STUB_EXIT=0)
 has "$log" "stub ran: setup-devbox preflight LIBRARIES=unset" \
