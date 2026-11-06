@@ -19,6 +19,10 @@
 #               here" from "Go, just not at the root", and this reports
 #               `n/a` for that shape too rather than guess. It can still
 #               carry the block; this check will just never notice.
+#               A name that ends in `/` (`pins/`) must be a DIRECTORY: a
+#               file of that name does not satisfy it. That is how a kit
+#               says which KIND of repository it is for, when the kinds
+#               share a file name.
 #   exempt      repository name (not `owner/name`) → why it is not
 #               compared, even though the kit otherwise applies. Renders
 #               as `exempt (<reason>)`. For a documented, deliberate
@@ -70,3 +74,28 @@ golangci-depguard.yaml:
     # `absent` (it looked only for `.golangci.yaml`); fixing that made it
     # findable again, and findable is not the same as in scope.
     amazon-eks-pod-identity-webhook: "fork, minimal lint to ease upstream merges"
+
+# The two company kits are the same file name in the consuming repository
+# (`.github/workflows/check.yaml`) for two kinds of company repository, so
+# each says which kind it is for by a DIRECTORY the repository carries:
+# `pins/` for a delivery repository, `tenant/` for a configuration one. A
+# repository with neither is `n/a` for both; a delivery repository is `n/a`
+# for the configuration kit, and the other way round.
+#
+# `enabled: false`: they ship written but not compared. They call
+# ci-workflows' `check.yaml` with the company inputs (`company-kind`,
+# `tenant-inputs`, `chart-profile`), which a release of that workflow has to
+# carry before a repository can use them. The pin inside each kit is the
+# release that predates those inputs, so the pin and the flip to
+# `enabled: true` move TOGETHER, in one change that names the release that
+# adds the inputs; a dependency bot moving the pin alone does not count, and
+# neither does flipping the flag alone. Until then no repository is asked.
+company-delivery-check.yaml:
+  path: .github/workflows/check.yaml
+  applies_if: pins/
+  enabled: false
+
+company-config-check.yaml:
+  path: .github/workflows/check.yaml
+  applies_if: tenant/
+  enabled: false

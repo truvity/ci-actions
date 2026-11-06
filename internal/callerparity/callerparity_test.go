@@ -89,6 +89,19 @@ func newStub(t *testing.T, repos map[string]files) *stub {
 		}
 		content, ok := repos[name][parts[4]]
 		if !ok {
+			// a directory: GitHub answers 200 with a listing (an array)
+			var listing []map[string]string
+			for p := range repos[name] {
+				if strings.HasPrefix(p, strings.TrimSuffix(parts[4], "/")+"/") {
+					listing = append(listing, map[string]string{"path": p, "type": "file"})
+				}
+			}
+			if len(listing) > 0 {
+				send(200, listing)
+				return
+			}
+		}
+		if !ok {
 			send(404, map[string]string{"message": "Not Found"})
 			return
 		}
@@ -418,5 +431,156 @@ func TestEdges(t *testing.T) {
 	res := r.run(t, kitsDir, []string{"bare"}, false)
 	if !strings.Contains(res.log, "::warning::every file is reported absent — check that the token carries contents: read\n") {
 		t.Errorf("%s", res.log)
+	}
+}
+
+// A kit that is for one kind of repository says so by naming a DIRECTORY the
+// repository must carry: `applies_if: pins/`. With the trailing slash the
+// answer must be a directory, so a file that happens to be called `pins` is
+// not mistaken for one. Without it the old rule stands: any file or directory.
+func TestKitAppliesIfADirectory(t *testing.T) {
+	const caller = "name: check\non:\n  pull_request:\n    branches: [master]\njobs:\n  check:\n    uses: o/r/.github/workflows/check.yaml@0123456789abcdef0123456789abcdef01234567 # v1\n    with:\n      company-kind: delivery\n"
+	dir := t.TempDir()
+	_ = os.WriteFile(filepath.Join(dir, "company-delivery.yaml"), []byte(caller), 0o644)
+	_ = os.WriteFile(filepath.Join(dir, "kits.yaml"), []byte("company-delivery.yaml:\n  path: .github/workflows/check.yaml\n  applies_if: pins/\n"), 0o644)
+	pin := ".github/workflows/check.yaml"
+	s := newStub(t, map[string]files{
+		"delivery-same":     {"pins/acme/devel.yaml": "pins: {}\n", pin: caller},
+		"delivery-differs":  {"pins/acme/devel.yaml": "pins: {}\n", pin: strings.Replace(caller, "delivery", "config", 1)},
+		"delivery-no-check": {"pins/acme/devel.yaml": "pins: {}\n"},
+		"other-kind":        {"tenant/project.yaml": "x: 1\n", pin: caller},
+		"file-named-pins":   {"pins": "not a directory\n", pin: caller},
+		"empty":             {},
+	})
+	repos := []string{"delivery-same", "delivery-differs", "delivery-no-check", "other-kind", "file-named-pins", "empty"}
+	res := s.run(t, dir, repos, false)
+	if res.err != nil {
+		t.Fatal(res.err, res.log)
+	}
+	for repo, want := range map[string]string{
+		"delivery-same":     "same",
+		"delivery-differs":  "differs",
+		"delivery-no-check": "absent",
+		"other-kind":        "n/a", // no pins/: the kit has no opinion
+		"file-named-pins":   "n/a", // a file is not a directory
+		"empty":             "n/a",
+	} {
+		if got := res.row(repo); got != "| stub/"+repo+" | "+want+" |" {
+			t.Errorf("%s: %q, want state %q", repo, got, want)
+		}
+	}
+
+	// Without the slash, a file satisfies applies_if, as it always did.
+	_ = os.WriteFile(filepath.Join(dir, "kits.yaml"), []byte("company-delivery.yaml:\n  path: .github/workflows/check.yaml\n  applies_if: pins\n"), 0o644)
+	res = s.run(t, dir, []string{"file-named-pins", "delivery-same", "other-kind"}, false)
+	for repo, want := range map[string]string{"file-named-pins": "same", "delivery-same": "same", "other-kind": "n/a"} {
+		if got := res.row(repo); got != "| stub/"+repo+" | "+want+" |" {
+			t.Errorf("plain applies_if, %s: %q, want state %q", repo, got, want)
+		}
+	}
+}
+
+// The company kits ship switched off, so nothing else reads them. This does:
+// they are what a company copies verbatim, so they must be the shape the rest
+// of the estate expects, carry nothing of one company, and sort a repository
+// into the right kind.
+func TestCompanyKits(t *testing.T) {
+	manifestBytes := []byte(kit(t, "kits.yaml"))
+	var man map[string]map[string]any
+	if err := yaml.Unmarshal(manifestBytes, &man); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct{ file, kind, dir string }{
+		{"company-delivery-check.yaml", "delivery", "pins/"},
+		{"company-config-check.yaml", "config", "tenant/"},
+	} {
+		t.Run(c.kind, func(t *testing.T) {
+			text := kit(t, c.file)
+			var k struct {
+				Name        string            `yaml:"name"`
+				On          map[string]any    `yaml:"on"`
+				Permissions map[string]string `yaml:"permissions"`
+				Jobs        map[string]struct {
+					Uses    string            `yaml:"uses"`
+					With    map[string]string `yaml:"with"`
+					Needs   any               `yaml:"needs"`
+					If      string            `yaml:"if"`
+					Secrets any               `yaml:"secrets"`
+					Steps   []map[string]any  `yaml:"steps"`
+				} `yaml:"jobs"`
+			}
+			if err := yaml.Unmarshal([]byte(text), &k); err != nil {
+				t.Fatal(err)
+			}
+			if k.Name != "check" {
+				t.Errorf("name %q: the fan-in context the ruleset requires is `check`", k.Name)
+			}
+			if _, ok := k.On["pull_request"]; !ok || len(k.On) != 1 {
+				t.Errorf("on: %v, want pull_request alone (never pull_request_target)", k.On)
+			}
+			if k.Permissions["contents"] != "read" || k.Permissions["id-token"] != "write" || len(k.Permissions) != 2 {
+				t.Errorf("permissions: %v", k.Permissions)
+			}
+			pin := regexp.MustCompile(`^truvity/ci-workflows/\.github/workflows/check\.yaml@[0-9a-f]{40}$`)
+			call := k.Jobs["company"]
+			if !pin.MatchString(call.Uses) || call.Secrets != nil {
+				t.Errorf("company job: uses %q secrets %v", call.Uses, call.Secrets)
+			}
+			if call.With["company-kind"] != c.kind {
+				t.Errorf("company-kind %q, want %q", call.With["company-kind"], c.kind)
+			}
+			for in, v := range call.With {
+				if in != "company-kind" && !regexp.MustCompile(`^\$\{\{ vars\.[A-Z_]+ \}\}$`).MatchString(v) {
+					t.Errorf("input %s is %q: a company's own setting belongs in a repository variable", in, v)
+				}
+			}
+			fan := k.Jobs["check"]
+			if fan.Needs != "company" || fan.If != "always()" || len(fan.Steps) != 1 || !strings.Contains(fan.Steps[0]["run"].(string), `= "success"`) {
+				t.Errorf("fan-in job: %+v", fan)
+			}
+			if len(k.Jobs) != 2 {
+				t.Errorf("jobs: %d, want the call and its fan-in", len(k.Jobs))
+			}
+			if m := man[c.file]; m["path"] != ".github/workflows/check.yaml" || m["applies_if"] != c.dir || m["enabled"] != false {
+				t.Errorf("manifest entry: %v", m)
+			}
+		})
+	}
+	for name := range man {
+		if _, err := os.Stat(filepath.Join(kitsDir, name)); err != nil {
+			t.Errorf("kits.yaml names %s, which is not a kit file", name)
+		}
+	}
+
+	// Switched on, a verbatim copy is at parity in the right kind of
+	// repository, and the other kind and a plain repository are n/a.
+	dir := t.TempDir()
+	for _, n := range []string{"company-delivery-check.yaml", "company-config-check.yaml"} {
+		_ = os.WriteFile(filepath.Join(dir, n), []byte(kit(t, n)), 0o644)
+	}
+	on := strings.ReplaceAll(string(manifestBytes), "enabled: false", "enabled: true")
+	_ = os.WriteFile(filepath.Join(dir, "kits.yaml"), []byte(on), 0o644)
+	wf := ".github/workflows/check.yaml"
+	s := newStub(t, map[string]files{
+		"delivery":       {"pins/acme/devel.yaml": "pins: {}\n", wf: kit(t, "company-delivery-check.yaml")},
+		"config":         {"tenant/project.yaml": "x: 1\n", wf: kit(t, "company-config-check.yaml")},
+		"delivery-stale": {"pins/acme/devel.yaml": "pins: {}\n", wf: kit(t, "company-config-check.yaml")},
+		"plain":          {"go.mod": "module x\n"},
+	})
+	res := s.run(t, dir, []string{"delivery", "config", "delivery-stale", "plain"}, false)
+	if res.err != nil {
+		t.Fatal(res.err, res.log)
+	}
+	for repo, want := range map[string]string{
+		"delivery":       "same | n/a",
+		"config":         "n/a | same",
+		"delivery-stale": "differs | n/a",
+		"plain":          "n/a | n/a",
+	} {
+		// columns are the kit files in name order: config, then delivery
+		parts := strings.Split(want, " | ")
+		if got := res.row(repo); got != "| stub/"+repo+" | "+parts[1]+" | "+parts[0]+" |" {
+			t.Errorf("%s: %q, want config %s, delivery %s", repo, got, parts[1], parts[0])
+		}
 	}
 }
