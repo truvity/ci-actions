@@ -24,11 +24,11 @@ contract.
 | [`openbao-secrets`](openbao-secrets/action.yaml) | Reads a job's third-party secrets from OpenBao at run time | `issuer`, `address`, `path` (required), `keys` | `release-private` |
 | [`token-exchange`](token-exchange/action.yaml) | Exchanges the job's GitHub identity token at a roster issuer for the clusters, cloud roles and GitHub App tokens its rules grant (curl and jq only, nothing downloaded) | `issuer` (required), `audiences`, `kubeconfig`, `default-profile`, `region`, `github-app`, `repositories`, `permissions` | `auto-release`, `renovate-fleet`, `parity-fleet`, `pkl-fleet` |
 | [`fleet-discover`](fleet-discover/action.yaml) | Decides which repositories a fleet job touches, and whether each default branch is gated | `token` (required), `estate`, `require-check`, `repositories` | `renovate-fleet`, `parity-fleet` |
-| [`caller-parity`](caller-parity/action.yaml) | Compares each repository's shared caller workflows (and the depguard block) against the kits in [`caller-parity/kits/`](caller-parity/kits/), and reports | `token`, `repositories` (required), `fail-on-diff` (`false`) | `parity-fleet` |
+| [`caller-parity`](caller-parity/action.yaml) | Compares each repository's shared caller workflows (and the depguard block, and the check caller of a company repository, once those kits are switched on) against the kits in [`caller-parity/kits/`](caller-parity/kits/), and reports; a kit's `applies_if` may name a file, or a directory with a trailing `/` | `token`, `repositories` (required), `fail-on-diff` (`false`) | `parity-fleet` |
 | [`company-boundary`](company-boundary/action.yaml) | Refuses, offline, what a company repository must not hold: an Argo CD or Kargo object, a Namespace, a Secret with data, a symlink out of the tree; a `config` repository also holds no Go `replace` and no import, requirement or vendored copy under a prefix the caller names; a `delivery` repository also holds no infrastructure project or `tenant/` tree and keeps `pins/` and `values/` to their envelope. A deny-list, not a path allow-list | `kind` (required, `config` or `delivery`), `forbidden-import-prefixes`, `path` | company gates (once released and adopted) |
 | [`tenant-inputs`](tenant-inputs/action.yaml) | Fetches the digest-pinned artifact of a company's published inputs, read-only: the reference must be `<registry>/<name>@sha256:<hex>` (a tag is refused), every byte is checked against its digest, the client sends only GET and HEAD, and a copy committed in the company repository is never read | `reference` (required), `token`, `username`, `output-dir`, `max-bytes` | company gates (once released and adopted) |
 | [`chart-auth`](chart-auth/action.yaml) | Obtains a scoped chart-read registry credential from the job's own identity (`token-exchange`, then `aws ecr get-login-password`) and keeps it under `RUNNER_TEMP`, masked: refuses a long-lived AWS key, fails a missing profile, and under GitHub Actions fails (never skips) a failed login | `registry` (required), `issuer`, `audience`, `profile`, `region`, `exchange` (`true`), `export-env` (`false`) | company gates (once released and adopted) |
-| [`company-validation`](company-validation/action.yaml) | Dispatches a private platform validation for a company pull request, waits for that exact run, and accepts only the check result the platform correlated with the request; re-reads the pull request before dispatch and before accepting | `token`, `dispatch-token`, `company`, `company-repository`, `platform-repository`, `platform-workflow`, `pull-request`, `head-sha`, `check-app-slug` (required), `platform-ref`, `base-branch`, `check-name`, `wait-timeout-seconds`, `poll-interval-seconds`, `api-url` | company delivery gates (once released and adopted) |
+| [`company-validation`](company-validation/action.yaml) | **Deprecated** (see [below](#company-validation-is-deprecated)). Dispatches a private platform validation for a company pull request, waits for that exact run, and accepts only the check result the platform correlated with the request; re-reads the pull request before dispatch and before accepting | `token`, `dispatch-token`, `company`, `company-repository`, `platform-repository`, `platform-workflow`, `pull-request`, `head-sha`, `check-app-slug` (required), `platform-ref`, `base-branch`, `check-name`, `wait-timeout-seconds`, `poll-interval-seconds`, `api-url` | company delivery gates (once released and adopted) |
 | [`devbox-parity`](devbox-parity/action.yaml) | Refreshes devbox packages and aligns a Go repository's toolchain triple, opening a pull request | `token` (required), `mode`, `module-dirs` | `parity-fleet` |
 | [`auto-release`](auto-release/action.yaml) | The steps of the shared auto-release workflow: `gate` (a security-labelled merge or a hand-written fix releases now, the rest waits for the batch) and `tag` (cuts the next patch tag, behind a CHANGELOG heading pull request when the release needs one) | `step`, `token`, `repository` (required), `sha`, `tag-prefix`, `bot`, `changelog-heading`, `version-bump-command` | `auto-release` (once released and adopted) |
 | [`publish-nix-flakes`](publish-nix-flakes/action.yaml) | Generates, checks and uploads a Nix flake per GoReleaser archive id, deterministically packed | `flakes`, `flake-dir`, `token` (required) | `release-public` (once released and adopted) |
@@ -41,6 +41,22 @@ contract.
 | [`enrolment-list`](enrolment-list/action.yaml) | Reads a dotted-path list of repository names from the caller's repositories file, as JSON for `fleet-discover` | `file`, `list` (required) | `parity-fleet`, `renovate-fleet`, `pkl-fleet` (once released and adopted) |
 
 Every input is described in full in its `action.yaml`.
+
+### `company-validation` is deprecated
+
+A company repository's gate is local now: [`company-boundary`](company-boundary/action.yaml)
+refuses what it must not hold, [`tenant-inputs`](tenant-inputs/action.yaml)
+fetches the digest-pinned inputs it validates against, and
+[`chart-auth`](chart-auth/action.yaml) gives it a read-only chart credential,
+all on the pull request itself, with nothing dispatched to another repository
+and no token that can dispatch. `company-validation` (a dispatch-and-poll
+transport that needs an `actions: write` grant on the platform repository) keeps
+working for the callers that already use it, is not extended, and is removed in a
+later major release, once no caller dispatches. A new caller should not adopt it.
+The canonical caller workflows for the two kinds of company repository are kits
+in [`caller-parity/kits/`](caller-parity/kits/) (`company-delivery-check.yaml`,
+`company-config-check.yaml`), compared by [`caller-parity`](caller-parity/action.yaml)
+once they are switched on.
 
 ## Who it is for
 

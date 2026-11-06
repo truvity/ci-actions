@@ -1,6 +1,9 @@
 name: company-validation
 description: >-
-  Dispatch a company's private platform validation, wait for that exact run,
+  DEPRECATED: a company repository's gate runs locally on the pull request now
+  (`company-boundary`, `tenant-inputs`, `chart-auth`), with no dispatch and no
+  token that can dispatch. This action keeps working for existing callers, is
+  not extended, and is removed in a later major release. Dispatch a company's private platform validation, wait for that exact run,
   and accept only the check result the platform correlated with the request.
   The company pull request is re-read before dispatch and again before the
   result is accepted, so a fork, a close, a moved head or a moved base fails

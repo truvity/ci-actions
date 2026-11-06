@@ -302,22 +302,31 @@ func (r *run) contentsURL(repo, p string) string {
 	return fmt.Sprintf("%s/repos/%s/contents/%s?ref=%s", r.c.BaseURL, repo, strings.Join(segs, "/"), url.QueryEscape(r.branch))
 }
 
-// appliesState says whether a repository carries the file `applies_if`
-// names, cached per repository so the file is read at most once however
-// many kits ask. The key does not include the branch because a repository
-// has exactly one default branch for the lifetime of the loop.
-func (r *run) appliesState(ctx context.Context, repo, file string) string {
-	key := repo + "|" + file
+// appliesState says whether a repository carries what `applies_if` names,
+// cached per repository so it is read at most once however many kits ask.
+// The key does not include the branch because a repository has exactly one
+// default branch for the lifetime of the loop.
+//
+// `applies_if: go.mod` is satisfied by a file, or by a directory of that
+// name. `applies_if: pins/`, with a trailing slash, is satisfied by a
+// directory only: GitHub answers a directory with a listing (an array), a
+// file with an object, and a file that happens to be called `pins` is not
+// the thing the kit is asking for.
+func (r *run) appliesState(ctx context.Context, repo, what string) string {
+	key := repo + "|" + what
 	if s, ok := r.applies[key]; ok {
 		return s
 	}
-	status, _, err := r.c.Raw(ctx, "GET", r.contentsURL(repo, file), nil)
+	dir := strings.HasSuffix(what, "/")
+	status, body, err := r.c.Raw(ctx, "GET", r.contentsURL(repo, strings.TrimRight(what, "/")), nil)
 	s := "unreadable"
 	if err == nil {
-		switch status {
-		case 200:
+		switch {
+		case status == 200 && dir && !strings.HasPrefix(strings.TrimSpace(string(body)), "["):
+			s = "no"
+		case status == 200:
 			s = "yes"
-		case 404:
+		case status == 404:
 			s = "no"
 		}
 	}

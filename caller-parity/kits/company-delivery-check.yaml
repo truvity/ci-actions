@@ -1,0 +1,63 @@
+# CANONICAL COPY — the check caller of a company DELIVERY repository: the one that holds `pins/<service>/<cluster>.yaml` and
+# `values/<service>/<cluster>.yaml` and nothing of the platform,
+# carried as `.github/workflows/check.yaml`. The caller-parity check
+# compares each company repository that has a `pins/` directory against this file;
+# copy it verbatim into a new repository.
+#
+# What is compared is SUBSTANCE: comment lines, blank lines and the pinned
+# ref of the shared workflow are ignored, so the prose below is yours to
+# rewrite and the pin is renovate's to move. Everything else has to match.
+#
+# The company's own settings are repository VARIABLES, not text in this
+# file, so every company's copy is byte-for-byte the same:
+#
+#   TENANT_INPUTS  the digest-pinned artifact the platform publishes for this
+#                  company, `<registry>/<name>@sha256:<hex>`
+#   CHART_PROFILE  the `token-exchange` profile that may read the private
+#                  charts, and nothing else
+#
+# The trigger is `pull_request`, never `pull_request_target`: nothing here
+# dispatches to the platform or needs a token that can, so a candidate runs
+# with the read-only token of its own pull request. A pull request from a
+# fork is meant to fail (not be skipped), because a skipped required check
+# is green; that is the shared workflow's to do once a release of it carries
+# the company inputs, which the release pinned below does not yet.
+#
+# NOT YET USABLE: the pin below is the release that predates the company
+# inputs (`company-kind`, `tenant-inputs`, `chart-profile`), so a copy
+# switched on today fails workflow validation. The kit is `enabled: false`
+# in kits.yaml, and the pin moves to the release that adds the inputs in the
+# same change that enables the kit.
+#
+# TENANT_INPUTS is read as a digest-pinned reference, which is what the
+# `tenant-inputs` action accepts today. Resolving a moving tag to a digest
+# and verifying its signature is a separate step that is not built yet; this
+# variable's meaning changes with it.
+#
+# The fan-in job `check` is the context the branch ruleset requires: a
+# reusable workflow cannot supply one, and a skipped call must not hand
+# anyone a green required check, so it is strict "success".
+name: check
+
+on:
+  pull_request:
+    branches: [master]
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  company:
+    uses: truvity/ci-workflows/.github/workflows/check.yaml@f4191da8878c2f3e5f84d0e3962ca23e3377941d # v6.2.0
+    with:
+      company-kind: delivery
+      tenant-inputs: ${{ vars.TENANT_INPUTS }}
+      chart-profile: ${{ vars.CHART_PROFILE }}
+
+  check:
+    needs: company
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - run: '[ "${{ needs.company.result }}" = "success" ]'
