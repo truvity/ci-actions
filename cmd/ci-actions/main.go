@@ -42,6 +42,7 @@ import (
 	"github.com/truvity/ci-actions/internal/setupdevbox"
 	"github.com/truvity/ci-actions/internal/stablemtimes"
 	"github.com/truvity/ci-actions/internal/taggedpins"
+	"github.com/truvity/ci-actions/internal/tenantinputs"
 	"github.com/truvity/ci-actions/internal/workflowinputs"
 )
 
@@ -101,6 +102,11 @@ Commands:
                        PLATFORM_WORKFLOW, PLATFORM_REF, PULL_REQUEST, HEAD_SHA, BASE_BRANCH, CHECK_NAME,
                        CHECK_APP_SLUG, WAIT_TIMEOUT_SECONDS, POLL_INTERVAL_SECONDS, API_URL,
                        GITHUB_RUN_ID, GITHUB_RUN_ATTEMPT, GITHUB_STEP_SUMMARY, GITHUB_OUTPUT)
+  tenant-inputs        fetch the digest-pinned artifact of a company's published inputs, read-only: the reference must be
+                       <registry>/<name>@sha256:<hex>, every byte is checked against its digest, nothing is written to
+                       the registry and nothing is read from the checkout
+                       (env: REFERENCE, TOKEN, USERNAME, OUTPUT_DIR, MAX_BYTES, RUNNER_TEMP, GITHUB_WORKSPACE,
+                       GITHUB_OUTPUT, GITHUB_STEP_SUMMARY)
   devbox-parity        refresh devbox, align the go toolchain and playwright followers, open one PR
                        (env: TOKEN, WORKDIR, BASE, LABEL, MODE, FULL_DAY, MODULE_DIRS, GIT_USER, GIT_EMAIL)
   fleet discover       which repositories of a GitHub App installation a fleet job works on
@@ -235,6 +241,38 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, getenv fu
 			return 1
 		default:
 			fmt.Fprintln(stderr, "company-validation:", err)
+			return 1
+		}
+	case "tenant-inputs":
+		maxBytes := int64(0)
+		if v := strings.TrimSpace(getenv("MAX_BYTES")); v != "" {
+			n, err := strconv.ParseInt(v, 10, 64)
+			if err != nil || n <= 0 {
+				fmt.Fprintf(stderr, "tenant-inputs: MAX_BYTES %q is not a positive whole number\n", v)
+				return 2
+			}
+			maxBytes = n
+		}
+		outDir := getenv("OUTPUT_DIR")
+		if outDir == "" && getenv("RUNNER_TEMP") != "" {
+			outDir = filepath.Join(getenv("RUNNER_TEMP"), "tenant-inputs")
+		}
+		if outDir == "" {
+			fmt.Fprintln(stderr, "tenant-inputs: set OUTPUT_DIR (or RUNNER_TEMP)")
+			return 2
+		}
+		err := tenantinputs.Run(ctx, tenantinputs.Options{
+			Reference: getenv("REFERENCE"), Token: getenv("TOKEN"), Username: getenv("USERNAME"),
+			OutputDir: outDir, Workspace: getenv("GITHUB_WORKSPACE"), RequireWorkspace: getenv("GITHUB_ACTIONS") == "true", MaxBytes: maxBytes,
+			OutputPath: getenv("GITHUB_OUTPUT"), SummaryPath: getenv("GITHUB_STEP_SUMMARY"), Out: stdout,
+		})
+		switch {
+		case err == nil:
+			return 0
+		case errors.Is(err, tenantinputs.ErrFailed):
+			return 1
+		default:
+			fmt.Fprintln(stderr, "tenant-inputs:", err)
 			return 1
 		}
 	case "devbox-parity":

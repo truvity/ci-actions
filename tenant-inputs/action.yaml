@@ -1,0 +1,72 @@
+name: tenant-inputs
+description: >-
+  Fetch the digest-pinned artifact in which a platform publishes a company's
+  non-secret inputs, so a company's own CI validates a candidate against what
+  the platform will actually use. The reference must be
+  `<registry>/<name>@sha256:<64 hex>` and nothing else: a tag, a tag with a
+  digest, or a reference without a registry host is refused before any
+  request. The manifest is checked against the reference and every layer
+  against the manifest; a registry that answers a digest with other bytes is
+  a refusal that writes nothing. The action only reads: its HTTP client sends
+  GET and HEAD and nothing else, and the token is a pull credential (asked for
+  `pull` alone when the registry challenges). It never reads a copy committed
+  in the company repository: the files are written to a directory outside the
+  workspace, so a tampered copy neither stands in for the artifact nor changes
+  the answer. The rules are the `ci-actions` binary's `tenant-inputs` command;
+  this action is a thin wrapper that finds that binary (release archive of the
+  pinned tag, or built with Go) and runs it. It takes the digest as given:
+  resolving a moving tag to a digest and verifying its signature is a separate
+  step, not done here.
+
+inputs:
+  reference:
+    description: >-
+      The artifact, `<registry>/<name>@sha256:<64 lower-case hex>`. It is the
+      identity of the inputs: pin it in the workflow, or resolve it from a
+      source that is verified before it reaches this input.
+    required: true
+  token:
+    description: >-
+      A pull credential for the registry (masked first). With `username` it is
+      sent as Basic auth, without it as a Bearer token. Empty reads a registry
+      that allows anonymous pulls.
+    required: false
+    default: ""
+  username:
+    description: The user name that goes with `token`, for a registry that wants one.
+    required: false
+    default: ""
+  output-dir:
+    description: >-
+      Where the verified files are written. Must be outside the workspace and
+      absent or empty. Default `$RUNNER_TEMP/tenant-inputs`.
+    required: false
+    default: ""
+  max-bytes:
+    description: The most the manifest's layers may add up to, in bytes.
+    required: false
+    default: "67108864"
+
+outputs:
+  path:
+    description: The directory the verified files were written to.
+    value: ${{ steps.fetch.outputs.path }}
+  digest:
+    description: The manifest digest that was verified (the digest in `reference`).
+    value: ${{ steps.fetch.outputs.digest }}
+
+runs:
+  using: composite
+  steps:
+    - id: fetch
+      shell: bash
+      env:
+        REFERENCE: ${{ inputs.reference }}
+        TOKEN: ${{ inputs.token }}
+        USERNAME: ${{ inputs.username }}
+        OUTPUT_DIR: ${{ inputs.output-dir }}
+        MAX_BYTES: ${{ inputs.max-bytes }}
+        ACTION_PATH: ${{ github.action_path }}
+        ACTION_REPOSITORY: ${{ github.action_repository }}
+        ACTION_REF: ${{ github.action_ref }}
+      run: bash "$ACTION_PATH/run.sh"

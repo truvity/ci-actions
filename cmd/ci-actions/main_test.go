@@ -287,3 +287,27 @@ func TestCompanyBoundaryCLI(t *testing.T) {
 		}
 	}
 }
+
+func TestTenantInputsCLIUnderActionsNeedsTheWorkspace(t *testing.T) {
+	ref := "registry.example/acme/inputs@sha256:" + strings.Repeat("0", 64)
+	code, _, errs := runCLI(t, map[string]string{"REFERENCE": ref, "RUNNER_TEMP": t.TempDir(), "GITHUB_ACTIONS": "true"}, "tenant-inputs")
+	if code != 1 || !strings.Contains(errs, "workspace is not set") {
+		t.Errorf("code %d stderr %q", code, errs)
+	}
+}
+
+func TestTenantInputsCLI(t *testing.T) {
+	// A tag is refused before any request is made, so no registry is needed.
+	code, out, _ := runCLI(t, map[string]string{"REFERENCE": "registry.example/acme/inputs:v1", "TOKEN": "tok-abc", "RUNNER_TEMP": t.TempDir()}, "tenant-inputs")
+	if code != 1 || !strings.HasPrefix(out, "::add-mask::tok-abc\n") || !strings.Contains(out, "::error::tenant-inputs: reference-not-pinned:") {
+		t.Errorf("tag-only reference: code %d out %q", code, out)
+	}
+	for name, env := range map[string]map[string]string{
+		"no output directory": {"REFERENCE": "registry.example/acme/inputs:v1"},
+		"bad MAX_BYTES":       {"REFERENCE": "registry.example/acme/inputs:v1", "RUNNER_TEMP": t.TempDir(), "MAX_BYTES": "lots"},
+	} {
+		if code, _, _ := runCLI(t, env, "tenant-inputs"); code != 2 {
+			t.Errorf("%s: code %d, want 2", name, code)
+		}
+	}
+}
