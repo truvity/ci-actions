@@ -4,6 +4,12 @@ Every release of truvity/ci-actions, newest first. Pin the commit of a
 tag (`git rev-parse vX.Y.Z^{commit}`), never the tag object and never
 an untagged commit; `tagged-pins` refuses anything else.
 
+## Unreleased
+
+### Added
+
+- **`company-boundary` refuses, offline, what a company repository must not hold.** `ci-actions company-boundary --kind config|delivery` (`internal/companyboundary`; the action takes `kind`, `forbidden-import-prefixes` and `path`) judges a checkout without a network call, without running repository code and without following a symlink. Both kinds refuse an Argo CD object (`argo-object`) or a Kargo object (`kargo-object`), a Namespace (`namespace`), a Secret that carries `data` or `stringData` (`secret-data`), a symlink that leaves the tree (`symlink-escape`). A `config` repository also refuses a Go `replace` directive (`go-replace`) and, for the module path prefixes the caller passes, an import (`foreign-import`), a requirement (`foreign-require`) or a vendored copy (`foreign-vendor`); with no prefixes the three `foreign-*` rules are off, so no estate name is built in, and none of these Go rules is applied to a `delivery` repository. A `delivery` repository also refuses `Pulumi.yaml` and its stack files (`pulumi-project`) and a `tenant/` tree (`tenant-dir`), and keeps `pins/<service>/<cluster>.yaml` to `pins:` mapping names to string versions (`""` is dormant; an unquoted `1.0` is a float and refused) and `values/<service>/<cluster>.yaml` to `values:`, with lowercase DNS-label names, where `pins` and `values` themselves must be real directories (`pins-malformed`, `values-malformed`, `name-unsafe`, `envelope-layout`). It is a deny-list: a runbook, a Justfile or validation tooling that mentions an Application is not a manifest and passes, while a YAML file that does not parse is still read for the same words. A refusal is `::error::company-boundary: <kind>: <path>: <rule>`, one line per violation in a stable order, with the path percent-escaped, followed by one `::notice::` line per rule that fired saying what it is for; exit 1, and 2 for a usage error. A mapping with a non-string key (`1: x`) or a top-level list of objects is judged like any other. Each rule has a refusal case that was red against a stub, a paired accepting case, and a test that the case depends on its rule alone.
+
 ## v3.10.1
 
 ### Fixed

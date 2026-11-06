@@ -165,6 +165,17 @@ has "$log" "::error::setup-buildkit-tls needs the ci-actions binary" \
   && ok "setup-buildkit-tls with no binary fails naming itself" \
   || bad "setup-buildkit-tls with no binary fails naming itself: $log"
 
+runcb() { (cd "$work/ws" && env -i HOME="$work" RUNNER_TEMP="$work/tmp" ACTION_PATH="$here/company-boundary" "$@" bash "$here/company-boundary/run.sh" 2>&1); }
+log=$(runcb PATH="$work/min" CI_ACTIONS_BIN="$work/stubdir/ci-actions" STUB_EXIT=1)
+rc=$?
+[ $rc = 1 ] && has "$log" "stub ran: company-boundary LIBRARIES=unset cwd=ws" \
+  && ok "company-boundary runs the binary as 'company-boundary' in the caller's directory and returns its status" \
+  || bad "company-boundary runs the binary as 'company-boundary' (rc=$rc): $log"
+log=$(runcb PATH="$work/min")
+has "$log" "::error::company-boundary needs the ci-actions binary" \
+  && ok "company-boundary with no binary fails naming itself" \
+  || bad "company-boundary with no binary fails naming itself: $log"
+
 runsd() { (cd "$work/ws" && env -i HOME="$work" RUNNER_TEMP="$work/tmp" ACTION_PATH="$here/setup-devbox" "$@" bash "$here/setup-devbox/run.sh" preflight 2>&1); }
 log=$(runsd PATH="$work/min" CI_ACTIONS_BIN="$work/stubdir/ci-actions" STUB_EXIT=0)
 has "$log" "stub ran: setup-devbox preflight LIBRARIES=unset" \

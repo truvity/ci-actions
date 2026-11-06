@@ -243,3 +243,47 @@ func TestS3CacheSaveWithJobKeysIsAttemptedOnAReleaseCredentialsRunner(t *testing
 		t.Errorf("code %d err %q outputs %q", code, errs, got)
 	}
 }
+
+func TestCompanyBoundaryCLI(t *testing.T) {
+	dir := t.TempDir()
+	write := func(name, body string) {
+		t.Helper()
+		p := filepath.Join(dir, name)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("runbook.md", "kind: Application\n")
+	write("pins/acme/devel.yaml", "pins:\n  acme: 0.1.4\n")
+	if code, out, errb := runCLI(t, nil, "company-boundary", "--kind", "delivery", "--dir", dir); code != 0 || strings.Contains(out, "::error::") {
+		t.Errorf("clean tree: code %d out %q err %q", code, out, errb)
+	}
+	write("apps/acme.yaml", "apiVersion: argoproj.io/v1alpha1\nkind: Application\n")
+	code, out, _ := runCLI(t, map[string]string{"KIND": "delivery", "DIR": dir}, "company-boundary")
+	if code != 1 || !strings.Contains(out, "::error::company-boundary: delivery: apps/acme.yaml: argo-object") {
+		t.Errorf("Application via env: code %d out %q", code, out)
+	}
+	write("go.mod", "module example.org/acme/config\n\nrequire example.org/platform v1.0.0\n")
+	code, out, _ = runCLI(t, nil, "company-boundary", "--kind=config", "--dir="+dir, "--forbidden-import-prefixes=example.org/platform")
+	if code != 1 || !strings.Contains(out, "go.mod: foreign-require") {
+		t.Errorf("forbidden prefixes via flag: code %d out %q", code, out)
+	}
+	code, out, _ = runCLI(t, map[string]string{"FORBIDDEN_IMPORT_PREFIXES": "example.org/platform"}, "company-boundary", "--kind", "config", "--dir", dir)
+	if code != 1 || !strings.Contains(out, "go.mod: foreign-require") {
+		t.Errorf("forbidden prefixes via env: code %d out %q", code, out)
+	}
+	for name, args := range map[string][]string{
+		"no kind":      {"company-boundary", "--dir", dir},
+		"unknown kind": {"company-boundary", "--kind", "bogus", "--dir", dir},
+		"stray arg":    {"company-boundary", "--kind", "config", "extra"},
+		"unknown flag": {"company-boundary", "--nope"},
+		"missing dir":  {"company-boundary", "--kind", "config", "--dir", filepath.Join(dir, "absent")},
+	} {
+		if code, _, _ := runCLI(t, nil, args...); code != 2 {
+			t.Errorf("%s: code %d, want 2", name, code)
+		}
+	}
+}

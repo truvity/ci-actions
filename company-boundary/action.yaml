@@ -1,0 +1,49 @@
+name: company-boundary
+description: >-
+  Refuse, offline, what a company repository must not hold. Both kinds
+  (`config`, a company's authored configuration; `delivery`, its release pins
+  and values) refuse an Argo CD or Kargo object, a Namespace, a Secret that
+  carries data, a symlink that leaves the tree, a Go `replace` directive, and
+  an import, requirement or vendored copy under a forbidden prefix the caller
+  names. A `delivery` repository additionally refuses an infrastructure
+  project (`Pulumi.yaml` and its stack files) and a `tenant/` tree, and holds
+  `pins/<service>/<cluster>.yaml` (`pins:` mapping names to string versions,
+  the empty string meaning dormant) and `values/<service>/<cluster>.yaml`
+  (`values:`) with safe names. It is a deny-list, not a path allow-list:
+  runbooks, a Justfile and validation tooling pass. It makes no network call,
+  runs no repository code and follows no symlink. Run it straight after
+  checkout, before anything generates files into the tree. A refusal is
+  `::error::company-boundary: <kind>: <path>: <rule>`, one line per
+  violation. The rules are the `ci-actions` binary's `company-boundary`
+  command; this action is a thin wrapper that finds that binary (release
+  archive of the pinned tag, or built with Go) and runs it.
+
+inputs:
+  kind:
+    description: The kind of repository, `config` or `delivery`.
+    required: true
+  forbidden-import-prefixes:
+    description: >-
+      Go module path prefixes that no import, requirement or vendored copy
+      may name, separated by commas or whitespace. The caller says what is
+      foreign; nothing is built in. Empty switches the `foreign-*` rules off
+      (a `replace` directive is refused either way).
+    required: false
+    default: ""
+  path:
+    description: The checkout to judge, relative to the job's working directory.
+    required: false
+    default: "."
+
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        KIND: ${{ inputs.kind }}
+        FORBIDDEN_IMPORT_PREFIXES: ${{ inputs.forbidden-import-prefixes }}
+        DIR: ${{ inputs.path }}
+        ACTION_PATH: ${{ github.action_path }}
+        ACTION_REPOSITORY: ${{ github.action_repository }}
+        ACTION_REF: ${{ github.action_ref }}
+      run: bash "$ACTION_PATH/run.sh"
