@@ -1,0 +1,90 @@
+name: chart-auth
+description: >-
+  Obtain a scoped chart-read credential for a private chart registry from this
+  job's own identity, and keep it where only this job can read it. The job
+  exchanges its identity token for an AWS role through `token-exchange`
+  (skippable with `exchange: false` when an earlier step already wrote the
+  profile), and the registry password is `aws ecr get-login-password` on that
+  profile: short-lived, for the role the exchange granted. The action refuses a
+  long-lived AWS access key in the environment, in the profile it uses (the AWS config file or the shared credentials file), or in a
+  profile that one chains to, and a missing profile fails. Under GitHub Actions
+  a failed login fails the step and never skips it, so a gate cannot read "no
+  private charts" where it could not read them; outside GitHub Actions a failed
+  login is skipped with a warning. The password is masked first, written to a
+  mode-0600 docker-style `config.json` under `$RUNNER_TEMP/chart-auth`, and is
+  never an output or printed. The `aws` command runs with a scrubbed
+  environment and its stderr is not shown. The rules are the `ci-actions`
+  binary's `chart-auth` command; this action is a thin wrapper that finds that
+  binary (release archive of the pinned tag, or built with Go) and runs it.
+  Needs the AWS CLI, and `permissions: id-token: write` when it exchanges.
+
+inputs:
+  registry:
+    description: The registry host the credential is for, with an optional port.
+    required: true
+  issuer:
+    description: The roster issuer for the exchange, e.g. https://access.example. Required unless `exchange` is `false`.
+    required: false
+    default: ""
+  audience:
+    description: >-
+      The `aws:<account>:<role>` audience to exchange for: a role that can read
+      charts and nothing else. Required unless `exchange` is `false`.
+    required: false
+    default: ""
+  profile:
+    description: >-
+      The AWS profile to log in with. Empty uses the one profile the exchange
+      wrote (`<role>@<account>`).
+    required: false
+    default: ""
+  region:
+    description: The region of the registry and of the profile. Empty leaves the profile's own.
+    required: false
+    default: ""
+  exchange:
+    description: >-
+      `true` runs `token-exchange` first. `false` uses a profile an earlier step
+      wrote (name it in `profile`).
+    required: false
+    default: "true"
+  export-env:
+    description: >-
+      `true` points `DOCKER_CONFIG` and `HELM_REGISTRY_CONFIG` at the file for
+      the steps that follow (paths only, never the password).
+    required: false
+    default: "false"
+
+outputs:
+  config-dir:
+    description: The directory holding `config.json` (the docker `DOCKER_CONFIG`), under `$RUNNER_TEMP`.
+    value: ${{ steps.login.outputs.config-dir }}
+  registry:
+    description: The registry the credential is for.
+    value: ${{ steps.login.outputs.registry }}
+
+runs:
+  using: composite
+  steps:
+    - name: Exchange this job's identity for the chart-read role
+      id: exchange
+      if: inputs.exchange == 'true'
+      uses: truvity/ci-actions/token-exchange@ffcd6f12b54f23410657533d40a365a61ae4f809 # v3.10.1
+      with:
+        issuer: ${{ inputs.issuer }}
+        audiences: ${{ inputs.audience }}
+        region: ${{ inputs.region }}
+
+    - name: Log in to the chart registry
+      id: login
+      shell: bash
+      env:
+        REGISTRY: ${{ inputs.registry }}
+        PROFILE: ${{ inputs.profile }}
+        PROFILES: ${{ steps.exchange.outputs.profiles }}
+        REGION: ${{ inputs.region }}
+        EXPORT_ENV: ${{ inputs.export-env }}
+        ACTION_PATH: ${{ github.action_path }}
+        ACTION_REPOSITORY: ${{ github.action_repository }}
+        ACTION_REF: ${{ github.action_ref }}
+      run: bash "$ACTION_PATH/run.sh"
