@@ -25,6 +25,7 @@ contract.
 | [`token-exchange`](token-exchange/action.yaml) | Exchanges the job's GitHub identity token at a roster issuer for the clusters, cloud roles and GitHub App tokens its rules grant (curl and jq only, nothing downloaded) | `issuer` (required), `audiences`, `kubeconfig`, `default-profile`, `region`, `github-app`, `repositories`, `permissions` | `auto-release`, `renovate-fleet`, `parity-fleet`, `pkl-fleet` |
 | [`fleet-discover`](fleet-discover/action.yaml) | Decides which repositories a fleet job touches, and whether each default branch is gated | `token` (required), `estate`, `require-check`, `repositories` | `renovate-fleet`, `parity-fleet` |
 | [`caller-parity`](caller-parity/action.yaml) | Compares each repository's shared caller workflows (and the depguard block) against the kits in [`caller-parity/kits/`](caller-parity/kits/), and reports | `token`, `repositories` (required), `fail-on-diff` (`false`) | `parity-fleet` |
+| [`company-boundary`](company-boundary/action.yaml) | Refuses, offline, what a company repository must not hold: an Argo CD or Kargo object, a Namespace, a Secret with data, a symlink out of the tree; a `config` repository also holds no Go `replace` and no import, requirement or vendored copy under a prefix the caller names; a `delivery` repository also holds no infrastructure project or `tenant/` tree and keeps `pins/` and `values/` to their envelope. A deny-list, not a path allow-list | `kind` (required, `config` or `delivery`), `forbidden-import-prefixes`, `path` | company gates (once released and adopted) |
 | [`company-validation`](company-validation/action.yaml) | Dispatches a private platform validation for a company pull request, waits for that exact run, and accepts only the check result the platform correlated with the request; re-reads the pull request before dispatch and before accepting | `token`, `dispatch-token`, `company`, `company-repository`, `platform-repository`, `platform-workflow`, `pull-request`, `head-sha`, `check-app-slug` (required), `platform-ref`, `base-branch`, `check-name`, `wait-timeout-seconds`, `poll-interval-seconds`, `api-url` | company delivery gates (once released and adopted) |
 | [`devbox-parity`](devbox-parity/action.yaml) | Refreshes devbox packages and aligns a Go repository's toolchain triple, opening a pull request | `token` (required), `mode`, `module-dirs` | `parity-fleet` |
 | [`auto-release`](auto-release/action.yaml) | The steps of the shared auto-release workflow: `gate` (a security-labelled merge or a hand-written fix releases now, the rest waits for the batch) and `tag` (cuts the next patch tag, behind a CHANGELOG heading pull request when the release needs one) | `step`, `token`, `repository` (required), `sha`, `tag-prefix`, `bot`, `changelog-heading`, `version-bump-command` | `auto-release` (once released and adopted) |
@@ -489,7 +490,7 @@ end to end, outside `check` and not required.
 
 Logic that outgrows a shell script lives in one Go binary, `cmd/ci-actions`
 (standard library only), and the composite actions become thin wrappers that
-run it. `tagged-pins`, `public-runners`, `fleet-discover`, `devbox-parity`, `caller-parity`, `company-validation`, `openbao-secrets`, `cluster`, `token-inputs`, `enrolment-list` and `auto-release` are in: each
+run it. `tagged-pins`, `public-runners`, `fleet-discover`, `devbox-parity`, `caller-parity`, `company-boundary`, `company-validation`, `openbao-secrets`, `cluster`, `token-inputs`, `enrolment-list` and `auto-release` are in: each
 action keeps its inputs, outputs and messages and runs `ci-actions <command>`.
 The wrapper (`<action>/run.sh`, sharing `lib/ci-actions-bin.sh`) uses a `ci-actions` already on `PATH`, else the goreleaser archive of the tag
 the action is pinned at (the pinned commit resolves back to its tag; the
@@ -501,6 +502,7 @@ ci-actions public-runners              # env RUNNERS, VISIBILITY, GITHUB_REPOSIT
 ci-actions fleet discover              # env TOKEN, ESTATE, REQUIRE_CHECK, REQUIRE_FILE, FILTER, ENROLLED, API
 ci-actions devbox-parity               # env TOKEN, WORKDIR, BASE, LABEL, MODE, FULL_DAY, MODULE_DIRS, GIT_USER, GIT_EMAIL
 ci-actions caller-parity               # env TOKEN, REPOSITORIES, KITS, FAIL_ON_DIFF, API
+ci-actions company-boundary            # --kind config|delivery [--dir D] [--forbidden-import-prefixes P]; or env KIND, DIR, FORBIDDEN_IMPORT_PREFIXES
 ci-actions company-validation          # env TOKEN, DISPATCH_TOKEN, COMPANY, COMPANY_REPOSITORY, PLATFORM_REPOSITORY, PLATFORM_WORKFLOW, PULL_REQUEST, HEAD_SHA, CHECK_APP_SLUG, ...
 ci-actions openbao-secrets             # env ISSUER, ADDRESS, KV_PATH, ... (no value is ever printed)
 ci-actions token-inputs                # env SOURCE, ISSUER, APP, ID, ID_NAME, SECRET, HAS_KEY, EXTRA_KEYS, WARN_*

@@ -19,6 +19,7 @@ import (
 	"github.com/truvity/ci-actions/internal/buildkittls"
 	"github.com/truvity/ci-actions/internal/callerparity"
 	"github.com/truvity/ci-actions/internal/cluster"
+	"github.com/truvity/ci-actions/internal/companyboundary"
 	"github.com/truvity/ci-actions/internal/companyvalidation"
 	"github.com/truvity/ci-actions/internal/devboxparity"
 	"github.com/truvity/ci-actions/internal/fleet"
@@ -89,6 +90,11 @@ Commands:
   caller-parity        compare each repository's shared caller workflows with the canonical kits
                        (env: TOKEN, REPOSITORIES, KITS or ACTION_PATH/kits, FAIL_ON_DIFF, API,
                        GITHUB_OUTPUT, GITHUB_STEP_SUMMARY)
+  company-boundary     refuse, offline, what a company repository must not hold: platform delivery objects, a
+                       Namespace, a Secret with data, a symlink out of the tree, a Go replace or a foreign import,
+                       and (delivery) infrastructure projects, a tenant tree and a malformed pins/values envelope
+                       (--kind config|delivery, --dir, --forbidden-import-prefixes; env: KIND, DIR,
+                       FORBIDDEN_IMPORT_PREFIXES)
   company-validation   dispatch a private platform validation for a company pull request, wait for
                        that exact run, and accept only its exactly correlated successful check
                        (env: TOKEN, DISPATCH_TOKEN, COMPANY, COMPANY_REPOSITORY, PLATFORM_REPOSITORY,
@@ -180,6 +186,25 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, getenv fu
 		default:
 			fmt.Fprintln(stderr, "caller-parity:", err)
 			return 1
+		}
+	case "company-boundary":
+		fl := flag.NewFlagSet("company-boundary", flag.ContinueOnError)
+		fl.SetOutput(stderr)
+		kind := fl.String("kind", getenv("KIND"), "config or delivery")
+		dir := fl.String("dir", getenv("DIR"), "the checkout to judge (default: the current directory)")
+		prefixes := fl.String("forbidden-import-prefixes", getenv("FORBIDDEN_IMPORT_PREFIXES"), "Go module path prefixes no import, requirement or vendored copy may name")
+		if err := fl.Parse(args[1:]); err != nil || fl.NArg() != 0 {
+			return 2
+		}
+		err := companyboundary.Run(companyboundary.Options{Kind: *kind, Dir: *dir, ForbiddenImportPrefixes: *prefixes, Out: stdout})
+		switch {
+		case err == nil:
+			return 0
+		case errors.Is(err, companyboundary.ErrFailed):
+			return 1
+		default:
+			fmt.Fprintln(stderr, "company-boundary:", err)
+			return 2
 		}
 	case "company-validation":
 		wait, err := seconds("WAIT_TIMEOUT_SECONDS", getenv, 2100)
