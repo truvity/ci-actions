@@ -4,6 +4,12 @@ Every release of truvity/ci-actions, newest first. Pin the commit of a
 tag (`git rev-parse vX.Y.Z^{commit}`), never the tag object and never
 an untagged commit; `tagged-pins` refuses anything else.
 
+## Unreleased
+
+### Changed
+
+- **The company kits of `caller-parity` pin ci-workflows v6.4.0 and the configuration kit turns on `tenant-validate`.** `company-config-check.yaml` and `company-delivery-check.yaml` move from v6.2.0, which predates the company inputs, to v6.4.0 (`facfaac2996bd732fdc891b4282c81046b29be9c`), the release whose `company-validate` can run the real tenant validator. The configuration kit passes `tenant-validate: true` beside `chart-profile`; the delivery kit does not, because a delivery repository holds no bundle and the job refuses the input there. The kits still say what a green run does not validate (the chart gate and the platform's registration check). Both stay `enabled: false` in `kits.yaml`: ci-actions fetches the artifact by digest for now, and the moving-tag resolution and signature check come before any kit is switched on. `TestCompanyKits` holds that only the configuration kit passes `tenant-validate`.
+
 ## v3.11.0
 
 ### Added
