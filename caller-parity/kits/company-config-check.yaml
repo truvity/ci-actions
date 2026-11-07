@@ -20,14 +20,18 @@
 # dispatches to the platform or needs a token that can, so a candidate runs
 # with the read-only token of its own pull request. A pull request from a
 # fork is meant to fail (not be skipped), because a skipped required check
-# is green; that is the shared workflow's to do once a release of it carries
-# the company inputs, which the release pinned below does not yet.
+# is green; the shared workflow does that, at the release pinned below.
 #
-# NOT YET USABLE: the pin below is the release that predates the company
-# inputs (`company-kind`, `tenant-inputs`, `chart-profile`), so a copy
-# switched on today fails workflow validation. The kit is `enabled: false`
-# in kits.yaml, and the pin moves to the release that adds the inputs in the
-# same change that enables the kit.
+# The pin below is a release that carries the company inputs
+# (`company-kind`, `tenant-inputs`, `chart-profile`, `tenant-validate`). The kit is still
+# `enabled: false` in kits.yaml: it is switched on, in a change of its own,
+# once TENANT_INPUTS can be a moving tag whose signature is verified.
+#
+# `tenant-validate: true` runs truvity/policy's tenant validator on the
+# `tenant/` bundle (its shape, schemas and pin). Still NOT validated by a
+# green run: the chart gate (`chart-gate` is off) and the platform's
+# registration check, which the validator does not run and the fetched
+# `tenant-inputs` do not feed. The shared workflow says so in its output.
 #
 # TENANT_INPUTS is read as a digest-pinned reference, which is what the
 # `tenant-inputs` action accepts today. Resolving a moving tag to a digest
@@ -49,11 +53,12 @@ permissions:
 
 jobs:
   company:
-    uses: truvity/ci-workflows/.github/workflows/check.yaml@f4191da8878c2f3e5f84d0e3962ca23e3377941d # v6.2.0
+    uses: truvity/ci-workflows/.github/workflows/check.yaml@facfaac2996bd732fdc891b4282c81046b29be9c # v6.4.0
     with:
       company-kind: config
       tenant-inputs: ${{ vars.TENANT_INPUTS }}
       chart-profile: ${{ vars.CHART_PROFILE }}
+      tenant-validate: true
 
   check:
     needs: company

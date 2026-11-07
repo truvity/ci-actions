@@ -82,14 +82,15 @@ golangci-depguard.yaml:
 # repository with neither is `n/a` for both; a delivery repository is `n/a`
 # for the configuration kit, and the other way round.
 #
-# `enabled: false`: they ship written but not compared. They call
-# ci-workflows' `check.yaml` with the company inputs (`company-kind`,
-# `tenant-inputs`, `chart-profile`), which a release of that workflow has to
-# carry before a repository can use them. The pin inside each kit is the
-# release that predates those inputs, so the pin and the flip to
-# `enabled: true` move TOGETHER, in one change that names the release that
-# adds the inputs; a dependency bot moving the pin alone does not count, and
-# neither does flipping the flag alone. Until then no repository is asked.
+# `enabled: false`: they ship written but not compared. The pin inside each
+# kit is a ci-workflows release that carries the company inputs
+# (`company-kind`, `tenant-inputs`, `chart-profile`, and for the
+# configuration kit `tenant-validate`), so the kits are usable; they stay off
+# until TENANT_INPUTS can name a moving tag whose signature is verified, and
+# the flip to `enabled: true` is a change of its own. A dependency bot moving
+# the pin alone is not that change, and neither is flipping the flag with
+# the pin behind a release that lacks the inputs. Until then no repository is
+# asked.
 company-delivery-check.yaml:
   path: .github/workflows/check.yaml
   applies_if: pins/

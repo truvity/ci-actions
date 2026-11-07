@@ -529,8 +529,14 @@ func TestCompanyKits(t *testing.T) {
 			if call.With["company-kind"] != c.kind {
 				t.Errorf("company-kind %q, want %q", call.With["company-kind"], c.kind)
 			}
+			// The tenant validator runs on a bundle, which only a
+			// configuration repository holds: the config kit turns it on
+			// and the delivery kit does not pass it (the job refuses it).
+			if v, ok := call.With["tenant-validate"]; (c.kind == "config") != ok || (ok && v != "true") {
+				t.Errorf("tenant-validate %q (set %v) in the %s kit: only the config kit passes it, as true", v, ok, c.kind)
+			}
 			for in, v := range call.With {
-				if in != "company-kind" && !regexp.MustCompile(`^\$\{\{ vars\.[A-Z_]+ \}\}$`).MatchString(v) {
+				if in != "company-kind" && in != "tenant-validate" && !regexp.MustCompile(`^\$\{\{ vars\.[A-Z_]+ \}\}$`).MatchString(v) {
 					t.Errorf("input %s is %q: a company's own setting belongs in a repository variable", in, v)
 				}
 			}
