@@ -75,7 +75,9 @@ ci_actions_run() {
 # is also served at
 #   $CI_RUNNER_GITHUB_RELEASES/<owner>/<repo>/releases/download/<tag>/<asset>
 # Only the leading https://github.com/ is swapped, and only for a
-# /releases/download/ URL. Prints nothing (and returns 1) when the variable is
+# /releases/download/ URL of a version tag (v1.2.3 or 1.2.3: the mirror stores
+# assets as immutable, so latest, nightly or a branch name never go to it).
+# Prints nothing (and returns 1) when the variable is
 # unset, empty or not an http(s) URL, or when <url> is not such a download:
 # the caller then uses <url> as it always did. Same rule as
 # internal/ghmirror.
@@ -94,6 +96,10 @@ _ci_actions_mirror_url() {
     *) return 1 ;;
   esac
   case "/${url#https://github.com/}" in */../* | */./*) return 1 ;; esac
+  local rest=${url#https://github.com/} tag
+  rest=${rest#*/}; rest=${rest#*/}; rest=${rest#releases/download/}
+  tag=${rest%%/*}
+  case "$tag" in v[0-9]* | [0-9]*) ;; *) return 1 ;; esac
   printf '%s/%s' "$base" "${url#https://github.com/}"
 }
 
@@ -105,7 +111,10 @@ _ci_actions_mirror_url() {
 _ci_actions_download() {
   local url=$1 dest=$2 mirror
   if mirror=$(_ci_actions_mirror_url "$url"); then
-    if curl -fsSL --retry 2 --retry-delay 2 --retry-max-time 30 --max-time 180 -o "$dest" "$mirror"; then
+    # One attempt, redirects followed (-L), up to ten minutes: a file the
+    # mirror does not hold yet is fetched upstream and stored before it
+    # answers. Any failure (404, 413, 502, a timeout) falls through.
+    if curl -fsSL --max-time 600 -o "$dest" "$mirror"; then
       return 0
     fi
     echo "::warning::the GitHub releases mirror did not serve ${url}; fetching it from github.com" >&2

@@ -197,11 +197,15 @@ is then asked first at
     $CI_RUNNER_GITHUB_RELEASES/<owner>/<repo>/releases/download/<tag>/<asset>
 
 Only the leading `https://github.com/` is swapped, and only for
-`/releases/download/` URLs; a query string or fragment is kept as it is. Unset or
+`/releases/download/` URLs whose tag is a version (`v1.2.3`, `1.2.3`, `v1.2.3-rc.1`):
+the mirror stores assets as immutable, so `latest`, `nightly`, `edge`, `main` and
+the like are never sent to it. A query string or fragment is kept as it is. Unset or
 empty (a GitHub-hosted runner, which is where public repositories run), nothing
-changes. A value that is not an `http(s)` URL is treated as unset. If the mirror
-answers an error the file is fetched from github.com, so the mirror cannot make a
-job worse. Unlike the variables above it has no input behind it.
+changes. A value that is not an `http(s)` URL is treated as unset. The mirror is
+asked once, following redirects, for up to ten minutes (a file it does not hold yet
+is fetched from GitHub and stored before it answers). Any error from it, whether a
+404 (not a public asset), 413, 502 or a timeout, sends the download to github.com
+as it always was, so the mirror cannot make a job worse. Unlike the variables above it has no input behind it.
 
 What goes through it, all of it mirror first and github.com second:
 

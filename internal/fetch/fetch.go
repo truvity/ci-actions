@@ -27,6 +27,37 @@ var (
 	Sleep    = time.Sleep
 )
 
+// DownloadOnce is Download with one attempt and no pause: for a source that is
+// followed by a fallback, where a retry would only delay the fallback.
+func DownloadOnce(ctx context.Context, c *http.Client, url, dest string, timeout time.Duration) error {
+	if c == nil {
+		c = http.DefaultClient
+	}
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return err
+	}
+	resp, err := c.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("GET %s: %s", url, resp.Status)
+	}
+	f, err := os.Create(dest)
+	if err != nil {
+		return err
+	}
+	_, err = io.Copy(f, resp.Body)
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	return err
+}
+
 // Download GETs a URL into a file. Redirects are followed; anything but a 200
 // is an error naming the URL. A transport error or a 5xx is tried again, up to
 // Attempts times with a growing pause; a 4xx is final.

@@ -37,6 +37,26 @@ const EnvVar = "CI_RUNNER_GITHUB_RELEASES"
 
 const upstream = "https://github.com/"
 
+// MirrorTimeout is how long one request to the mirror may take. A file the
+// mirror does not hold yet is fetched from GitHub by the mirror, with up to
+// two minutes of its own retries, and stored before the first byte is
+// answered (a 302 to the stored object, which the client follows), so the
+// wait must cover that and the transfer.
+const MirrorTimeout = 10 * time.Minute
+
+// versionTag is a tag that names a release that will not change. The mirror
+// stores assets as immutable, so a moving tag (latest, nightly, edge, main)
+// is never sent to it: only a tag that is a version, with or without the v.
+func versionTag(tag string) bool {
+	if tag == "" {
+		return false
+	}
+	if tag[0] == 'v' {
+		tag = tag[1:]
+	}
+	return tag != "" && tag[0] >= '0' && tag[0] <= '9'
+}
+
 // Base normalises the runner's value: surrounding whitespace and trailing
 // slashes go. Anything that is not an http(s) URL with a host is treated as
 // unset (""), so a malformed value can only ever mean "no mirror", never a
@@ -85,16 +105,20 @@ func Rewrite(base, u string) string {
 			return u
 		}
 	}
+	if !versionTag(parts[4]) {
+		return u
+	}
 	return b + "/" + rest
 }
 
 // Download fetches url into dest. With a mirror and a release URL it asks the
-// mirror first, for half of timeout, and on any error says so on warn and
-// fetches the direct URL with the whole timeout. Without one it is exactly
-// fetch.Download.
+// mirror first, once, for MirrorTimeout (redirects are followed), and on any
+// error (404, 413, 502 and a timeout alike) says so on warn and fetches the
+// direct URL with the caller's timeout and retries. Without a mirror it is
+// exactly fetch.Download.
 func Download(ctx context.Context, c *http.Client, base, url, dest string, timeout time.Duration, warn io.Writer) error {
 	if m := Rewrite(base, url); m != url {
-		err := fetch.Download(ctx, c, m, dest, timeout/2)
+		err := fetch.DownloadOnce(ctx, c, m, dest, MirrorTimeout)
 		if err == nil {
 			return nil
 		}
