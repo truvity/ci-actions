@@ -17,8 +17,19 @@ import (
 	"time"
 )
 
+// Attempts and Backoff set how stubborn Download is. GitHub's release downloads
+// answer 5xx for minutes at a time (2026-11-05 and 2026-11-09), so the pause
+// grows with each attempt: with the defaults a download gives up after about
+// 75 seconds of waiting. Sleep is the test seam.
+var (
+	Attempts = 6
+	Backoff  = 5 * time.Second
+	Sleep    = time.Sleep
+)
+
 // Download GETs a URL into a file. Redirects are followed; anything but a 200
-// is an error naming the URL.
+// is an error naming the URL. A transport error or a 5xx is tried again, up to
+// Attempts times with a growing pause; a 4xx is final.
 func Download(ctx context.Context, c *http.Client, url, dest string, timeout time.Duration) error {
 	if c == nil {
 		c = http.DefaultClient
@@ -26,7 +37,13 @@ func Download(ctx context.Context, c *http.Client, url, dest string, timeout tim
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	var last error
-	for attempt := 0; attempt < 3; attempt++ {
+	for attempt := 1; attempt <= Attempts; attempt++ {
+		if attempt > 1 {
+			Sleep(time.Duration(attempt-1) * Backoff)
+		}
+		if ctx.Err() != nil {
+			break
+		}
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 		if err != nil {
 			return err
@@ -34,7 +51,6 @@ func Download(ctx context.Context, c *http.Client, url, dest string, timeout tim
 		resp, err := c.Do(req)
 		if err != nil {
 			last = err
-			time.Sleep(time.Duration(attempt) * time.Second)
 			continue
 		}
 		if resp.StatusCode != http.StatusOK {
@@ -43,7 +59,6 @@ func Download(ctx context.Context, c *http.Client, url, dest string, timeout tim
 			if resp.StatusCode < 500 {
 				return last
 			}
-			time.Sleep(time.Duration(attempt) * time.Second)
 			continue
 		}
 		f, err := os.Create(dest)
@@ -61,6 +76,9 @@ func Download(ctx context.Context, c *http.Client, url, dest string, timeout tim
 			continue
 		}
 		return nil
+	}
+	if last == nil {
+		last = ctx.Err()
 	}
 	return last
 }

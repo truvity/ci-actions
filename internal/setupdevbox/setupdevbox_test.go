@@ -313,6 +313,70 @@ func TestInstallDevbox(t *testing.T) {
 			t.Errorf("%v %q", err, x.out.String())
 		}
 	})
+	t.Run("a releases page that answers 504 is asked again, and the install goes through", func(t *testing.T) {
+		good := release(t, "1.2.3", false)
+		var hits int
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path == "/latest" {
+				if hits++; hits < 3 {
+					http.Error(w, "gateway timeout", http.StatusGatewayTimeout)
+					return
+				}
+				http.Redirect(w, r, "/tag/1.2.3", http.StatusFound)
+				return
+			}
+			http.Redirect(w, r, good.URL+r.URL.Path, http.StatusFound)
+		}))
+		defer srv.Close()
+		x := newH(t)
+		x.env["DEVBOX_RELEASE_BASE"] = srv.URL
+		if err := InstallDevbox(context.Background(), x.e()); err != nil || !strings.Contains(x.out.String(), "devbox 1.2.3 installed") {
+			t.Fatalf("%v %q", err, x.out.String())
+		}
+		if hits != 3 || len(x.sleeps) != 2 {
+			t.Errorf("hits %d sleeps %v", hits, x.sleeps)
+		}
+	})
+	t.Run("a releases page that never answers falls back to the authenticated API", func(t *testing.T) {
+		good := release(t, "1.2.3", false)
+		var auth string
+		api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			auth = r.Header.Get("Authorization")
+			fmt.Fprint(w, `{"tag_name":"1.2.3"}`)
+		}))
+		defer api.Close()
+		page := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path == "/latest" {
+				http.Error(w, "gateway timeout", http.StatusGatewayTimeout)
+				return
+			}
+			http.Redirect(w, r, good.URL+r.URL.Path, http.StatusFound)
+		}))
+		defer page.Close()
+		x := newH(t)
+		x.env["DEVBOX_RELEASE_BASE"], x.env["DEVBOX_API_BASE"], x.env["GITHUB_TOKEN"] = page.URL, api.URL, "t0k3n"
+		if err := InstallDevbox(context.Background(), x.e()); err != nil || !strings.Contains(x.out.String(), "devbox 1.2.3 installed") {
+			t.Fatalf("%v %q", err, x.out.String())
+		}
+		if auth != "Bearer t0k3n" || !strings.Contains(x.out.String(), "::notice::the releases page was unreachable") {
+			t.Errorf("auth %q %q", auth, x.out.String())
+		}
+		if strings.Contains(x.out.String(), "t0k3n") {
+			t.Error("the token must never be printed")
+		}
+	})
+	t.Run("without a token a page that never answers is one ::error:: that points at devbox-version", func(t *testing.T) {
+		page := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			http.Error(w, "gateway timeout", http.StatusGatewayTimeout)
+		}))
+		defer page.Close()
+		x := newH(t)
+		x.env["DEVBOX_RELEASE_BASE"] = page.URL
+		err := InstallDevbox(context.Background(), x.e())
+		if !errors.Is(err, ErrFailed) || strings.Count(x.out.String(), "::error::") != 1 || !strings.Contains(x.out.String(), "set devbox-version") || len(x.sleeps) != 4 {
+			t.Errorf("%v %q %v", err, x.out.String(), x.sleeps)
+		}
+	})
 	t.Run("a redirect that names no tag is an error", func(t *testing.T) {
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { fmt.Fprint(w, "no redirect") }))
 		defer srv.Close()

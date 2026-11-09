@@ -4,6 +4,7 @@ import (
 	"archive/tar"
 	"compress/gzip"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -32,7 +33,11 @@ import (
 //	                      which the releases page redirects to the newest tag
 //	RUNNER_TEMP           where the binary lands, under bin/ (required)
 //	GITHUB_PATH           the runner's PATH file, appended to when set
+//	GITHUB_TOKEN          optional; when the releases page cannot be reached, `latest`
+//	                      is asked of the authenticated API instead (anonymous
+//	                      traffic is what GitHub sheds first in an incident)
 //	DEVBOX_RELEASE_BASE   default https://github.com/jetify-com/devbox/releases
+//	DEVBOX_API_BASE       default https://api.github.com/repos/jetify-com/devbox
 //	DEVBOX_UNAME_M        the machine name to pick the asset for (a test seam)
 func InstallDevbox(ctx context.Context, e Env) error {
 	e.defaults()
@@ -74,15 +79,9 @@ func InstallDevbox(ctx context.Context, e Env) error {
 	}
 
 	if version == "latest" {
-		// The releases page redirects `latest` to the newest tag; the Location
-		// names it. No API call, so no token and no rate limit.
-		final, err := finalURL(ctx, base+"/latest")
+		tag, err := e.latestTag(ctx, base, strings.TrimRight(orDefault(e.Getenv("DEVBOX_API_BASE"), "https://api.github.com/repos/jetify-com/devbox"), "/"))
 		if err != nil {
-			return e.fail("could not look up the latest devbox release at %s/latest", base)
-		}
-		tag := final[strings.LastIndex(final, "/")+1:]
-		if tag == "" || tag == "latest" {
-			return e.fail("the latest devbox release at %s/latest named no tag (%s)", base, final)
+			return err
 		}
 		version = tag
 	}
@@ -99,7 +98,7 @@ func InstallDevbox(ctx context.Context, e Env) error {
 	if err := fetch.Download(ctx, nil, url+"/"+name, filepath.Join(work, name), 5*time.Minute); err != nil {
 		return e.fail("could not download %s/%s", url, name)
 	}
-	if err := fetch.Download(ctx, nil, url+"/checksums.txt", filepath.Join(work, "checksums.txt"), time.Minute); err != nil {
+	if err := fetch.Download(ctx, nil, url+"/checksums.txt", filepath.Join(work, "checksums.txt"), 3*time.Minute); err != nil {
 		return e.fail("could not download %s/checksums.txt", url)
 	}
 
@@ -130,8 +129,73 @@ func InstallDevbox(ctx context.Context, e Env) error {
 	return nil
 }
 
+// latestTag names the newest devbox release. The releases page redirects
+// `latest` to the newest tag, with no API call, so no token and no rate limit;
+// but it is anonymous traffic, and on 2026-11-09 GitHub answered anonymous
+// requests, release downloads included, with 504 for hours while the status
+// page said so too. So: try the page a few times, pausing longer each time, and
+// when it still fails and the job has a token, ask the authenticated API.
+func (e Env) latestTag(ctx context.Context, base, api string) (string, error) {
+	const attempts = 5
+	var last error
+	for i := 1; i <= attempts; i++ {
+		final, err := finalURL(ctx, base+"/latest")
+		if err == nil {
+			tag := final[strings.LastIndex(final, "/")+1:]
+			if tag == "" || tag == "latest" {
+				return "", e.fail("the latest devbox release at %s/latest named no tag (%s)", base, final)
+			}
+			return tag, nil
+		}
+		last = err
+		if i < attempts {
+			e.printf("::warning::could not look up the latest devbox release at %s/latest (attempt %d of %d): %v\n", base, i, attempts, err)
+			e.Sleep(time.Duration(i) * 5 * time.Second)
+		}
+	}
+	if token := e.Getenv("GITHUB_TOKEN"); token != "" {
+		tag, err := apiLatestTag(ctx, api+"/releases/latest", token)
+		if err == nil {
+			e.printf("::notice::the releases page was unreachable; the latest devbox release (%s) was looked up through the authenticated API\n", tag)
+			return tag, nil
+		}
+		last = fmt.Errorf("%v; the API fallback failed too: %w", last, err)
+	}
+	return "", e.fail("could not look up the latest devbox release at %s/latest (%v); set devbox-version to a release tag to skip the lookup", base, last)
+}
+
+// apiLatestTag is tag_name of the releases/latest answer, asked with a token.
+func apiLatestTag(ctx context.Context, url, token string) (string, error) {
+	c := &http.Client{Timeout: time.Minute}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Accept", "application/vnd.github+json")
+	resp, err := c.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("GET %s: %s", url, resp.Status)
+	}
+	var v struct {
+		TagName string `json:"tag_name"`
+	}
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&v); err != nil {
+		return "", err
+	}
+	if v.TagName == "" || strings.Contains(v.TagName, "/") {
+		return "", fmt.Errorf("GET %s: no usable tag_name", url)
+	}
+	return v.TagName, nil
+}
+
 // finalURL is where a releases/latest URL ends up: the Location it redirects
-// to, or the URL itself when it does not redirect.
+// to, or the URL itself when it does not redirect. A 4xx or 5xx without a
+// Location is an error.
 func finalURL(ctx context.Context, url string) (string, error) {
 	c := &http.Client{Timeout: time.Minute, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
