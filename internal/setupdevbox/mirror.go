@@ -6,7 +6,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
-	"time"
 
 	"github.com/truvity/ci-actions/internal/devboxconfig"
 	"github.com/truvity/ci-actions/internal/ghmirror"
@@ -78,7 +77,7 @@ func MirrorFlakes(ctx context.Context, e Env) error {
 
 	usable := map[string]bool{}
 	for _, u := range refs {
-		if err := ghmirror.Serves(ctx, e.HTTP, ghmirror.Rewrite(base, u), 2*time.Minute, 256<<20); err != nil {
+		if err := ghmirror.Serves(ctx, e.HTTP, ghmirror.Rewrite(base, u), ghmirror.MirrorTimeout, 256<<20); err != nil {
 			e.printf("::warning::the GitHub releases mirror did not serve %s (%v); devbox fetches it from github.com\n", u, err)
 			continue
 		}

@@ -206,8 +206,10 @@ runs:
         # A runner with a pull-through cache for GitHub release files exports
         # CI_RUNNER_GITHUB_RELEASES=<cache base>/github. Both files are asked
         # of it first (the leading https://github.com/ swapped, nothing
-        # else); an error from it falls back to the URL above, so the mirror
-        # can only help. Unset or empty: exactly the one curl it always was.
+        # else; one attempt of up to ten minutes, because a file it does not
+        # hold yet is fetched upstream before it answers); any error from it
+        # falls back to the URL above, so the mirror can only help. The tag
+        # here is always a version, which is all the mirror may be given. Unset or empty: exactly the one curl it always was.
         # Same rule as lib/ci-actions-bin.sh's _ci_actions_mirror_url.
         mirror="${CI_RUNNER_GITHUB_RELEASES:-}"
         mirror="${mirror#"${mirror%%[![:space:]]*}"}"
@@ -219,7 +221,7 @@ runs:
         esac
         case "$mirror" in *[[:space:]]*) mirror="" ;; esac
         fetch() {
-          if [ -n "$mirror" ] && curl -fsSL -o "$2" "$mirror/${1#https://github.com/}"; then
+          if [ -n "$mirror" ] && curl -fsSL --max-time 600 -o "$2" "$mirror/${1#https://github.com/}"; then
             return 0
           fi
           curl -fsSL -o "$2" "$1"

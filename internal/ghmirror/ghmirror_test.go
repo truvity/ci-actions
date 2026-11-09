@@ -12,6 +12,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/truvity/ci-actions/internal/fetch"
 )
 
 const rel = "truvity/sluis/releases/download/v1.77.5/sluisctl_1.77.5_nix-flake.tar.gz"
@@ -34,6 +36,13 @@ func TestRewrite(t *testing.T) {
 		{"query and fragment are carried over", base, "https://github.com/" + rel + "?narHash=sha256-1Ane3celH04STagZPRX6kheUlidmCktJ%2Fc1ZLGXvlIQ%3D#sluisctl",
 			base + "/" + rel + "?narHash=sha256-1Ane3celH04STagZPRX6kheUlidmCktJ%2Fc1ZLGXvlIQ%3D#sluisctl"},
 		{"a prerelease tag", base, "https://github.com/a/b/releases/download/v1.77.1-rc.1/x_1.77.1-rc.1.tar.gz", base + "/a/b/releases/download/v1.77.1-rc.1/x_1.77.1-rc.1.tar.gz"},
+		{"a bare version tag", base, "https://github.com/a/b/releases/download/1.2.3/x.tgz", base + "/a/b/releases/download/1.2.3/x.tgz"},
+		{"latest is a moving tag", base, "https://github.com/a/b/releases/download/latest/x.tgz", "https://github.com/a/b/releases/download/latest/x.tgz"},
+		{"nightly is a moving tag", base, "https://github.com/a/b/releases/download/nightly/x.tgz", "https://github.com/a/b/releases/download/nightly/x.tgz"},
+		{"edge is a moving tag", base, "https://github.com/a/b/releases/download/edge/x.tgz", "https://github.com/a/b/releases/download/edge/x.tgz"},
+		{"main is a moving tag", base, "https://github.com/a/b/releases/download/main/x.tgz", "https://github.com/a/b/releases/download/main/x.tgz"},
+		{"v alone is not a version", base, "https://github.com/a/b/releases/download/v/x.tgz", "https://github.com/a/b/releases/download/v/x.tgz"},
+		{"vnext is not a version", base, "https://github.com/a/b/releases/download/vnext/x.tgz", "https://github.com/a/b/releases/download/vnext/x.tgz"},
 		{"a release page", base, "https://github.com/a/b/releases/tag/v1", "https://github.com/a/b/releases/tag/v1"},
 		{"latest", base, "https://github.com/a/b/releases/latest", "https://github.com/a/b/releases/latest"},
 		{"latest/download", base, "https://github.com/a/b/releases/latest/download/x.tgz", "https://github.com/a/b/releases/latest/download/x.tgz"},
@@ -72,12 +81,17 @@ func newSite(t *testing.T, mirrorStatus int) *site {
 		s.mu.Lock()
 		s.seen = append(s.seen, r.URL.Path)
 		s.mu.Unlock()
+		if r.URL.Path == "/bucket/object" {
+			fmt.Fprint(w, "from the mirror")
+			return
+		}
 		if strings.HasPrefix(r.URL.Path, "/github/") {
 			if s.mode != 0 {
 				http.Error(w, "mirror says no", s.mode)
 				return
 			}
-			fmt.Fprint(w, "from the mirror")
+			// the mirror answers a hit and a miss alike with a redirect to the stored object
+			http.Redirect(w, r, "/bucket/object?X-Sig=presigned", http.StatusFound)
 			return
 		}
 		fmt.Fprint(w, "from github")
@@ -110,9 +124,11 @@ func TestDownload(t *testing.T) {
 		paths      []string
 	}{
 		{"variable unset: github only, today's behaviour", false, 0, "from github", "", []string{"/" + rel}},
-		{"mirror serves: github is not asked", true, 0, "from the mirror", "", []string{"/github/" + rel}},
+		{"mirror serves through a 302: github is not asked", true, 0, "from the mirror", "", []string{"/github/" + rel, "/bucket/object"}},
 		{"mirror answers 404: falls back to github", true, 404, "from github", "did not serve", []string{"/github/" + rel, "/" + rel}},
 		{"mirror answers 403: falls back to github", true, 403, "from github", "did not serve", []string{"/github/" + rel, "/" + rel}},
+		{"mirror answers 413: falls back to github", true, 413, "from github", "did not serve", []string{"/github/" + rel, "/" + rel}},
+		{"mirror answers 502, once: falls back to github", true, 502, "from github", "did not serve", []string{"/github/" + rel, "/" + rel}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			s := newSite(t, c.status)
@@ -184,6 +200,8 @@ func TestDownload(t *testing.T) {
 	})
 
 	t.Run("both fail: the error is github's", func(t *testing.T) {
+		defer func(old func(time.Duration)) { fetch.Sleep = old }(fetch.Sleep)
+		fetch.Sleep = func(time.Duration) {}
 		s := newSite(t, 404)
 		dest := filepath.Join(t.TempDir(), "f")
 		err := Download(context.Background(), &http.Client{Transport: roundTrip(func(r *http.Request) (*http.Response, error) {

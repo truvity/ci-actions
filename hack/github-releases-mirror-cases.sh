@@ -42,6 +42,11 @@ url_case "trailing slash is dropped" "$m/" "$gh" "$m/$rel"
 url_case "whitespace is dropped" " $m
 " "$gh" "$m/$rel"
 url_case "http base works" "http://cache.internal:8080/github" "$gh" "http://cache.internal:8080/github/$rel"
+url_case "a bare version tag" "$m" "https://github.com/acme/tool/releases/download/1.2.3/x.tgz" "$m/acme/tool/releases/download/1.2.3/x.tgz"
+url_case "a prerelease tag" "$m" "https://github.com/acme/tool/releases/download/v1.2.3-rc.1/x.tgz" "$m/acme/tool/releases/download/v1.2.3-rc.1/x.tgz"
+for tag in latest nightly edge main vnext v; do
+  url_case "the moving tag $tag stays on github.com" "$m" "https://github.com/acme/tool/releases/download/$tag/x.tgz" NONE
+done
 url_case "a release page is not a download" "$m" "https://github.com/acme/tool/releases/tag/v1.2.3" NONE
 url_case "latest is not a download" "$m" "https://github.com/acme/tool/releases/latest" NONE
 url_case "an archive URL is not a download" "$m" "https://github.com/acme/tool/archive/refs/tags/v1.tar.gz" NONE

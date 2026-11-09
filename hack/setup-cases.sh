@@ -176,6 +176,7 @@ url=""
 while [ $# -gt 0 ]; do
     case "$1" in
         -o) out="$2"; shift 2 ;;
+        --max-time) shift 2 ;;
         -f|-s|-S|-L|-fsSL) shift ;;
         *) url="$1"; shift ;;
     esac
