@@ -131,6 +131,7 @@ spec, a task definition), and that wins:
 | `CI_RUNNER_GOCACHE_S3_BUCKET`, `CI_RUNNER_GOCACHE_S3_REGION` | the `go-cache-bucket` and `go-cache-region` inputs (the caller's endpoint and path style are dropped with them) | `setup-devbox` (proto cache, and `setup-cache` for the Go build cache), `s3-cache/restore` and `s3-cache/save`; the Go cache plugin also uses the runner's own identity for it, see below |
 | `CI_RUNNER_BUILDX_CACHE` | the `buildx-cache` input (the BuildKit registry cache, `<registry>/<repository>`) | `setup-remote-builders`, which exports the winner as `CI_BUILDX_CACHE_FROM` (always) and as `CI_BUILDX_CACHE` (unless `CI_RUNNER_CACHE_WRITES` says otherwise); the "Plan the remote builders" steps of ci-workflows |
 | `CI_RUNNER_CACHE_WRITES` | none (absent: the runner's identity reads and writes its caches, as before) | `release-credentials`: the runner's identity only READS the caches; writes need the credentials of a role the job assumed. See "Who writes the caches" below |
+| `CI_RUNNER_GITHUB_RELEASES` | none (absent or empty: GitHub release files come from github.com, as before) | the `ci-actions` binary download of every action (`lib/ci-actions-bin.sh`), `setup-devbox` (the devbox installer, and devbox's flake tarballs), `setup-cache` (the `go-cache-plugin` client). See "GitHub release downloads" below |
 
 Precedence, per value: **runner environment, then the input (the caller's
 organisation variable), then the action's default.** With no `CI_RUNNER_*` set
@@ -181,6 +182,55 @@ Example, for a pool whose gateway serves all four: `CI_RUNNER_GOPROXY=https://ga
 `CI_RUNNER_NPM_REGISTRY=https://gateway.example/npm`,
 `CI_RUNNER_BAZEL_REMOTE_CACHE=grpcs://gateway.example:443`,
 `CI_RUNNER_REMOTE_BUILDERS="linux/amd64=tcp://builder.example:1234"`.
+
+## GitHub release downloads
+
+GitHub's release-download edge answers 5xx for minutes at a time (2026-11-05 and
+2026-11-09), and a job that cannot download its tools fails with it. A runner
+pool that has a pull-through cache for release files exports
+`CI_RUNNER_GITHUB_RELEASES=<cache base>/github` (no trailing slash). A download of
+
+    https://github.com/<owner>/<repo>/releases/download/<tag>/<asset>
+
+is then asked first at
+
+    $CI_RUNNER_GITHUB_RELEASES/<owner>/<repo>/releases/download/<tag>/<asset>
+
+Only the leading `https://github.com/` is swapped, and only for
+`/releases/download/` URLs; a query string or fragment is kept as it is. Unset or
+empty (a GitHub-hosted runner, which is where public repositories run), nothing
+changes. A value that is not an `http(s)` URL is treated as unset. If the mirror
+answers an error the file is fetched from github.com, so the mirror cannot make a
+job worse. Unlike the variables above it has no input behind it.
+
+What goes through it, all of it mirror first and github.com second:
+
+- every action's `ci-actions` binary: the release archive and `checksums.txt`
+  (`lib/ci-actions-bin.sh`), the archive checked against the `checksums.txt` that
+  was fetched with it;
+- `setup-devbox`'s devbox installer (the archive and `checksums.txt`; the
+  `releases/latest` lookup is a web page, not a download, and stays on github.com);
+- `setup-devbox`'s `go-cache-plugin` client (`setup-cache`, `client-version`);
+- devbox's own flake tarballs, a package named by a release URL such as
+  `https://github.com/<owner>/<repo>/releases/download/<tag>/<tool>_nix-flake.tar.gz#<tool>`.
+  Nix downloads these itself and cannot fall back, so the **Route devbox flake
+  downloads through the runner's GitHub releases mirror** step rewrites the URLs
+  in the workspace copy of `devbox.json` and `devbox.lock` before the first
+  `devbox run`, the way "Strip local-only proto tools" edits `.prototools`: the
+  two files are marked `git update-index --assume-unchanged` and nothing is
+  committed. It asks the mirror for each URL first and rewrites only those the
+  mirror delivered whole. Only a string that **begins** with the URL is a package
+  reference, so a command in an init hook that mentions one is not touched. Nix
+  accepts the mirrored file because the `?narHash=` in the lock hashes the
+  unpacked content, not the URL: the same bytes from another host give the same
+  hash, and anything else is refused with a NAR hash mismatch
+  (`internal/setupdevbox`'s `TestNixAcceptsAMirroredFlakeTarball` shows both against a real
+  nix). A job that runs `devbox update` after `setup-devbox` on such a runner
+  would resolve against the mirror URLs; the files are hidden from git, so
+  nothing is committed by it, but run `devbox update` where the variable is not set.
+
+The mirror is trusted to serve the bytes GitHub serves: the archive checksum comes
+from the same place as the archive, as it always did.
 
 ## Gradle caches
 

@@ -65,6 +65,57 @@ ci_actions_run() {
   exit 1
 }
 
+# The URL a GitHub release download is asked for at the runner's mirror.
+#
+#   _ci_actions_mirror_url <url>
+#
+# A runner that has a pull-through cache for GitHub release files exports
+# CI_RUNNER_GITHUB_RELEASES=<cache base>/github. Then
+#   https://github.com/<owner>/<repo>/releases/download/<tag>/<asset>
+# is also served at
+#   $CI_RUNNER_GITHUB_RELEASES/<owner>/<repo>/releases/download/<tag>/<asset>
+# Only the leading https://github.com/ is swapped, and only for a
+# /releases/download/ URL. Prints nothing (and returns 1) when the variable is
+# unset, empty or not an http(s) URL, or when <url> is not such a download:
+# the caller then uses <url> as it always did. Same rule as
+# internal/ghmirror.
+_ci_actions_mirror_url() {
+  local url=$1 base=${CI_RUNNER_GITHUB_RELEASES:-}
+  base=${base#"${base%%[![:space:]]*}"}
+  base=${base%"${base##*[![:space:]]}"}
+  while [ "${base%/}" != "$base" ]; do base=${base%/}; done
+  case "$base" in
+    http://?* | https://?*) ;;
+    *) return 1 ;;
+  esac
+  case "$base" in *[[:space:]]*) return 1 ;; esac
+  case "$url" in
+    https://github.com/?*/?*/releases/download/?*/?*) ;;
+    *) return 1 ;;
+  esac
+  case "/${url#https://github.com/}" in */../* | */./*) return 1 ;; esac
+  printf '%s/%s' "$base" "${url#https://github.com/}"
+}
+
+# curl a release file into <dest>: from the runner's mirror first, when it has
+# one, then from GitHub itself. A mirror that answers an error costs a few
+# seconds and nothing else. Returns the exit code of the last curl run.
+#
+#   _ci_actions_download <url> <dest>
+_ci_actions_download() {
+  local url=$1 dest=$2 mirror
+  if mirror=$(_ci_actions_mirror_url "$url"); then
+    if curl -fsSL --retry 2 --retry-delay 2 --retry-max-time 30 --max-time 180 -o "$dest" "$mirror"; then
+      return 0
+    fi
+    echo "::warning::the GitHub releases mirror did not serve ${url}; fetching it from github.com" >&2
+  fi
+  # GitHub's release downloads answer 5xx for minutes at a time (2026-11-05:
+  # 504s from one edge while the status page said all was well), so retry
+  # for up to two minutes.
+  curl -fsSL --retry 6 --retry-delay 5 --retry-max-time 120 -o "$dest" "$url"
+}
+
 # Prints the path of the verified binary, or fails. Everything else goes to
 # stderr: stdout is the answer.
 _ci_actions_fetch_release() {
@@ -92,16 +143,16 @@ _ci_actions_fetch_release() {
     return 0
   fi
   mkdir -p "$dir"
-  # GitHub's release downloads answer 5xx for minutes at a time (2026-11-05:
-  # 504s from one edge while the status page said all was well), so retry
-  # for up to two minutes. Past that, say it was the DOWNLOAD that failed:
-  # falling through to "names no release archive" sent people looking for a
-  # wrong pin that was not there.
-  local f url
+  # Past the retries (see _ci_actions_download), say it was the DOWNLOAD that
+  # failed: falling through to "names no release archive" sent people looking
+  # for a wrong pin that was not there. The archive and checksums.txt come the
+  # same way, so the checksum is checked against the file that came with it.
+  local f url rc
   for f in "$name" checksums.txt; do
     url="$base/$f"
-    curl -fsSL --retry 6 --retry-delay 5 --retry-max-time 120 -o "$dir/$f" "$url" || {
-      echo "::warning::could not download ${url} (curl exit $?)" >&2
+    _ci_actions_download "$url" "$dir/$f" || {
+      rc=$?
+      echo "::warning::could not download ${url} (curl exit ${rc})" >&2
       return 3
     }
   done

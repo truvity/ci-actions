@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/truvity/ci-actions/internal/fetch"
+	"github.com/truvity/ci-actions/internal/ghmirror"
 )
 
 // InstallDevbox installs the devbox release binary into $RUNNER_TEMP/bin, with
@@ -39,6 +40,10 @@ import (
 //	DEVBOX_RELEASE_BASE   default https://github.com/jetify-com/devbox/releases
 //	DEVBOX_API_BASE       default https://api.github.com/repos/jetify-com/devbox
 //	DEVBOX_UNAME_M        the machine name to pick the asset for (a test seam)
+//	CI_RUNNER_GITHUB_RELEASES
+//	                      the runner's GitHub releases mirror, asked before
+//	                      github.com for the archive and checksums.txt; unset
+//	                      is today's behaviour, and a mirror error falls back
 func InstallDevbox(ctx context.Context, e Env) error {
 	e.defaults()
 	version := orDefault(e.Getenv("DEVBOX_VERSION"), "latest")
@@ -95,10 +100,13 @@ func InstallDevbox(ctx context.Context, e Env) error {
 	}
 	defer os.RemoveAll(work)
 
-	if err := fetch.Download(ctx, nil, url+"/"+name, filepath.Join(work, name), 5*time.Minute); err != nil {
+	// A runner that offers a GitHub releases mirror (CI_RUNNER_GITHUB_RELEASES)
+	// is asked first for both files; an error from it falls back to GitHub.
+	mirror := e.Getenv(ghmirror.EnvVar)
+	if err := ghmirror.Download(ctx, e.HTTP, mirror, url+"/"+name, filepath.Join(work, name), 5*time.Minute, e.Out); err != nil {
 		return e.fail("could not download %s/%s", url, name)
 	}
-	if err := fetch.Download(ctx, nil, url+"/checksums.txt", filepath.Join(work, "checksums.txt"), 3*time.Minute); err != nil {
+	if err := ghmirror.Download(ctx, e.HTTP, mirror, url+"/checksums.txt", filepath.Join(work, "checksums.txt"), 3*time.Minute, e.Out); err != nil {
 		return e.fail("could not download %s/checksums.txt", url)
 	}
 

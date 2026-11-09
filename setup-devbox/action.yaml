@@ -326,6 +326,21 @@ runs:
         ACTION_REPOSITORY: ${{ github.action_repository }}
         ACTION_REF: ${{ github.action_ref }}
       run: bash "$ACTION_PATH/run.sh" install-devbox
+    # A runner that has a GitHub releases mirror (CI_RUNNER_GITHUB_RELEASES)
+    # gets devbox's flake tarballs (a package named by a GitHub
+    # releases/download URL) from it: nix fetches them by itself and cannot
+    # fall back when github.com answers 504. The URLs are rewritten in the
+    # workspace copy of devbox.json and devbox.lock, before the first devbox
+    # run, and hidden from git; only those the mirror serves are rewritten.
+    # Nothing at all happens when the runner exports no mirror.
+    - name: Route devbox flake downloads through the runner's GitHub releases mirror
+      shell: bash
+      env:
+        DEVBOX_CONFIG: ${{ inputs.devbox-config }}
+        ACTION_PATH: ${{ github.action_path }}
+        ACTION_REPOSITORY: ${{ github.action_repository }}
+        ACTION_REF: ${{ github.action_ref }}
+      run: bash "$ACTION_PATH/run.sh" mirror-flakes
     # Split so timings tell the truth: the FIRST devbox invocation
     # transparently fetches, unpacks and registers the whole nix closure.
     # This step is the closure cost; every devbox step after it is only

@@ -62,7 +62,7 @@ Commands:
                        delegation holds, read at the pinned ci-cache sha), no-escalation (no action or
                        script calls the privilege-escalation command), policy-kit (the depguard kit is
                        still a verbatim copy of the policy repository's, at its pinned tag)
-  setup-devbox <step>  the setup-devbox action's steps: preflight, aws-config, detect-baked, strip-tools,
+  setup-devbox <step>  the setup-devbox action's steps: preflight, aws-config, detect-baked, strip-tools, mirror-flakes,
                        install-devbox, materialize, proto, expose-token, go-private, codeartifact,
                        resolve-endpoints, moon-remote-mtls, gradle-cache, guard-goproxy, guard-aws (env: see
                        setup-devbox/action.yaml)
@@ -800,6 +800,8 @@ func setupDevbox(ctx context.Context, args []string, stdout, stderr io.Writer, g
 		err = setupdevbox.DetectBaked(e)
 	case "strip-tools":
 		err = setupdevbox.StripLocalTools(ctx, e)
+	case "mirror-flakes":
+		err = setupdevbox.MirrorFlakes(ctx, e)
 	case "install-devbox":
 		err = setupdevbox.InstallDevbox(ctx, e)
 	case "materialize":

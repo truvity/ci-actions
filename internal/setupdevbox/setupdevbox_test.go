@@ -32,6 +32,7 @@ type h struct {
 	sleeps []time.Duration
 	exec   func(c runcmd.Cmd) error
 	clock  time.Time
+	http   *http.Client
 }
 
 func newH(t *testing.T) *h {
@@ -62,6 +63,7 @@ func (x *h) e() Env {
 		},
 		Sleep: func(d time.Duration) { x.sleeps = append(x.sleeps, d); x.clock = x.clock.Add(d) },
 		Now:   func() time.Time { return x.clock },
+		HTTP:  x.http,
 	}
 }
 
