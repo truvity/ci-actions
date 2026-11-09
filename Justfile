@@ -39,6 +39,10 @@ pins-wrapper:
 gocacheprog-runner:
     @./hack/gocacheprog-runner-cases.sh
 
+# CI_RUNNER_GITHUB_RELEASES in the shell library: the URL rewrite and the mirror-first download with its fallback
+releases-mirror:
+    @./hack/github-releases-mirror-cases.sh
+
 # s3-cache's wrapper and the fallback wiring of its actions
 s3-cache:
     @./hack/s3-cache-cases.sh
@@ -164,5 +168,5 @@ leak-canary:
     @./hack/leak-canary.sh
 
 # Run all checks (the merge gate)
-check: lint kit cache-env setup-cache gocacheprog-runner s3-cache go-test pins-wrapper token-exchange no-escalation pins runners conformance leak-canary
+check: lint kit cache-env setup-cache gocacheprog-runner s3-cache releases-mirror go-test pins-wrapper token-exchange no-escalation pins runners conformance leak-canary
     @echo "✓ All checks passed"

@@ -145,6 +145,11 @@ jobs:
       - name: s3-cache cases
         run: ./hack/s3-cache-cases.sh
 
+      # CI_RUNNER_GITHUB_RELEASES in the shell library: the URL rewrite and
+      # the download that asks the mirror first and falls back to GitHub.
+      - name: github releases mirror cases
+        run: ./hack/github-releases-mirror-cases.sh
+
       # token-exchange: the step body as written, against a stub curl and
       # kubectl. It carries credentials, so the cases assert the masking
       # order and every refusal, not only the happy path.

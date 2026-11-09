@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Thin wrapper: find the ci-actions binary and run one step of `setup-devbox`
-# with it (preflight | aws-config | detect-baked | strip-tools | install-devbox
+# with it (preflight | aws-config | detect-baked | strip-tools | mirror-flakes | install-devbox
 # | materialize | proto | expose-token | go-private | codeartifact |
 # resolve-endpoints | moon-remote-mtls | gradle-cache | guard-goproxy |
 # guard-aws). The logic lives in

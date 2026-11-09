@@ -182,6 +182,9 @@ while [ $# -gt 0 ]; do
 done
 name="${url##*/}"
 [ -n "${FETCH_SPY:-}" ] && : >> "$FETCH_SPY"
+[ -n "${FETCH_URLS:-}" ] && echo "$url" >> "$FETCH_URLS"
+# A host that answers an error, for the mirror-down case.
+case "$url" in "${FETCH_DOWN:-/nonexistent/}"*) exit 22 ;; esac
 if [ -f "$SERVER_DIR/$name" ]; then
     cp "$SERVER_DIR/$name" "$out"
     exit 0
@@ -222,8 +225,8 @@ fetch_run() {
     : > "$d/path"
     env -i PATH="$d/bin:/usr/bin:/bin" HOME="$d" \
         RUNNER_TEMP="$d/tmp" GITHUB_PATH="$d/path" \
-        SERVER_DIR="$5" FETCH_SPY="$d/curl-called" \
-        CLIENT_VERSION="$2" RUNNER_OS="$3" RUNNER_ARCH="$4" \
+        SERVER_DIR="$5" FETCH_SPY="$d/curl-called" FETCH_URLS="$d/urls" \
+        CLIENT_VERSION="$2" RUNNER_OS="$3" RUNNER_ARCH="$4" "${@:6}" \
         bash "$d/step.sh" >"$d/log" 2>&1
 }
 
@@ -257,6 +260,44 @@ if [ -z "$bindir" ] || [ ! -x "$bindir/go-cache-plugin" ]; then
     fail=$((fail + 1))
 fi
 grep -q "verified" "$d/log" || { echo "FAIL [fetch valid]: no line naming the version as verified"; fail=$((fail + 1)); }
+rm -rf "$d"
+
+# --- a runner with a GitHub releases mirror (CI_RUNNER_GITHUB_RELEASES): both
+# files are asked of it first, with only the leading host swapped.
+checked=$((checked + 1))
+d="$(mktemp -d)"
+archive="go-cache-plugin_9.9.9_linux_amd64.tar.gz"
+fetch_build_server "$d/server" "$archive"
+fetch_run "$d" "9.9.9" Linux X64 "$d/server" CI_RUNNER_GITHUB_RELEASES=https://cache.example/github/
+rc=$?
+[ "$rc" -ne 0 ] && { echo "FAIL [fetch mirror]: exited $rc"; sed 's/^/     /' "$d/log"; fail=$((fail + 1)); }
+want="https://cache.example/github/truvity/ci-cache/releases/download/v9.9.9/checksums.txt
+https://cache.example/github/truvity/ci-cache/releases/download/v9.9.9/$archive"
+[ "$(cat "$d/urls" 2>/dev/null)" = "$want" ] || { echo "FAIL [fetch mirror]: requests were: $(cat "$d/urls" 2>/dev/null)"; fail=$((fail + 1)); }
+[ -x "$(head -1 "$d/path")/go-cache-plugin" ] || { echo "FAIL [fetch mirror]: go-cache-plugin did not land"; fail=$((fail + 1)); }
+rm -rf "$d"
+
+# --- the mirror answers an error: the direct URL is used, the job goes on.
+checked=$((checked + 1))
+d="$(mktemp -d)"
+fetch_build_server "$d/server" "$archive"
+fetch_run "$d" "9.9.9" Linux X64 "$d/server" CI_RUNNER_GITHUB_RELEASES=https://cache.example/github FETCH_DOWN=https://cache.example/
+rc=$?
+[ "$rc" -ne 0 ] && { echo "FAIL [fetch mirror down]: exited $rc; the mirror must never make the job worse"; sed 's/^/     /' "$d/log"; fail=$((fail + 1)); }
+grep -q '^https://github.com/truvity/ci-cache/releases/download/v9.9.9/checksums.txt$' "$d/urls" \
+    && grep -q "^https://github.com/truvity/ci-cache/releases/download/v9.9.9/$archive\$" "$d/urls" \
+    || { echo "FAIL [fetch mirror down]: no fallback to github.com; requests: $(cat "$d/urls")"; fail=$((fail + 1)); }
+[ -x "$(head -1 "$d/path")/go-cache-plugin" ] || { echo "FAIL [fetch mirror down]: go-cache-plugin did not land"; fail=$((fail + 1)); }
+rm -rf "$d"
+
+# --- an empty mirror variable is no mirror: github.com only.
+checked=$((checked + 1))
+d="$(mktemp -d)"
+fetch_build_server "$d/server" "$archive"
+fetch_run "$d" "9.9.9" Linux X64 "$d/server" CI_RUNNER_GITHUB_RELEASES=
+rc=$?
+[ "$rc" -ne 0 ] && { echo "FAIL [fetch mirror empty]: exited $rc"; fail=$((fail + 1)); }
+[ "$(grep -vc '^https://github.com/' "$d/urls")" = 0 ] || { echo "FAIL [fetch mirror empty]: a request left github.com: $(cat "$d/urls")"; fail=$((fail + 1)); }
 rm -rf "$d"
 
 # --- a tampered checksums.txt: the one hard failure in this file. A hash

@@ -203,16 +203,38 @@ runs:
         bin="${RUNNER_TEMP}/ci-cache-client-bin"
         mkdir -p "$dl" "$bin"
 
+        # A runner with a pull-through cache for GitHub release files exports
+        # CI_RUNNER_GITHUB_RELEASES=<cache base>/github. Both files are asked
+        # of it first (the leading https://github.com/ swapped, nothing
+        # else); an error from it falls back to the URL above, so the mirror
+        # can only help. Unset or empty: exactly the one curl it always was.
+        # Same rule as lib/ci-actions-bin.sh's _ci_actions_mirror_url.
+        mirror="${CI_RUNNER_GITHUB_RELEASES:-}"
+        mirror="${mirror#"${mirror%%[![:space:]]*}"}"
+        mirror="${mirror%"${mirror##*[![:space:]]}"}"
+        while [ "${mirror%/}" != "$mirror" ]; do mirror="${mirror%/}"; done
+        case "$mirror" in
+          http://?* | https://?*) ;;
+          *) mirror="" ;;
+        esac
+        case "$mirror" in *[[:space:]]*) mirror="" ;; esac
+        fetch() {
+          if [ -n "$mirror" ] && curl -fsSL -o "$2" "$mirror/${1#https://github.com/}"; then
+            return 0
+          fi
+          curl -fsSL -o "$2" "$1"
+        }
+
         # A release that doesn't exist yet -- including THIS one, before
         # its first tag -- is the ordinary fail-open case: no asset, no
         # binary, a warning, and the image's own copy (if any) keeps
         # working. It is not the same failure as a checksum that doesn't
         # match a file we DID get.
-        if ! curl -fsSL -o "$dl/checksums.txt" "$base/checksums.txt"; then
+        if ! fetch "$base/checksums.txt" "$dl/checksums.txt"; then
           echo "::warning::ci-cache: no checksums.txt for client-version=${CLIENT_VERSION} at $base; falling back to whatever the image already has"
           exit 0
         fi
-        if ! curl -fsSL -o "$dl/$archive" "$base/$archive"; then
+        if ! fetch "$base/$archive" "$dl/$archive"; then
           echo "::warning::ci-cache: no $archive for client-version=${CLIENT_VERSION} at $base; falling back to whatever the image already has"
           exit 0
         fi
