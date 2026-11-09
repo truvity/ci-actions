@@ -416,7 +416,7 @@ func TestMaterializeAndProto(t *testing.T) {
 	if err := Materialize(context.Background(), x.e()); err != nil {
 		t.Fatal(err)
 	}
-	if x.out.String() != "attempt 1 failed; sleeping\n" || len(x.sleeps) != 1 || x.sleeps[0] != 20*time.Second {
+	if x.out.String() != "attempt 1 failed; sleeping 20s\n" || len(x.sleeps) != 1 || x.sleeps[0] != 20*time.Second {
 		t.Errorf("%q %v", x.out.String(), x.sleeps)
 	}
 	if got := x.file("summary"); got != "- devbox closure: 34s\n" {
@@ -425,11 +425,16 @@ func TestMaterializeAndProto(t *testing.T) {
 	if strings.Join(x.calls, "|") != "devbox run -- true|devbox run -- true" {
 		t.Errorf("%v", x.calls)
 	}
-	// two failures then a final attempt whose status propagates
+	// five failures, each followed by a longer pause, then a final attempt
+	// whose status propagates: about three and a half minutes in all, longer
+	// than GitHub's release-download 504 spells (2026-11-05, 2026-11-09)
 	x = newH(t)
 	x.exec = func(c runcmd.Cmd) error { return errors.New("down") }
-	if err := Materialize(context.Background(), x.e()); err == nil || len(x.calls) != 3 || len(x.sleeps) != 2 {
-		t.Errorf("%v %v %v", err, x.calls, x.sleeps)
+	if err := Materialize(context.Background(), x.e()); err == nil || len(x.calls) != 6 {
+		t.Errorf("%v %v", err, x.calls)
+	}
+	if fmt.Sprint(x.sleeps) != "[20s 30s 45s 1m0s 1m0s]" {
+		t.Errorf("pauses %v", x.sleeps)
 	}
 	if x.file("summary") != "" {
 		t.Error("no summary line for a failed closure")

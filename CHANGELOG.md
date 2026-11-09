@@ -26,6 +26,12 @@ an untagged commit; `tagged-pins` refuses anything else.
 
 - **`company-validation` is deprecated.** A company's gate is local now (`company-boundary`, `tenant-inputs`, `chart-auth`), with no dispatch and no `actions: write` grant on the platform repository. The action keeps working for existing callers and is not extended; it is removed in a later major release, once no caller dispatches. README and `company-validation/action.yaml` say so; nothing else changes.
 
+## v3.10.2
+
+### Fixed
+
+- **`setup-devbox` waits out GitHub's release-download outages.** The materialize and proto steps retried `devbox run` three times, 20 s apart, about 40 s in all. GitHub's release downloads, where devbox fetches flake tarballs (`sluisctl`'s nix-flake archive), answered 504 for minutes at a time (2026-11-05 and 2026-11-09, trust-form/wallet), so the step failed inside an outage. It now makes six attempts with pauses of 20, 30, 45, 60 and 60 s (about three and a half minutes), and each "attempt N failed" line says how long it waits. A step that keeps failing still fails, about three minutes later than before.
+
 ## v3.10.1
 
 ### Fixed

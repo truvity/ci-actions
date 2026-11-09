@@ -117,16 +117,22 @@ func (e Env) setOutput(name, value string) error {
 	return appendTo(e.Getenv("GITHUB_OUTPUT"), fmt.Sprintf("%s<<%s\n%s\n%s\n", name, d, value, d))
 }
 
-// retry is `for i in 1 2; do "$@" && return 0; echo "attempt $i failed;
-// sleeping"; sleep 20; done; "$@"`: two attempts with a pause, then a last one
-// whose status propagates.
+// retryPauses are the waits between attempts: six attempts over about three and
+// a half minutes. GitHub's release downloads, where devbox fetches flake
+// tarballs (sluisctl's), answer 504 for minutes at a time (2026-11-05 and
+// 2026-11-09, trust-form/wallet); three attempts 20 s apart gave up inside
+// such an outage.
+var retryPauses = []time.Duration{20 * time.Second, 30 * time.Second, 45 * time.Second, 60 * time.Second, 60 * time.Second}
+
+// retry runs an attempt, and after each failure says so and waits the next
+// pause in retryPauses; the last attempt's status propagates.
 func (e Env) retry(ctx context.Context, out io.Writer, run func(io.Writer) error) error {
-	for i := 1; i <= 2; i++ {
+	for i, pause := range retryPauses {
 		if run(out) == nil {
 			return nil
 		}
-		fmt.Fprintf(out, "attempt %d failed; sleeping\n", i)
-		e.Sleep(20 * time.Second)
+		fmt.Fprintf(out, "attempt %d failed; sleeping %s\n", i+1, pause)
+		e.Sleep(pause)
 	}
 	return run(out)
 }
