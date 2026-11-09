@@ -117,7 +117,10 @@ inputs:
       environment is the boundary (see the README).
     default: ""
   github-token:
-    description: Token for proto's GitHub API resolution (rate limits).
+    description: >-
+      Token for proto's GitHub API resolution (rate limits), and for the
+      devbox `latest` lookup through the API when GitHub's anonymous releases
+      page does not answer.
     default: ""
   go-private:
     description: >-
@@ -318,6 +321,7 @@ runs:
       shell: bash
       env:
         DEVBOX_VERSION: ${{ inputs.devbox-version }}
+        GITHUB_TOKEN: ${{ inputs.github-token }}
         ACTION_PATH: ${{ github.action_path }}
         ACTION_REPOSITORY: ${{ github.action_repository }}
         ACTION_REF: ${{ github.action_ref }}

@@ -4,6 +4,12 @@ Every release of truvity/ci-actions, newest first. Pin the commit of a
 tag (`git rev-parse vX.Y.Z^{commit}`), never the tag object and never
 an untagged commit; `tagged-pins` refuses anything else.
 
+## Unreleased
+
+### Changed
+
+- **`setup-devbox` keeps trying when GitHub sheds anonymous traffic, and falls back to the authenticated API for `latest`.** On 2026-11-09 GitHub answered anonymous requests, release downloads included, with 504 for hours (its status page: "Increased timeouts due to surge in anonymous users"), and the "Install devbox" step failed in many repositories with "could not look up the latest devbox release" or "could not download .../devbox_0.19.0_linux_amd64.tar.gz": the lookup was a single request and a download gave up after 3 attempts and 3 seconds of waiting. Now the `latest` lookup tries the releases page 5 times with a growing pause, and when it still fails and the job has a token (the `github-token` input, now passed to the step as `GITHUB_TOKEN`) it asks `api.github.com` for `releases/latest`, authenticated and so outside the anonymous limit, and says so in a `::notice::`. A download (the archive and `checksums.txt`) is tried 6 times with a pause that grows by 5 seconds each time, about 75 seconds in all, and a 4xx still fails at once. The checksum is still checked against the release's own `checksums.txt`. The final error now says to set `devbox-version` to a tag, which skips the lookup. A pinned `devbox-version` removes the lookup but not the download.
+
 ## v3.12.1
 
 ### Fixed
