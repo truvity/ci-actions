@@ -32,7 +32,14 @@ func TestRecipe(t *testing.T) {
 		calls                 string
 	}{
 		{"a recipe that leaves the tree clean", "build", "just", clean, "", false, "devbox run -- just build|git status --porcelain"},
-		{"another task runner", "lint", "moon", clean, "", false, "devbox run -- moon lint|git status --porcelain"},
+		{"moon installs its toolchains before the recipe", "lint", "moon", clean, "", false, "devbox run -- moon setup|devbox run -- moon lint|git status --porcelain"},
+		{"moon setup failing stops before the recipe", "ci", "moon", func(c runcmd.Cmd) error {
+			if c.Name == "devbox" && c.Args[len(c.Args)-1] == "setup" {
+				return errors.New("no proto")
+			}
+			return nil
+		}, "::error::moon setup failed\n", true, "devbox run -- moon setup"},
+		{"the setup recipe itself runs once", "setup", "moon", clean, "", false, "devbox run -- moon setup|git status --porcelain"},
 		{"a failing recipe says so and never looks at the tree", "test", "just", func(c runcmd.Cmd) error {
 			if c.Name == "devbox" {
 				fmt.Fprintln(c.Stdout, "boom")

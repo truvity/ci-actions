@@ -49,6 +49,19 @@ func Run(ctx context.Context, o Options) error {
 		fmt.Fprintf(o.Out, "::error::%s\n", err)
 		return ErrFailed
 	}
+	// moon installs its own toolchains (proto first) as actions of the run, and
+	// a task of the "system" toolchain does not wait for them: a task that
+	// starts at once (its dependency a remote cache hit) can exec proto's shim
+	// while moon is still writing the proto binary, and fails with
+	// "proto-shim: Failed to execute proto ... Permission denied (os error 13)"
+	// (trust-form/wallet, 2026-11-10). `moon setup` installs every toolchain
+	// first, so no task starts before they are in place.
+	if o.Command == "moon" && o.Recipe != "setup" {
+		if err := o.Exec(ctx, runcmd.Cmd{Name: "devbox", Args: append(devboxconfig.RunArgs(o.DevboxConfig), "moon", "setup"), Stdout: o.Out, Stderr: o.Err}); err != nil {
+			fmt.Fprintln(o.Out, "::error::moon setup failed")
+			return ErrFailed
+		}
+	}
 	if err := o.Exec(ctx, runcmd.Cmd{Name: "devbox", Args: append(devboxconfig.RunArgs(o.DevboxConfig), o.Command, o.Recipe), Stdout: o.Out, Stderr: o.Err}); err != nil {
 		fmt.Fprintf(o.Out, "::error::%s failed\n", o.Recipe)
 		return ErrFailed
