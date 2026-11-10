@@ -4,6 +4,12 @@ Every release of truvity/ci-actions, newest first. Pin the commit of a
 tag (`git rev-parse vX.Y.Z^{commit}`), never the tag object and never
 an untagged commit; `tagged-pins` refuses anything else.
 
+## v3.14.0
+
+### Changed
+
+- **`policy-conformance` C8: `Consumers` is optional, and a README may have a `Platform part and company part` section.** The component contract (rule C8) stopped requiring the `Consumers` section and the typed "latest version" line on 2026-11-10, and added an optional README section that states a component's platform part and company part (https://github.com/truvity/policy/pull/329). The checker now asks for ten headings in their order and treats two more as optional. `Consumers`, when present, must still sit in its place (after `Install and a worked example`, before `Neighbours`). `Platform part and company part`, when present, must sit after `Install and a worked example` and before the first later heading the README has (`Consumers`, or `Neighbours` when `Consumers` is absent), and its body must hold both labelled entries, `**Platform part.**` and `**Company part.**`, each followed by text (`None.` is text). A wrong place, a missing entry or an empty entry is a C8 failure whose message says what to write. A README is judged by the order and the shape only; the order of the two entries is not checked, and a label may open a list item. No repository that passes on v3.13.0 fails on this release: a README in the old layout (with `Consumers`, without the new section) passes with the same line as before (`C8 PASS: all 11 headings present, in order`), and the new section is not required. The count in that line is now the number of headings found, so a README without `Consumers` reads `all 10 headings present, in order`. The new section becomes required in a later contract version, and the checker will follow that version with its own entry here. There is no input to turn this on: the rules are the ones of the `ci-actions` release a repository pins, so a repository gets this behaviour by bumping its pin of `policy-conformance` (or of ci-workflows' `check.yaml`, which pins it) to this release. Tests: the four combinations pass; the new section in a wrong place, with one entry missing and with an empty entry fail; `Consumers` out of place still fails; a frozen README of the old layout (`internal/policyconformance/testdata/readme-consumers-layout.md`) still passes.
+
 ## v3.13.0
 
 ### Changed

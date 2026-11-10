@@ -248,6 +248,53 @@ var rulecases = []rcase{
 		f.sub("README.md", `^## Development$`, "## Status")
 		f.sub("README.md", `^## TMP$`, "## Development")
 	}, "FAIL", "comes before"},
+	// C8 · "Consumers" is optional, and "Platform part and company part" is an
+	// optional section checked for shape when present.
+	{"C8", "Consumers and the parts section both present", func(f *fx) { f.write("README.md", readmeOf(true, partsOK)) }, "PASS", "all 12 headings present"},
+	{"C8", "Consumers present, parts section absent", func(f *fx) { f.write("README.md", readmeOf(true, "")) }, "PASS", "all 11 headings present"},
+	{"C8", "Consumers absent, parts section present", func(f *fx) { f.write("README.md", readmeOf(false, partsOK)) }, "PASS", "all 11 headings present"},
+	{"C8", "Consumers and the parts section both absent", func(f *fx) { f.write("README.md", readmeOf(false, "")) }, "PASS", "all 10 headings present"},
+	{"C8", "None. is a valid entry", func(f *fx) {
+		f.write("README.md", readmeOf(false, "**Platform part.** None.\n\n**Company part.** None.\n"))
+	}, "PASS", ""},
+	{"C8", "an entry may sit in a list, with its text on the lines below the label", func(f *fx) {
+		f.write("README.md", readmeOf(true, "- **Platform part.**\n\n  The chart, applied by the platform admin.\n- **Company part.** None.\n"))
+	}, "PASS", ""},
+	{"C8", "Consumers placed before the install section", func(f *fx) {
+		f.write("README.md", readmeWith("Who it is for", "The model", "Consumers", "Install and a worked example", "Neighbours", "Documentation",
+			"The rule that makes this repository public", "Status", "Development", "Releasing", "Licence"))
+	}, "FAIL", "'Consumers' comes before 'Install and a worked example'"},
+	{"C8", "Neighbours is still required when Consumers is absent", func(f *fx) {
+		f.write("README.md", readmeWith("Who it is for", "The model", "Install and a worked example"))
+	}, "FAIL", "missing 'Neighbours'"},
+	{"C8", "the parts section before the install section", func(f *fx) {
+		f.write("README.md", readmeWith("Who it is for", "The model", "Platform part and company part", "Install and a worked example", "Consumers", "Neighbours"))
+	}, "FAIL", "wrong place: move it to sit after '## Install and a worked example' and before '## Consumers'"},
+	{"C8", "the parts section after Consumers", func(f *fx) {
+		f.write("README.md", readmeWith("Who it is for", "The model", "Install and a worked example", "Consumers", "Platform part and company part", "Neighbours"))
+	}, "FAIL", "wrong place: move it to sit after '## Install and a worked example' and before '## Consumers'"},
+	{"C8", "the parts section after Neighbours when Consumers is absent", func(f *fx) {
+		f.write("README.md", readmeWith("Who it is for", "The model", "Install and a worked example", "Neighbours", "Platform part and company part"))
+	}, "FAIL", "wrong place: move it to sit after '## Install and a worked example' and before '## Neighbours'"},
+	{"C8", "the parts section with the Company part entry missing", func(f *fx) {
+		f.write("README.md", readmeOf(true, "**Platform part.** The chart.\n"))
+	}, "FAIL", "has no **Company part.** entry: add a line that starts with **Company part.** followed by what a company's SRE applies, or None."},
+	{"C8", "the parts section with the Platform part entry missing", func(f *fx) {
+		f.write("README.md", readmeOf(false, "**Company part.** None.\n"))
+	}, "FAIL", "has no **Platform part.** entry: add a line that starts with **Platform part.** followed by what the platform admin applies, or None."},
+	{"C8", "the parts section with an empty heading body", func(f *fx) { f.write("README.md", readmeOf(true, "\n")) }, "FAIL", "has no **Platform part.** entry"},
+	{"C8", "the parts section with an empty Platform part entry", func(f *fx) {
+		f.write("README.md", readmeOf(true, "**Platform part.**\n\n**Company part.** None.\n"))
+	}, "FAIL", "has an empty **Platform part.** entry: write what the platform admin applies, or None. after the label"},
+	{"C8", "the parts section with an empty Company part entry at the end", func(f *fx) {
+		f.write("README.md", readmeOf(true, "**Platform part.** The chart.\n\n**Company part.**   \n\n"))
+	}, "FAIL", "has an empty **Company part.** entry"},
+	{"C8", "an entry that is only punctuation is empty", func(f *fx) {
+		f.write("README.md", readmeOf(true, "**Platform part.** -\n\n**Company part.** None.\n"))
+	}, "FAIL", "has an empty **Platform part.** entry"},
+	{"C8", "text under the other label does not fill an empty entry", func(f *fx) {
+		f.write("README.md", readmeOf(true, "**Company part.** None.\n\n**Platform part.**\n"))
+	}, "FAIL", "has an empty **Platform part.** entry"},
 	{"C9", "a licence that is not MIT", func(f *fx) { f.write("LICENSE", "Apache License\n") }, "FAIL", "not the MIT"},
 	{"C10", "a Go repository with no security.yaml", func(f *fx) { f.remove(".github/workflows/security.yaml") }, "FAIL", "security.yaml is missing"},
 	{"C10", "the check recipe depending on vuln", func(f *fx) { f.write("Justfile", "vuln:\n    true\ncheck: vuln\n    ./hack/leak-canary.sh\n") }, "FAIL", "the check recipe depends on vuln"},
@@ -486,6 +533,67 @@ var rulecases = []rcase{
 		f.write(".github/workflows/ci.yaml", "jobs:\n  a:\n    env:\n      S: http://a.b.svc\n")
 		f.write(".github/policy-conformance.yaml", "exempt:\n  C18:\n    reason: elsewhere\n    paths: [.github/workflows/other.yaml]\n")
 	}, "FAIL", "ci.yaml:4 (svc)"},
+}
+
+const partsOK = "**Platform part.** The chart, applied by the platform admin.\n\n**Company part.** None.\n"
+
+// readmeWith builds a README with these `## ` headings in this order and the
+// install line C12 reads at the end. A heading named "Platform part and
+// company part" gets the body partsOK.
+func readmeWith(heads ...string) string {
+	var b strings.Builder
+	b.WriteString("# widget\n")
+	for _, h := range heads {
+		body := "text\n"
+		if h == "Platform part and company part" {
+			body = partsOK
+		}
+		fmt.Fprintf(&b, "\n## %s\n\n%s", h, body)
+	}
+	b.WriteString("\n```sh\ngo install example.invalid/widget@v1.1.0\n```\n")
+	return b.String()
+}
+
+// readmeOf builds a README with every required heading, with or without
+// Consumers, and, when parts is not empty, the parts section between the
+// install section and what follows, holding parts as its body.
+func readmeOf(consumers bool, parts string) string {
+	var b strings.Builder
+	b.WriteString("# widget\n")
+	for _, h := range headings {
+		if h == "Consumers" && !consumers {
+			continue
+		}
+		fmt.Fprintf(&b, "\n## %s\n\ntext\n", h)
+		if h == "Install and a worked example" && parts != "" {
+			fmt.Fprintf(&b, "\n## Platform part and company part\n\n%s", parts)
+		}
+	}
+	b.WriteString("\n```sh\ngo install example.invalid/widget@v1.1.0\n```\n")
+	return b.String()
+}
+
+// A README in the layout of before the optional sections (Consumers present,
+// no parts section) keeps passing, unchanged, with the same verdict line the
+// checker has always printed for it. The fixture is a frozen file: do not
+// edit it to make a change pass.
+func TestC8TodaysLayoutStillPasses(t *testing.T) {
+	want, err := os.ReadFile("testdata/readme-consumers-layout.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := conformant(t)
+	f.write("README.md", string(want))
+	log, _, _ := f.run(Options{})
+	if got := f.read("README.md"); got != string(want) {
+		t.Fatalf("the run changed the README")
+	}
+	if l := line(log, "C8"); l != "C8 PASS: all 11 headings present, in order" {
+		t.Errorf("C8 on today's layout: %q", l)
+	}
+	for _, id := range Rules {
+		f.expect(log, id, "PASS")
+	}
 }
 
 func TestRules(t *testing.T) {
