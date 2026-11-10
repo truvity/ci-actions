@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"unicode"
 
 	"github.com/truvity/ci-actions/internal/verscmp"
 )
@@ -381,30 +382,39 @@ func (r *run) c8() {
 		r.emit("C8", "FAIL", "README.md is missing")
 		return
 	}
-	var heads []string
-	for _, l := range lines(r.read("README.md")) {
+	readme := lines(r.read("README.md"))
+	var heads []string // text of each `## ` heading, in file order
+	var at []int       // the line of each, in readme
+	for i, l := range readme {
 		if m := reH2Text.FindStringSubmatch(l); m != nil {
 			heads = append(heads, m[1])
+			at = append(at, i)
 		}
+	}
+	first := func(name string) int {
+		for i, x := range heads {
+			if x == name {
+				return i
+			}
+		}
+		return -1
 	}
 	var probs, missing []string
 	last, lastName := -1, ""
+	found := 0
 	for _, h := range readmeHeadings {
-		pos := -1
-		for i, x := range heads {
-			if x == h {
-				pos = i
-				break
-			}
-		}
+		pos := first(h.name)
 		if pos < 0 {
-			missing = append(missing, h)
+			if !h.optional {
+				missing = append(missing, h.name)
+			}
 			continue
 		}
+		found++
 		if pos < last {
-			probs = append(probs, fmt.Sprintf("'%s' comes before '%s'", h, lastName))
+			probs = append(probs, fmt.Sprintf("'%s' comes before '%s'", h.name, lastName))
 		}
-		last, lastName = pos, h
+		last, lastName = pos, h.name
 	}
 	if len(missing) != 0 {
 		var q []string
@@ -413,7 +423,101 @@ func (r *run) c8() {
 		}
 		probs = append([]string{"missing " + strings.Join(q, ", ")}, probs...)
 	}
-	r.verdict("C8", fmt.Sprintf("all %d headings present, in order", len(readmeHeadings)), probs...)
+	if pos := first(readmeParts); pos >= 0 {
+		found++
+		probs = append(probs, c8Parts(readme, at, pos, first)...)
+	}
+	r.verdict("C8", fmt.Sprintf("all %d headings present, in order", found), probs...)
+}
+
+// partsLabels are the two labelled entries the section "Platform part and
+// company part" holds, with what to write in each.
+var partsLabels = []struct{ label, what string }{
+	{"**Platform part.**", "what the platform admin applies, or None."},
+	{"**Company part.**", "what a company's SRE applies, or None."},
+}
+
+// c8Parts judges the section "Platform part and company part", which is
+// present at heads[pos]: its place, and that both labelled entries are there
+// and say something. Each problem names what to write.
+func c8Parts(readme []string, at []int, pos int, first func(string) int) []string {
+	var probs []string
+	title := "'## " + readmeParts + "'"
+
+	// Place: after the install section, before the first later heading that
+	// the README has (Consumers, or Neighbours when Consumers is absent).
+	install := first(readmeInstall)
+	nextName, nextPos := "", -1
+	seen := false
+	for _, h := range readmeHeadings {
+		if h.name == readmeInstall {
+			seen = true
+			continue
+		}
+		if !seen {
+			continue
+		}
+		if p := first(h.name); p >= 0 {
+			nextName, nextPos = h.name, p
+			break
+		}
+	}
+	if (install >= 0 && pos < install) || (nextPos >= 0 && pos > nextPos) {
+		where := "after '## " + readmeInstall + "'"
+		if nextPos >= 0 {
+			where += " and before '## " + nextName + "'"
+		}
+		probs = append(probs, title+" is in the wrong place: move it to sit "+where)
+	}
+
+	// Shape: both labels, each followed by text.
+	end := len(readme)
+	if pos+1 < len(at) {
+		end = at[pos+1]
+	}
+	body := readme[at[pos]+1 : end]
+	starts := make([]int, len(partsLabels))
+	for i := range starts {
+		starts[i] = -1
+	}
+	rest := make([]string, len(partsLabels)) // the text after a label's start, up to the next label
+	labelAt := func(l string) (int, string) {
+		l = strings.TrimSpace(l)
+		for _, mark := range []string{"- ", "* ", "+ "} {
+			l = strings.TrimPrefix(l, mark)
+		}
+		for i, pl := range partsLabels {
+			if strings.HasPrefix(l, pl.label) {
+				return i, l[len(pl.label):]
+			}
+		}
+		return -1, ""
+	}
+	cur := -1
+	for n, l := range body {
+		if i, tail := labelAt(l); i >= 0 {
+			if starts[i] < 0 {
+				starts[i] = n
+				cur = i
+				rest[i] += tail + "\n"
+			} else {
+				cur = -1 // a repeated label ends the entry before it and starts nothing new
+			}
+			continue
+		}
+		if cur >= 0 {
+			rest[cur] += l + "\n"
+		}
+	}
+	for i, pl := range partsLabels {
+		switch {
+		case starts[i] < 0:
+			probs = append(probs, title+" has no "+pl.label+" entry: add a line that starts with "+pl.label+" followed by "+pl.what)
+		case !strings.ContainsFunc(rest[i], func(r rune) bool { return unicode.IsLetter(r) || unicode.IsDigit(r) }):
+			probs = append(probs, title+" has an empty "+pl.label+" entry: write "+pl.what+" after the label")
+		}
+	}
+	return probs
 }
 
 // C9 · MIT licence

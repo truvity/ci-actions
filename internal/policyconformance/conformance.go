@@ -47,21 +47,40 @@ type Options struct {
 // Rules is the rule order.
 var Rules = []string{"C1", "C2", "C3", "C4", "C5", "C6", "C7", "C8", "C9", "C10", "C11", "C12", "C13", "C18"}
 
-// README_HEADINGS: the headings C8 asks for, in this order. Other headings
-// may sit between them; these must all be present and must not be reordered.
-var readmeHeadings = []string{
-	"Who it is for",
-	"The model",
-	"Install and a worked example",
-	"Consumers",
-	"Neighbours",
-	"Documentation",
-	"The rule that makes this repository public",
-	"Status",
-	"Development",
-	"Releasing",
-	"Licence",
+// readmeHeading is one `## ` heading C8 knows. An optional heading is not
+// asked for; when it is present it must keep its place in the order.
+type readmeHeading struct {
+	name     string
+	optional bool
 }
+
+// readmeHeadings: the headings C8 asks for, in this order. Other headings
+// may sit between them; these must not be reordered. "Consumers" is optional
+// (the contract stopped requiring it on 2026-11-10): a README that keeps it
+// is judged exactly as before.
+var readmeHeadings = []readmeHeading{
+	{"Who it is for", false},
+	{"The model", false},
+	{"Install and a worked example", false},
+	{"Consumers", true},
+	{"Neighbours", false},
+	{"Documentation", false},
+	{"The rule that makes this repository public", false},
+	{"Status", false},
+	{"Development", false},
+	{"Releasing", false},
+	{"Licence", false},
+}
+
+// readmeInstall and readmeParts: the optional section "Platform part and
+// company part" sits right after the install section, before whichever of
+// the later headings comes first. It is checked for shape only when present.
+// It is not in readmeHeadings because its place is relative to two neighbours,
+// not to the whole list.
+const (
+	readmeInstall = "Install and a worked example"
+	readmeParts   = "Platform part and company part"
+)
 
 // Verdict is one rule's line.
 type result struct{ id, verdict, msg string }
