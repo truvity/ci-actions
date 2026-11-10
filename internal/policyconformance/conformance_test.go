@@ -295,6 +295,49 @@ var rulecases = []rcase{
 	{"C8", "text under the other label does not fill an empty entry", func(f *fx) {
 		f.write("README.md", readmeOf(true, "**Company part.** None.\n\n**Platform part.**\n"))
 	}, "FAIL", "has an empty **Platform part.** entry"},
+	{"C8", "the parts section twice, side by side", func(f *fx) {
+		f.write("README.md", readmeWith("Who it is for", "The model", "Install and a worked example", "Platform part and company part", "Platform part and company part", "Consumers", "Neighbours",
+			"Documentation", "The rule that makes this repository public", "Status", "Development", "Releasing", "Licence"))
+	}, "FAIL", "'## Platform part and company part' appears 2 times: keep one"},
+	{"C8", "the parts section again after Licence", func(f *fx) {
+		f.write("README.md", readmeOf(true, partsOK)+"\n## Platform part and company part\n\nnothing\n")
+	}, "FAIL", "appears 2 times"},
+	{"C8", "the Company part entry before the Platform part entry", func(f *fx) {
+		f.write("README.md", readmeOf(true, "**Company part.** None.\n\n**Platform part.** None.\n"))
+	}, "FAIL", "has **Company part.** before **Platform part.**: put **Platform part.** first"},
+	{"C8", "entries as ordered list items", func(f *fx) {
+		f.write("README.md", readmeOf(true, "1. **Platform part.** The chart.\n2) **Company part.** None.\n"))
+	}, "PASS", ""},
+	{"C8", "entries in a block quote", func(f *fx) {
+		f.write("README.md", readmeOf(true, "> **Platform part.** The chart.\n>\n> **Company part.** None.\n"))
+	}, "PASS", ""},
+	{"C8", "an empty label followed by a sub-heading", func(f *fx) {
+		f.write("README.md", readmeOf(true, "**Platform part.**\n### Sub\n\ntext under the sub-heading\n\n**Company part.** None.\n"))
+	}, "FAIL", "has an empty **Platform part.** entry"},
+	{"C8", "an entry that holds only an HTML comment", func(f *fx) {
+		f.write("README.md", readmeOf(true, "**Platform part.** <!-- TODO -->\n\n**Company part.** None.\n"))
+	}, "FAIL", "has an empty **Platform part.** entry"},
+	{"C8", "an entry that holds only a multi-line HTML comment", func(f *fx) {
+		f.write("README.md", readmeOf(true, "**Platform part.**\n<!--\nTODO fill in\n-->\n\n**Company part.** None.\n"))
+	}, "FAIL", "has an empty **Platform part.** entry"},
+	{"C8", "both labels inside a code block", func(f *fx) {
+		f.write("README.md", readmeOf(true, "```\n**Platform part.** A.\n**Company part.** B.\n```\n"))
+	}, "FAIL", "has no **Platform part.** entry"},
+	{"C8", "the parts heading in another case", func(f *fx) {
+		f.write("README.md", strings.Replace(readmeOf(true, partsOK), "## Platform part and company part", "## platform part and company part", 1))
+	}, "FAIL", "is not the heading '## Platform part and company part'"},
+	{"C8", "the parts heading with a trailing colon", func(f *fx) {
+		f.write("README.md", strings.Replace(readmeOf(true, partsOK), "## Platform part and company part", "## Platform part and company part:", 1))
+	}, "FAIL", "is not the heading '## Platform part and company part'"},
+	{"C8", "the parts heading with an ampersand", func(f *fx) {
+		f.write("README.md", strings.Replace(readmeOf(true, partsOK), "## Platform part and company part", "## Platform part & company part", 1))
+	}, "FAIL", "is not the heading '## Platform part and company part'"},
+	{"C8", "the parts heading nested one level down is not a heading", func(f *fx) {
+		f.write("README.md", strings.Replace(readmeOf(true, partsOK), "## Platform part and company part", "### Platform part and company part", 1))
+	}, "PASS", "all 11 headings present"},
+	{"C8", "Consumers in another case instead of Consumers", func(f *fx) {
+		f.write("README.md", strings.Replace(readmeOf(true, ""), "## Consumers", "## consumers", 1))
+	}, "FAIL", "is not the heading '## Consumers'"},
 	{"C9", "a licence that is not MIT", func(f *fx) { f.write("LICENSE", "Apache License\n") }, "FAIL", "not the MIT"},
 	{"C10", "a Go repository with no security.yaml", func(f *fx) { f.remove(".github/workflows/security.yaml") }, "FAIL", "security.yaml is missing"},
 	{"C10", "the check recipe depending on vuln", func(f *fx) { f.write("Justfile", "vuln:\n    true\ncheck: vuln\n    ./hack/leak-canary.sh\n") }, "FAIL", "the check recipe depends on vuln"},
