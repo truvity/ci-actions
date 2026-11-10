@@ -407,6 +407,8 @@ func (r *run) c8() {
 		if pos < 0 {
 			if !h.optional {
 				missing = append(missing, h.name)
+			} else if near := nearMiss(heads, h.name); near != "" {
+				probs = append(probs, fmt.Sprintf("'## %s' is not the heading '## %s': write it exactly so", near, h.name))
 			}
 			continue
 		}
@@ -426,9 +428,56 @@ func (r *run) c8() {
 	if pos := first(readmeParts); pos >= 0 {
 		found++
 		probs = append(probs, c8Parts(readme, at, pos, first)...)
+		n := 0
+		for _, x := range heads {
+			if x == readmeParts {
+				n++
+			}
+		}
+		if n > 1 {
+			probs = append(probs, fmt.Sprintf("'## %s' appears %d times: keep one", readmeParts, n))
+		}
+	} else if near := nearMiss(heads, readmeParts); near != "" {
+		probs = append(probs, fmt.Sprintf("'## %s' is not the heading '## %s': write it exactly so", near, readmeParts))
 	}
 	r.verdict("C8", fmt.Sprintf("all %d headings present, in order", found), probs...)
 }
+
+// nearMiss returns the text of a `## ` heading that is the optional heading
+// name written in another case, with other punctuation or with "&" for "and";
+// "" when there is none. The optional headings cannot be told from absence
+// otherwise, so a typo would pass without a sign. It is asked only when the
+// exact heading is absent.
+func nearMiss(heads []string, name string) string {
+	norm := func(s string) string {
+		s = strings.ToLower(strings.ReplaceAll(s, "&", " and "))
+		var b strings.Builder
+		for _, r := range s {
+			if unicode.IsLetter(r) || unicode.IsDigit(r) {
+				b.WriteRune(r)
+			} else if unicode.IsSpace(r) {
+				b.WriteRune(' ')
+			}
+		}
+		return strings.Join(strings.Fields(b.String()), " ")
+	}
+	want := norm(name)
+	for _, h := range heads {
+		if h != name && norm(h) == want {
+			return h
+		}
+	}
+	return ""
+}
+
+var (
+	// reListMark is what may stand before a label: a bullet, an ordered
+	// marker or a block quote mark, in any mix ("> - ", "1. ").
+	reListMark = regexp.MustCompile(`^(?:(?:[-*+]|[0-9]+[.)])[ \t]+|>[ \t]*)+`)
+	reSubHead  = regexp.MustCompile(`^ {0,3}#{1,6}(?:[ \t]|$)`)
+	reFence    = regexp.MustCompile("^ {0,3}(?:```|~~~)")
+	reComment  = regexp.MustCompile(`(?s)<!--.*?(?:-->|$)`)
+)
 
 // partsLabels are the two labelled entries the section "Platform part and
 // company part" holds, with what to write in each.
@@ -482,10 +531,7 @@ func c8Parts(readme []string, at []int, pos int, first func(string) int) []strin
 	}
 	rest := make([]string, len(partsLabels)) // the text after a label's start, up to the next label
 	labelAt := func(l string) (int, string) {
-		l = strings.TrimSpace(l)
-		for _, mark := range []string{"- ", "* ", "+ "} {
-			l = strings.TrimPrefix(l, mark)
-		}
+		l = reListMark.ReplaceAllString(strings.TrimSpace(l), "")
 		for i, pl := range partsLabels {
 			if strings.HasPrefix(l, pl.label) {
 				return i, l[len(pl.label):]
@@ -493,8 +539,18 @@ func c8Parts(readme []string, at []int, pos int, first func(string) int) []strin
 		}
 		return -1, ""
 	}
-	cur := -1
+	cur, fenced := -1, false
 	for n, l := range body {
+		if reFence.MatchString(l) {
+			fenced = !fenced
+			if cur >= 0 {
+				rest[cur] += "x\n" // a code block is text of the entry it sits in
+			}
+			continue
+		}
+		if fenced { // a label inside a code block is an example, not an entry
+			continue
+		}
 		if i, tail := labelAt(l); i >= 0 {
 			if starts[i] < 0 {
 				starts[i] = n
@@ -505,6 +561,10 @@ func c8Parts(readme []string, at []int, pos int, first func(string) int) []strin
 			}
 			continue
 		}
+		if reSubHead.MatchString(l) {
+			cur = -1 // a sub-heading ends the entry; its text is not the entry's
+			continue
+		}
 		if cur >= 0 {
 			rest[cur] += l + "\n"
 		}
@@ -513,9 +573,12 @@ func c8Parts(readme []string, at []int, pos int, first func(string) int) []strin
 		switch {
 		case starts[i] < 0:
 			probs = append(probs, title+" has no "+pl.label+" entry: add a line that starts with "+pl.label+" followed by "+pl.what)
-		case !strings.ContainsFunc(rest[i], func(r rune) bool { return unicode.IsLetter(r) || unicode.IsDigit(r) }):
+		case !strings.ContainsFunc(reComment.ReplaceAllString(rest[i], ""), func(r rune) bool { return unicode.IsLetter(r) || unicode.IsDigit(r) }):
 			probs = append(probs, title+" has an empty "+pl.label+" entry: write "+pl.what+" after the label")
 		}
+	}
+	if starts[0] >= 0 && starts[1] >= 0 && starts[1] < starts[0] {
+		probs = append(probs, title+" has "+partsLabels[1].label+" before "+partsLabels[0].label+": put "+partsLabels[0].label+" first")
 	}
 	return probs
 }
