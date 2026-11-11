@@ -10,35 +10,35 @@ contract.
 
 | action | what it does | key inputs | used by (ci-workflows) |
 | -- | -- | -- | -- |
-| [`setup-devbox`](setup-devbox/action.yaml) | Installs devbox, proto and the toolchain, logs into CodeArtifact, mints or exchanges a GitHub App token for private-module reads, and wires the caches by delegating to [`setup-cache`](setup-cache/action.yaml) | `go-cache-bucket`, `go-cache-region`, `goproxy`, `npm-registry`, `bazel-remote`, `go-private`, `module-app` (or `module-app-client-id`), `aws-config-file`, `codeartifact-domain`, `devbox-config` | `check`, `integration`, `release-public`, `release-private`, `parity-fleet` |
+| [`setup-devbox`](setup-devbox/action.yaml) | Installs devbox, proto and the toolchain, logs into CodeArtifact, mints or exchanges a GitHub App token for private-module reads, and wires the caches by delegating to [`setup-cache`](setup-cache/action.yaml) | `go-cache-bucket`, `go-cache-region`, `goproxy`, `npm-registry`, `bazel-remote`, `go-private`, `module-app` (or `module-app-client-id`), `aws-config-file`, `codeartifact-domain`, `devbox-config` | `check`, `integration`, `release-public`, `release-private`, `release-pkl`, `auto-release`, `parity-fleet`, `pkl-fleet` |
 | [`setup-cache`](setup-cache/action.yaml) | Detects the build systems a repository uses and wires each to the estate's cache (Go build cache through go-cache-plugin to the bucket; checks the Yarn and moon settings). Nested: only `setup-devbox` calls it, moved here from `truvity/ci-cache` | `bucket`, `region`, `endpoint`, `path-style`, `goproxy`, `npm-registry`, `bazel-remote`, `languages`, `client-version` | none directly (through `setup-devbox`) |
 | [`recipe`](recipe/action.yaml) | Runs one task-runner recipe inside devbox, then fails if the working tree changed | `recipe` (required), `command` (`just`), `devbox-config` | `check` |
 | [`s3-cache`](s3-cache/README.md) | `actions/cache` against the CI cache bucket (zstd tar, keys and restore-keys), falling back to GitHub's cache without a bucket or without credentials (decided by configuration, not by runner type) | `path`, `key`, `restore-keys`, `bucket`, `region` (`restore` and `save` sub-actions) | `check` (golangci-lint cache), `integration` (yarn cache), `setup-devbox` (proto) |
 | [`stable-mtimes`](stable-mtimes/README.md) | Gives every tracked file a content-derived modification time right after checkout, so Go's test cache hits when the content is unchanged | `working-directory` | `check` (default on, opt out with `stable-mtimes: false`) |
-| [`public-runners`](public-runners/action.yaml) | Refuses a public repository that asks for self-hosted runners | `runners` (required), `visibility` | `check`, `integration`, `release-public` |
+| [`public-runners`](public-runners/action.yaml) | Refuses a public repository that asks for self-hosted runners | `runners` (required), `visibility` | `check`, `integration`, `release-public`, `release-pkl` |
 | [`tagged-pins`](tagged-pins/action.yaml) | Refuses a pin into the shared CI libraries that is not the commit of a tag | `libraries` (ci-workflows, ci-actions) | `check` |
 | [`policy-conformance`](policy-conformance/README.md) | Checks a repository against the component contract, rules C1 to C13 and C18, one line per rule | `strict` (`false`), `skip`, `reason`, `runner-code` (`error`) | `check`, opt-in |
 | [`cluster`](cluster/README.md) | Stands up the end-to-end cluster (a disposable kind box, or a shared cluster) behind one set of outputs | `mode` (required), `policy-version`, `namespace`, `background` | `integration` (kind tier) |
-| [`setup-remote-builders`](setup-remote-builders/action.yaml) | Attaches the remote BuildKit builders a cross-architecture image build needs, over mutual TLS when the runner provides a client certificate | `remote-builders` (required), `wake-timeout` (seconds a stopped builder is retried while it boots, default 240) | `integration` |
-| [`setup-buildkit-tls`](setup-buildkit-tls/action.yaml) | Settles where the runner's BuildKit client certificate comes from: `CI_BUILDKIT_TLS_DIR` as it is, or three PEM environment variables written to a fresh directory and exported as `CI_BUILDKIT_TLS_DIR` | none (reads the runner's environment) | before the "Plan the remote builders" steps (once adopted) |
+| [`setup-remote-builders`](setup-remote-builders/action.yaml) | Attaches the remote BuildKit builders a cross-architecture image build needs, over mutual TLS when the runner provides a client certificate | `remote-builders` (required), `wake-timeout` (seconds a stopped builder is retried while it boots, default 240) | none yet (`integration` and `release-private` plan the builders in their own steps) |
+| [`setup-buildkit-tls`](setup-buildkit-tls/action.yaml) | Settles where the runner's BuildKit client certificate comes from: `CI_BUILDKIT_TLS_DIR` as it is, or three PEM environment variables written to a fresh directory and exported as `CI_BUILDKIT_TLS_DIR` | none (reads the runner's environment) | `check`, `integration`, `release-private`, before their "Plan the remote builders" steps |
 | [`openbao-secrets`](openbao-secrets/action.yaml) | Reads a job's third-party secrets from OpenBao at run time | `issuer`, `address`, `path` (required), `keys` | `release-private` |
 | [`token-exchange`](token-exchange/action.yaml) | Exchanges the job's GitHub identity token at a roster issuer for the clusters, cloud roles and GitHub App tokens its rules grant (curl and jq only, nothing downloaded) | `issuer` (required), `audiences`, `kubeconfig`, `default-profile`, `region`, `github-app`, `repositories`, `permissions` | `auto-release`, `renovate-fleet`, `parity-fleet`, `pkl-fleet` |
-| [`fleet-discover`](fleet-discover/action.yaml) | Decides which repositories a fleet job touches, and whether each default branch is gated | `token` (required), `estate`, `require-check`, `repositories` | `renovate-fleet`, `parity-fleet` |
+| [`fleet-discover`](fleet-discover/action.yaml) | Decides which repositories a fleet job touches, and whether each default branch is gated | `token` (required), `estate`, `require-check`, `repositories` | `renovate-fleet`, `parity-fleet`, `pkl-fleet` |
 | [`caller-parity`](caller-parity/action.yaml) | Compares each repository's shared caller workflows (and the depguard block, and the check caller of a company repository, once those kits are switched on) against the kits in [`caller-parity/kits/`](caller-parity/kits/), and reports; a kit's `applies_if` may name a file, or a directory with a trailing `/` | `token`, `repositories` (required), `fail-on-diff` (`false`) | `parity-fleet` |
-| [`company-boundary`](company-boundary/action.yaml) | Refuses, offline, what a company repository must not hold: an Argo CD or Kargo object, a Namespace, a Secret with data, a symlink out of the tree; a `config` repository also holds no Go `replace` and no import, requirement or vendored copy under a prefix the caller names; a `delivery` repository also holds no infrastructure project or `tenant/` tree and keeps `pins/` and `values/` to their envelope. A deny-list, not a path allow-list | `kind` (required, `config` or `delivery`), `forbidden-import-prefixes`, `path` | company gates (once released and adopted) |
-| [`tenant-inputs`](tenant-inputs/action.yaml) | Fetches the digest-pinned artifact of a company's published inputs, read-only: the reference must be `<registry>/<name>@sha256:<hex>` (a tag is refused), every byte is checked against its digest, the client sends only GET and HEAD, and a copy committed in the company repository is never read | `reference` (required), `token`, `username`, `output-dir`, `max-bytes` | company gates (once released and adopted) |
-| [`chart-auth`](chart-auth/action.yaml) | Obtains a scoped chart-read registry credential from the job's own identity (`token-exchange`, then `aws ecr get-login-password`) and keeps it under `RUNNER_TEMP`, masked: refuses a long-lived AWS key, fails a missing profile, and under GitHub Actions fails (never skips) a failed login | `registry` (required), `issuer`, `audience`, `profile`, `region`, `exchange` (`true`), `export-env` (`false`) | company gates (once released and adopted) |
-| [`company-validation`](company-validation/action.yaml) | **Deprecated** (see [below](#company-validation-is-deprecated)). Dispatches a private platform validation for a company pull request, waits for that exact run, and accepts only the check result the platform correlated with the request; re-reads the pull request before dispatch and before accepting | `token`, `dispatch-token`, `company`, `company-repository`, `platform-repository`, `platform-workflow`, `pull-request`, `head-sha`, `check-app-slug` (required), `platform-ref`, `base-branch`, `check-name`, `wait-timeout-seconds`, `poll-interval-seconds`, `api-url` | company delivery gates (once released and adopted) |
+| [`company-boundary`](company-boundary/action.yaml) | Refuses, offline, what a company repository must not hold: an Argo CD or Kargo object, a Namespace, a Secret with data, a symlink out of the tree; a `config` repository also holds no Go `replace` and no import, requirement or vendored copy under a prefix the caller names; a `delivery` repository also holds no infrastructure project or `tenant/` tree and keeps `pins/` and `values/` to their envelope. A deny-list, not a path allow-list | `kind` (required, `config` or `delivery`), `forbidden-import-prefixes`, `path` | `check` (with `company-kind`) |
+| [`tenant-inputs`](tenant-inputs/action.yaml) | Fetches the digest-pinned artifact of a company's published inputs, read-only: the reference must be `<registry>/<name>@sha256:<hex>` (a tag is refused), every byte is checked against its digest, the client sends only GET and HEAD, and a copy committed in the company repository is never read | `reference` (required), `token`, `username`, `output-dir`, `max-bytes` | `check` (with `company-kind`) |
+| [`chart-auth`](chart-auth/action.yaml) | Obtains a scoped chart-read registry credential from the job's own identity (`token-exchange`, then `aws ecr get-login-password`) and keeps it under `RUNNER_TEMP`, masked: refuses a long-lived AWS key, fails a missing profile, and under GitHub Actions fails (never skips) a failed login | `registry` (required), `issuer`, `audience`, `profile`, `region`, `exchange` (`true`), `export-env` (`false`) | `check` (with `company-kind`) |
+| [`company-validation`](company-validation/action.yaml) | **Deprecated** (see [below](#company-validation-is-deprecated)). Dispatches a private platform validation for a company pull request, waits for that exact run, and accepts only the check result the platform correlated with the request; re-reads the pull request before dispatch and before accepting | `token`, `dispatch-token`, `company`, `company-repository`, `platform-repository`, `platform-workflow`, `pull-request`, `head-sha`, `check-app-slug` (required), `platform-ref`, `base-branch`, `check-name`, `wait-timeout-seconds`, `poll-interval-seconds`, `api-url` | none in ci-workflows |
 | [`devbox-parity`](devbox-parity/action.yaml) | Refreshes devbox packages and aligns a Go repository's toolchain triple, opening a pull request | `token` (required), `mode`, `module-dirs` | `parity-fleet` |
-| [`auto-release`](auto-release/action.yaml) | The steps of the shared auto-release workflow: `gate` (a security-labelled merge or a hand-written fix releases now, the rest waits for the batch) and `tag` (cuts the next patch tag, behind a CHANGELOG heading pull request when the release needs one) | `step`, `token`, `repository` (required), `sha`, `tag-prefix`, `bot`, `changelog-heading`, `version-bump-command` | `auto-release` (once released and adopted) |
-| [`publish-nix-flakes`](publish-nix-flakes/action.yaml) | Generates, checks and uploads a Nix flake per GoReleaser archive id, deterministically packed | `flakes`, `flake-dir`, `token` (required) | `release-public` (once released and adopted) |
-| [`publish-charts`](publish-charts/action.yaml) | Refuses a wrong chart name before anything is pushed, then packages and pushes each chart with helmctl | `charts`, `chart-root`, `registry`, `app-version-mode`, `helmctl-version`, `token` (required), `images`, `require-image-digests` | `release-public` (once released and adopted) |
-| [`require-green-checks`](require-green-checks/action.yaml) | Refuses a release unless the tagged commit has a successful `check` and nothing else on it is red or pending | `token` (required) | `release-private` (once released and adopted) |
-| [`release-pkl`](release-pkl/action.yaml) | The steps of the shared Pkl-package release: read the declared version, refuse a tag that is not it or has no changelog heading, check the assets and their checksums, publish (safe to re-run), smoke-test the published packages | `step` (required), then per step: `tag`, `version`, `manifest`, `repository`, `token`, `pkl-command`, `smoke-import` | `release-pkl` (once released and adopted) |
-| [`pkl-fleet`](pkl-fleet/action.yaml) | The per-repository steps of the Pkl contracts fleet bump: rewrite the dependency URIs (refusing what it cannot classify), resolve and regenerate, open or update the pull request | `step` (required), then per step: `target`, `source`, `dirs-file`, `token`, `repository`, `base`, `version`, `from`, `breaking` | `pkl-fleet` (once released and adopted) |
-| [`fleet-step`](fleet-step/action.yaml) | Small fleet steps: print the job's OIDC claims, resolve the commit author, read a repository's parity settings, approve non-major renovate pull requests, summarise the majors available across an estate | `step` (required), then per step: `token`, `repository`, `user-login`, `run-mode` | `parity-fleet`, `renovate-fleet`, `pkl-fleet` (once released and adopted) |
-| [`token-inputs`](token-inputs/action.yaml) | Checks a fleet caller's token inputs against its `token-source`, reporting every fault at once | `source`, `secret-name` (required), `has-key`, `id`, `extra-keys` | `parity-fleet`, `renovate-fleet`, `pkl-fleet`, `auto-release` (once released and adopted) |
-| [`enrolment-list`](enrolment-list/action.yaml) | Reads a dotted-path list of repository names from the caller's repositories file, as JSON for `fleet-discover` | `file`, `list` (required) | `parity-fleet`, `renovate-fleet`, `pkl-fleet` (once released and adopted) |
+| [`auto-release`](auto-release/action.yaml) | The steps of the shared auto-release workflow: `gate` (a security-labelled merge or a hand-written fix releases now, the rest waits for the batch) and `tag` (cuts the next patch tag, behind a CHANGELOG heading pull request when the release needs one) | `step`, `token`, `repository` (required), `sha`, `tag-prefix`, `bot`, `changelog-heading`, `version-bump-command` | `auto-release` |
+| [`publish-nix-flakes`](publish-nix-flakes/action.yaml) | Generates, checks and uploads a Nix flake per GoReleaser archive id, deterministically packed | `flakes`, `flake-dir`, `token` (required) | `release-public` |
+| [`publish-charts`](publish-charts/action.yaml) | Refuses a wrong chart name before anything is pushed, then packages and pushes each chart with helmctl | `charts`, `chart-root`, `registry`, `app-version-mode`, `helmctl-version`, `token` (required), `images`, `require-image-digests` | `release-public` |
+| [`require-green-checks`](require-green-checks/action.yaml) | Refuses a release unless the tagged commit has a successful `check` and nothing else on it is red or pending | `token` (required) | `release-private` |
+| [`release-pkl`](release-pkl/action.yaml) | The steps of the shared Pkl-package release: read the declared version, refuse a tag that is not it or has no changelog heading, check the assets and their checksums, publish (safe to re-run), smoke-test the published packages | `step` (required), then per step: `tag`, `version`, `manifest`, `repository`, `token`, `pkl-command`, `smoke-import` | `release-pkl` |
+| [`pkl-fleet`](pkl-fleet/action.yaml) | The per-repository steps of the Pkl contracts fleet bump: rewrite the dependency URIs (refusing what it cannot classify), resolve and regenerate, open or update the pull request | `step` (required), then per step: `target`, `source`, `dirs-file`, `token`, `repository`, `base`, `version`, `from`, `breaking` | `pkl-fleet` |
+| [`fleet-step`](fleet-step/action.yaml) | Small fleet steps: print the job's OIDC claims, resolve the commit author, read a repository's parity settings, approve non-major renovate pull requests, summarise the majors available across an estate | `step` (required), then per step: `token`, `repository`, `user-login`, `run-mode` | `parity-fleet`, `renovate-fleet`, `pkl-fleet` |
+| [`token-inputs`](token-inputs/action.yaml) | Checks a fleet caller's token inputs against its `token-source`, reporting every fault at once | `source`, `secret-name` (required), `has-key`, `id`, `extra-keys` | `parity-fleet`, `renovate-fleet`, `pkl-fleet`, `auto-release` |
+| [`enrolment-list`](enrolment-list/action.yaml) | Reads a dotted-path list of repository names from the caller's repositories file, as JSON for `fleet-discover` | `file`, `list` (required) | `parity-fleet`, `renovate-fleet`, `pkl-fleet` |
 
 Every input is described in full in its `action.yaml`.
 
@@ -108,6 +108,22 @@ hosted runners only — checked`; the second prints one `ok` or `UNTAGGED`
 line per pin into the shared CI libraries and fails on an `UNTAGGED`
 one. A repository that calls ci-workflows' `check.yaml` already runs
 both.
+
+## Platform part and company part
+
+**Platform part.** None. Nothing in this repository is applied by a platform
+admin: GitHub fetches an action from its `uses:` line. The runners and caches
+the actions read are run by the platform, and the variables they offer are
+described under [Runner-provided overrides](#runner-provided-overrides).
+
+**Company part.** A company's repositories reach these actions through
+ci-workflows, which pins them (see [Who it is for](#who-it-is-for)). A company
+repository that writes its own workflow may pin an action here directly, by the
+commit of a tag, and passes the inputs and organisation variables the action
+asks for. The gates for a company repository are
+[`company-boundary`](company-boundary/action.yaml),
+[`tenant-inputs`](tenant-inputs/action.yaml) and
+[`chart-auth`](chart-auth/action.yaml).
 
 ## Runner-provided overrides
 
@@ -465,7 +481,7 @@ container with `--user 1001:1001 --security-opt no-new-privileges
 | consumer | what it uses |
 | -- | -- |
 | [truvity/ci-workflows](https://github.com/truvity/ci-workflows) | every action, from the workflows in the table above; and through them, every repository that calls ci-workflows |
-| [truvity/policy](https://github.com/truvity/policy) | `cluster` (`mode: kind`), through ci-workflows' `integration.yaml` on its kind tier |
+| [truvity/policy](https://github.com/truvity/policy) | `policy-conformance` (strict), through ci-workflows' `check.yaml` |
 
 ## Neighbours
 
@@ -514,13 +530,10 @@ check.
 
 ## Status
 
-Four tags: v1.0.0 (2026-09-24), v1.1.0 (2026-09-26), v1.2.0 and v1.3.0
-(both 2026-09-29). v1.2.0 and v1.3.0 have a GitHub release each,
-v1.3.0 marked "Latest"; v1.0.0 and v1.1.0 do not. ci-workflows pins
-v1.3.0 for every action. `policy-conformance` and `setup-devbox`'s move
-to a tagged ci-cache pin, both once listed here as unreleased work,
-shipped in v1.2.0; see [CHANGELOG.md](CHANGELOG.md) for what shipped
-since.
+Every release is listed on the
+[releases page](https://github.com/truvity/ci-actions/releases) and in
+[CHANGELOG.md](CHANGELOG.md). Pin the commit of a tag, as
+[The model](#the-model) says.
 
 ## Development
 
@@ -626,9 +639,8 @@ tag runs [`release.yaml`](.github/workflows/release.yaml), which publishes the
 next patch tag each Monday when `master` has moved, and at once for a
 merged pull request labelled `security`, but only while
 `vars.AUTO_RELEASE` is `true` and `vars.ACCESS_ROSTER_ISSUER` is set.
-Every run so far has been skipped on that guard, so all four tags were
-cut by hand; v1.2.0 and v1.3.0 also got a GitHub release by hand, v1.0.0
-and v1.1.0 did not. Consumers pin the tag's commit either way.
+Every run so far has been skipped on that guard, so every tag has been
+cut by hand. Consumers pin the tag's commit.
 
 `auto-release.yaml` is standalone rather than a call into ci-workflows'
 shared workflow, because ci-workflows pins these actions and the two
