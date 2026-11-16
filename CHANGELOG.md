@@ -4,6 +4,12 @@ Every release of truvity/ci-actions, newest first. Pin the commit of a
 tag (`git rev-parse vX.Y.Z^{commit}`), never the tag object and never
 an untagged commit; `tagged-pins` refuses anything else.
 
+## v3.14.2
+
+### Fixed
+
+- **`publish-nix-flakes` hands `nix-store` absolute paths.** v3.14.1 added the flake's archives to the Nix store by their path relative to the checkout, but the step runs `nix-store` in the flake directory, so it failed with `opening file ".../nix-flakes/dist/<archive>": No such file or directory` (truvity/sluis v1.82.2). The paths are now absolute. Tests: `TestPublishSeedsAbsolutePathsFromTheWorkingDirectory` runs the step as the action does (the checkout as the working directory) and checks that every archive passed to `nix-store` is absolute and exists. **Upgrade:** none.
+
 ## v3.14.1
 
 ### Fixed
