@@ -8,6 +8,7 @@ an untagged commit; `tagged-pins` refuses anything else.
 
 ### Fixed
 
+- **Go 1.26.11.** `go.mod` moves from Go 1.26.10 to 1.26.11 for GO-2026-6859 in `net/http`, which `govulncheck` reports as reachable from the `ci-actions` binary every action runs. No behaviour changes. **Upgrade:** none.
 - **`publish-nix-flakes` works on a draft release.** The step builds each flake before uploading it, and the build fetched the flake's archives from their release URLs (`https://github.com/<owner>/<repo>/releases/download/<tag>/<archive>`), which answer 404 while the release is a draft. A repository with immutable releases must keep its release a draft until every asset is on it, so the step failed there (truvity/sluis v1.82.1: `cannot download sluisctl_1.82.1_linux_amd64.tar.gz from any mirror`). Before the build, the step now adds each of the flake's local archives (`dist/`, as goreleaser wrote them) to the Nix store with `nix-store --add-fixed sha256`, which is the same store path `fetchurl` produces for that name and hash, so the build finds it and downloads nothing. The generated `flake.nix` is unchanged: the same URLs and the same hashes, which a consumer's download is still checked against. A published release builds the same way. Tests: `TestPublishFlakes` expects the `nix-store --add-fixed` calls, the linux and darwin/arm64 archives of each flake, before its build; checked by hand against nix 2.x that the added path equals the `fetchurl` output and that the build then needs no network.
 
 ## v3.14.0
