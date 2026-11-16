@@ -163,7 +163,8 @@ func TestPublishFlakes(t *testing.T) {
 			}
 		}
 		if c.Name != "tar" && c.Name != "gzip" {
-			calls = append(calls, strings.ReplaceAll(line, flakes, "$F")+" @"+strings.ReplaceAll(c.Dir, flakes, "$F"))
+			line = strings.ReplaceAll(strings.ReplaceAll(line, flakes, "$F"), work, "$W")
+			calls = append(calls, line+" @"+strings.ReplaceAll(c.Dir, flakes, "$F"))
 		}
 		return nil
 	}
@@ -174,12 +175,22 @@ func TestPublishFlakes(t *testing.T) {
 	}
 	const x = "--extra-experimental-features nix-command flakes"
 	var want []string
+	// Before the build, the flake's own archives go into the store (a draft
+	// release's URLs answer 404): linux and darwin/arm64 only, sorted by path.
+	seeds := map[string][]string{
+		"other": {"other_1.2.3_linux_amd64.zip"},
+		"tool":  {"tool_1.2.3_darwin_arm64.tar.gz", "tool_1.2.3_linux_amd64.tar.gz", "tool_1.2.3_linux_arm64.tar.gz"},
+	}
 	for _, id := range []string{"other", "tool"} { // glob order
 		d := id + "_1.2.3_nix-flake"
 		p := "path:$F/" + d
 		want = append(want,
 			"nix "+x+" flake lock "+p+" @$F",
-			"nix "+x+" flake check --no-build --all-systems "+p+" @$F",
+			"nix "+x+" flake check --no-build --all-systems "+p+" @$F")
+		for _, a := range seeds[id] {
+			want = append(want, "nix-store --add-fixed sha256 $W/dist/"+a+" @$F")
+		}
+		want = append(want,
 			"nix "+x+" build --no-link --print-out-paths "+p+"#"+id+" @$F",
 			"ls -l /nix/store/abc-tool/bin @$F",
 			"gh release upload v1.2.3 "+d+".tar.gz --clobber --repo acme/tool @$F")
