@@ -286,7 +286,12 @@ func generateFlakes(o NixOptions) ([]string, map[string][]string, error) {
 			if err != nil {
 				return nil, nil, err
 			}
-			paths = append(paths, filepath.Join(o.Dir, art.Path))
+			// Absolute: nix-store runs in the flake directory, not the checkout.
+			abs, err := filepath.Abs(filepath.Join(o.Dir, art.Path))
+			if err != nil {
+				return nil, nil, err
+			}
+			paths = append(paths, abs)
 			sum := sha256.Sum256(b)
 			sources[system] = source{
 				url:    fmt.Sprintf("https://github.com/%s/releases/download/%s/%s", o.Repo, o.Tag, art.Name),

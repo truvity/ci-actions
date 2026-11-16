@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -257,3 +258,42 @@ func TestPackIsDeterministic(t *testing.T) {
 }
 
 func testTime(i int) time.Time { return time.Unix(1000000000+int64(i)*86400, 0) }
+
+// The action runs with Dir "" (the checkout is the working directory) and
+// every command in the flake directory: the archives handed to nix-store must
+// be absolute, or nix-store looks for dist/ inside the flake directory
+// (sluis v1.82.2: "opening file .../nix-flakes/dist/...: No such file").
+func TestPublishSeedsAbsolutePathsFromTheWorkingDirectory(t *testing.T) {
+	work := t.TempDir()
+	copyTree(t, filepath.Join("testdata", "multi"), work)
+	t.Chdir(work)
+	var seeded []string
+	exec := func(_ context.Context, c runcmd.Cmd) error {
+		switch c.Name {
+		case "tar", "gzip":
+			return runcmd.OS(context.Background(), c)
+		case "nix-store":
+			seeded = append(seeded, c.Args[len(c.Args)-1])
+		case "nix":
+			if c.Stdout != nil && strings.Contains(strings.Join(c.Args, " "), " build ") {
+				c.Stdout.Write([]byte("/nix/store/abc-tool\n"))
+			}
+		}
+		return nil
+	}
+	err := PublishFlakes(context.Background(), NixOptions{Repo: "acme/tool", Tag: "v1.2.3", Flakes: `["tool"]`, FlakeDir: filepath.Join(t.TempDir(), "nix-flakes"), Out: io.Discard, Err: os.Stderr, Exec: exec})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(seeded) != 3 {
+		t.Fatalf("seeded %v, want the three archives of tool", seeded)
+	}
+	for _, p := range seeded {
+		if !filepath.IsAbs(p) {
+			t.Errorf("%s is not absolute", p)
+		}
+		if _, err := os.Stat(p); err != nil {
+			t.Error(err)
+		}
+	}
+}
