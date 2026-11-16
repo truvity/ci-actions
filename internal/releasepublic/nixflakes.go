@@ -224,33 +224,42 @@ func flakeFor(repo, tag, version, nixpkgs, id string, sources map[string]source,
 // GenerateFlakes writes one flake directory per archive id under o.FlakeDir
 // and returns them. It reads devbox.lock (optional) and dist/artifacts.json.
 func GenerateFlakes(o NixOptions) ([]string, error) {
-	fail := func(format string, a ...any) ([]string, error) {
+	dirs, _, err := generateFlakes(o)
+	return dirs, err
+}
+
+// generateFlakes is GenerateFlakes, and also returns, by flake directory, the
+// local archives that flake's sources name (dist/, as goreleaser wrote them).
+func generateFlakes(o NixOptions) ([]string, map[string][]string, error) {
+	fail := func(format string, a ...any) ([]string, map[string][]string, error) {
 		fmt.Fprintf(o.Err, "::error::"+format+"\n", a...)
-		return nil, ErrFailed
+		return nil, nil, ErrFailed
 	}
 	version := strings.TrimPrefix(o.Tag, "v")
 	var ids []string
 	if err := json.Unmarshal([]byte(o.Flakes), &ids); err != nil {
-		return nil, fmt.Errorf("nix-flakes is not a JSON array of archive ids: %w", err)
+		return nil, nil, fmt.Errorf("nix-flakes is not a JSON array of archive ids: %w", err)
 	}
 	nixpkgs := "github:NixOS/nixpkgs/nixpkgs-unstable"
 	if b, err := os.ReadFile(filepath.Join(o.Dir, "devbox.lock")); err == nil {
 		nixpkgs = callerNixpkgs(b)
 	} else if !os.IsNotExist(err) {
-		return nil, err
+		return nil, nil, err
 	}
 	raw, err := os.ReadFile(filepath.Join(o.Dir, "dist", "artifacts.json"))
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	var artifacts []artifact
 	if err := json.Unmarshal(raw, &artifacts); err != nil {
-		return nil, fmt.Errorf("dist/artifacts.json: %w", err)
+		return nil, nil, fmt.Errorf("dist/artifacts.json: %w", err)
 	}
 
 	var dirs []string
+	local := map[string][]string{}
 	for _, id := range ids {
 		sources := map[string]source{}
+		var paths []string
 		var binaries []string
 		wrapped, haveBinaries := "", false
 		for _, art := range artifacts {
@@ -275,8 +284,9 @@ func GenerateFlakes(o NixOptions) ([]string, error) {
 			}
 			b, err := os.ReadFile(filepath.Join(o.Dir, art.Path))
 			if err != nil {
-				return nil, err
+				return nil, nil, err
 			}
+			paths = append(paths, filepath.Join(o.Dir, art.Path))
 			sum := sha256.Sum256(b)
 			sources[system] = source{
 				url:    fmt.Sprintf("https://github.com/%s/releases/download/%s/%s", o.Repo, o.Tag, art.Name),
@@ -292,10 +302,10 @@ func GenerateFlakes(o NixOptions) ([]string, error) {
 		name := fmt.Sprintf("%s_%s_nix-flake", id, version)
 		dir := filepath.Join(o.FlakeDir, name)
 		if err := os.MkdirAll(dir, 0o755); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		if err := os.WriteFile(filepath.Join(dir, "flake.nix"), []byte(flakeFor(o.Repo, o.Tag, version, nixpkgs, id, sources, binaries, wrapped)), 0o644); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		var ks []string
 		for k := range sources {
@@ -304,13 +314,24 @@ func GenerateFlakes(o NixOptions) ([]string, error) {
 		sort.Strings(ks)
 		fmt.Fprintf(o.Out, "%s: %s with %s\n", dir, strings.Join(ks, ", "), nixpkgs)
 		dirs = append(dirs, name)
+		sort.Strings(paths)
+		local[name] = paths
 	}
-	return dirs, nil
+	return dirs, local, nil
 }
 
 // PublishFlakes generates the flakes, locks, checks and builds each, packs it
 // deterministically (so re-running a release uploads the same bytes) and
 // uploads it to the release.
+//
+// The build fetches the flake's archives by their release URLs, which answer
+// 404 while the release is a draft (an immutable release is kept a draft until
+// every asset is on it, and published last). So before the build each local
+// archive is added to the Nix store as the fixed-output path fetchurl would
+// produce (`nix-store --add-fixed sha256`: flat, SHA-256, named after the
+// file, which goreleaser names as the asset), and fetchurl finds it there and
+// downloads nothing. A published release builds the same way; the hashes in
+// flake.nix are still the ones a consumer's download is checked against.
 func PublishFlakes(ctx context.Context, o NixOptions) error {
 	if o.Exec == nil {
 		o.Exec = runcmd.OS
@@ -321,7 +342,8 @@ func PublishFlakes(ctx context.Context, o NixOptions) error {
 	if o.Err == nil {
 		o.Err = io.Discard
 	}
-	if _, err := GenerateFlakes(o); err != nil {
+	_, local, err := generateFlakes(o)
+	if err != nil {
 		return err
 	}
 	// The loop runs over what is in the flake directory, in glob order.
@@ -353,6 +375,11 @@ func PublishFlakes(ctx context.Context, o NixOptions) error {
 		}
 		if err := run(runcmd.Cmd{Name: "nix", Args: nix("flake", "check", "--no-build", "--all-systems", path)}); err != nil {
 			return fmt.Errorf("nix flake check: %w", err)
+		}
+		for _, p := range local[dir] {
+			if err := run(runcmd.Cmd{Name: "nix-store", Args: []string{"--add-fixed", "sha256", p}, Stdout: io.Discard}); err != nil {
+				return fmt.Errorf("nix-store --add-fixed: %w", err)
+			}
 		}
 		var built bytes.Buffer
 		if err := run(runcmd.Cmd{Name: "nix", Args: nix("build", "--no-link", "--print-out-paths", path+"#"+id), Stdout: &built}); err != nil {
