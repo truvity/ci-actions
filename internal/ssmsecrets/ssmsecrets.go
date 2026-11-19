@@ -2,8 +2,7 @@
 // parameters directly under one AWS SSM Parameter Store path, as the JOB, with
 // no stored credential anywhere.
 //
-// The chain is the one the openbao-secrets action uses, with AWS in place of
-// OpenBAO:
+// The chain:
 //
 //  1. `sluisctl token --audience aws:<account>:<role>` exchanges the job's
 //     GitHub OIDC identity token at the sluis issuer. The issuer's grants

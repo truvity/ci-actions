@@ -4,6 +4,12 @@ Every release of truvity/ci-actions, newest first. Pin the commit of a
 tag (`git rev-parse vX.Y.Z^{commit}`), never the tag object and never
 an untagged commit; `tagged-pins` refuses anything else.
 
+## v4.0.0
+
+### Breaking
+
+- **Removed the `openbao-secrets` action.** Callers read secrets from SSM through the `ssm-secrets` action, so the OpenBao reader is no longer needed. The action directory (`openbao-secrets/`), the `ci-actions openbao-secrets` command and its package (`internal/openbaosecrets`), and the test cases, simulator stub and documentation that served only it are gone; `ssm-secrets` shared no code with it and is unchanged. **Adoption:** a workflow that still calls `truvity/ci-actions/openbao-secrets` keeps working while it stays pinned to an earlier release commit; to move to this release, replace the step with `truvity/ci-actions/ssm-secrets` and swap the OpenBao inputs (`address`, `namespace`, `mount`, `auth-mount`, `ca-cert`) for `account`, `role` and `region` (see the `ssm-secrets` section of the README).
+
 ## v3.15.0
 
 ### Added

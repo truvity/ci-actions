@@ -26,7 +26,6 @@ import (
 	"github.com/truvity/ci-actions/internal/fleet"
 	"github.com/truvity/ci-actions/internal/fleetdiscover"
 	"github.com/truvity/ci-actions/internal/fleetsteps"
-	"github.com/truvity/ci-actions/internal/openbaosecrets"
 	"github.com/truvity/ci-actions/internal/pklfleet"
 	"github.com/truvity/ci-actions/internal/policyconformance"
 	"github.com/truvity/ci-actions/internal/publicrunners"
@@ -83,9 +82,6 @@ Commands:
   buildkit-tls         settle where the runner's BuildKit client certificate comes from: CI_BUILDKIT_TLS_DIR as it is, or the
                        PEM variables CI_BUILDKIT_TLS_CA_PEM, _CERT_PEM and _KEY_PEM written to a fresh directory under
                        RUNNER_TEMP and exported as CI_BUILDKIT_TLS_DIR (env: those four, plus RUNNER_TEMP, GITHUB_ENV)
-  openbao-secrets      read one OpenBAO KV path as the job's own identity (env: ISSUER, ADDRESS,
-                       KV_PATH, BAO_NAMESPACE, MOUNT, AUTH_MOUNT, ROLE, AUDIENCE, WANTED, CA_CERT,
-                       SLUISCTL_MODE, GITHUB_OUTPUT)
   ssm-secrets          read the parameters under one SSM Parameter Store path as the job's own identity
                        (env: ISSUER, ACCOUNT, ROLE, REGION, SSM_PATH, WANTED, SLUISCTL_MODE, GITHUB_OUTPUT)
   public-runners       refuse a self-hosted runner in a public repository
@@ -386,24 +382,6 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, getenv fu
 			return 1
 		default:
 			fmt.Fprintln(stderr, "buildkit-tls:", err)
-			return 1
-		}
-	case "openbao-secrets":
-		err := openbaosecrets.Run(ctx, openbaosecrets.Options{
-			Issuer: getenv("ISSUER"), Address: getenv("ADDRESS"), KVPath: getenv("KV_PATH"),
-			Namespace: getenv("BAO_NAMESPACE"), Mount: getenv("MOUNT"), AuthMount: getenv("AUTH_MOUNT"),
-			Role: getenv("ROLE"), Audience: getenv("AUDIENCE"), Wanted: getenv("WANTED"),
-			CACert: getenv("CA_CERT"), SluisctlBy: getenv("SLUISCTL_MODE"),
-			IDTokenRequestURL: getenv("ACTIONS_ID_TOKEN_REQUEST_URL"), RunnerTemp: getenv("RUNNER_TEMP"),
-			GithubOutput: getenv("GITHUB_OUTPUT"), Out: stdout, Err: stderr,
-		})
-		switch {
-		case err == nil:
-			return 0
-		case errors.Is(err, openbaosecrets.ErrReported):
-			return 1
-		default:
-			fmt.Fprintln(stderr, "openbao-secrets:", err)
 			return 1
 		}
 	case "ssm-secrets":
