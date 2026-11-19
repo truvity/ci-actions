@@ -22,7 +22,7 @@
 # keep it offline: what is under test is the privilege contract, not those
 # tools.
 #
-#   hack/restricted-sim.sh                 setup-devbox, recipe, tagged-pins, public-runners, fleet-discover, devbox-parity, caller-parity, openbao-secrets, cluster (mode shared) and policy-conformance against the fixture
+#   hack/restricted-sim.sh                 setup-devbox, recipe, tagged-pins, public-runners, fleet-discover, devbox-parity, caller-parity, cluster (mode shared) and policy-conformance against the fixture
 #   hack/restricted-sim.sh --control       prove the image escalates WITHOUT the flag
 #   hack/restricted-sim.sh --self-test     prove the harness fails a privileged step
 #   hack/restricted-sim.sh ACTION_DIR...   other actions, by directory
@@ -45,10 +45,6 @@ export SIM_INPUT_api_url="${SIM_INPUT_api_url:-http://127.0.0.1:8765}"
 # devbox-parity: align only (no `devbox update`), on a repository already at parity.
 # caller-parity: one repository, read from the same stub API.
 export SIM_INPUT_caller_parity__repositories="${SIM_INPUT_caller_parity__repositories:-[\"example/sim\"]}"
-# openbao-secrets: the same stub API plays OpenBAO.
-export SIM_INPUT_openbao_secrets__issuer="${SIM_INPUT_openbao_secrets__issuer:-https://issuer.example}"
-export SIM_INPUT_openbao_secrets__address="${SIM_INPUT_openbao_secrets__address:-http://127.0.0.1:8765}"
-export SIM_INPUT_openbao_secrets__path="${SIM_INPUT_openbao_secrets__path:-ci/sim}"
 # setup-devbox's own devbox install, run for real under the restricted
 # profile (it downloads the pinned release into RUNNER_TEMP): the step the
 # baked-runner condition normally skips, and the one that used to need root.
@@ -255,7 +251,7 @@ case "${1:-}" in
   fi
   ;;
 *)
-  if [ $# -eq 0 ]; then set -- "$here/setup-devbox" "$here/recipe" "$here/tagged-pins" "$here/public-runners" "$here/fleet-discover" "$here/devbox-parity" "$here/caller-parity" "$here/openbao-secrets" "$here/cluster" "$here/policy-conformance" "$here/setup-remote-builders"; fi
+  if [ $# -eq 0 ]; then set -- "$here/setup-devbox" "$here/recipe" "$here/tagged-pins" "$here/public-runners" "$here/fleet-discover" "$here/devbox-parity" "$here/caller-parity" "$here/cluster" "$here/policy-conformance" "$here/setup-remote-builders"; fi
   simulate "$@"
   ;;
 esac

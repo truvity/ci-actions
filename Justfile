@@ -26,7 +26,7 @@ kit:
 cache-env:
     go run ./cmd/ci-actions repo-check cache-seam
 
-# Go vet and table tests: tagged-pins against local remotes, fleet pins, fleet-discover, caller-parity, openbao-secrets, cluster, policy-conformance (against fixture repositories) and setup-devbox (preflight, the devbox install, tokens, CodeArtifact, guards) against fakes
+# Go vet and table tests: tagged-pins against local remotes, fleet pins, fleet-discover, caller-parity, cluster, policy-conformance (against fixture repositories) and setup-devbox (preflight, the devbox install, tokens, CodeArtifact, guards) against fakes
 go-test:
     go vet ./...
     go test ./...

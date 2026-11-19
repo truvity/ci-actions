@@ -96,13 +96,6 @@ jobs:
       # kubectl and a fake file tree. cluster-kind below proves the real
       # box end to end.
       #
-      # openbao-secrets (internal/openbaosecrets) is in here too, against a
-      # stub OpenBAO and a stub sluisctl: the one action that handles
-      # secret values, so the tests assert that none is ever printed
-      # outside an `::add-mask::` command, that every value (and every
-      # line of a multi-line one) is masked before it is written anywhere,
-      # and that the login is revoked even when the read fails.
-      #
       # ssm-secrets (internal/ssmsecrets) is in here too, against a faked SSM
       # client and, for the real exchange, a fake STS and SSM endpoint: the
       # same masking rules as above, the keys filter, the env-file format,
@@ -133,7 +126,7 @@ jobs:
           args: check
 
       # The thin wrapper that finds the binary, with the binary stubbed.
-      - name: wrapper cases (tagged-pins, public-runners, fleet-discover, devbox-parity, caller-parity, openbao-secrets, ssm-secrets, cluster, policy-conformance, setup-devbox)
+      - name: wrapper cases (tagged-pins, public-runners, fleet-discover, devbox-parity, caller-parity, ssm-secrets, cluster, policy-conformance, setup-devbox)
         run: ./hack/tagged-pins-wrapper-cases.sh
 
       # setup-cache: the step bodies as written, against a stubbed
