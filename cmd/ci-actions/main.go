@@ -41,6 +41,7 @@ import (
 	"github.com/truvity/ci-actions/internal/runnerenv"
 	"github.com/truvity/ci-actions/internal/s3cache"
 	"github.com/truvity/ci-actions/internal/setupdevbox"
+	"github.com/truvity/ci-actions/internal/ssmsecrets"
 	"github.com/truvity/ci-actions/internal/stablemtimes"
 	"github.com/truvity/ci-actions/internal/taggedpins"
 	"github.com/truvity/ci-actions/internal/tenantinputs"
@@ -85,6 +86,8 @@ Commands:
   openbao-secrets      read one OpenBAO KV path as the job's own identity (env: ISSUER, ADDRESS,
                        KV_PATH, BAO_NAMESPACE, MOUNT, AUTH_MOUNT, ROLE, AUDIENCE, WANTED, CA_CERT,
                        SLUISCTL_MODE, GITHUB_OUTPUT)
+  ssm-secrets          read the parameters under one SSM Parameter Store path as the job's own identity
+                       (env: ISSUER, ACCOUNT, ROLE, REGION, SSM_PATH, WANTED, SLUISCTL_MODE, GITHUB_OUTPUT)
   public-runners       refuse a self-hosted runner in a public repository
                        (env: RUNNERS, VISIBILITY, GITHUB_REPOSITORY, GH_TOKEN, GITHUB_API_URL)
   cluster <step>       the cluster action's steps: fork-guard, kind, wait, shared-connect,
@@ -401,6 +404,22 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, getenv fu
 			return 1
 		default:
 			fmt.Fprintln(stderr, "openbao-secrets:", err)
+			return 1
+		}
+	case "ssm-secrets":
+		err := ssmsecrets.Run(ctx, ssmsecrets.Options{
+			Issuer: getenv("ISSUER"), Account: getenv("ACCOUNT"), Role: getenv("ROLE"), Region: getenv("REGION"),
+			Path: getenv("SSM_PATH"), Wanted: getenv("WANTED"), SluisctlBy: getenv("SLUISCTL_MODE"),
+			IDTokenRequestURL: getenv("ACTIONS_ID_TOKEN_REQUEST_URL"), RunnerTemp: getenv("RUNNER_TEMP"),
+			GithubOutput: getenv("GITHUB_OUTPUT"), Out: stdout, Err: stderr,
+		})
+		switch {
+		case err == nil:
+			return 0
+		case errors.Is(err, ssmsecrets.ErrReported):
+			return 1
+		default:
+			fmt.Fprintln(stderr, "ssm-secrets:", err)
 			return 1
 		}
 	case "auto-release":

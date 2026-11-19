@@ -103,6 +103,12 @@ jobs:
       # line of a multi-line one) is masked before it is written anywhere,
       # and that the login is revoked even when the read fails.
       #
+      # ssm-secrets (internal/ssmsecrets) is in here too, against a faked SSM
+      # client and, for the real exchange, a fake STS and SSM endpoint: the
+      # same masking rules as above, the keys filter, the env-file format,
+      # and that the exchanged token is the web identity of the role's ARN
+      # and the credentials it returns, never the environment's, sign the read.
+      #
       # caller-parity's comparison (internal/callerparity) is in here too,
       # against a stub API: what counts as a DIFFERENCE between a
       # repository's shared caller workflow and the canonical copy. Too
@@ -127,7 +133,7 @@ jobs:
           args: check
 
       # The thin wrapper that finds the binary, with the binary stubbed.
-      - name: wrapper cases (tagged-pins, public-runners, fleet-discover, devbox-parity, caller-parity, openbao-secrets, cluster, policy-conformance, setup-devbox)
+      - name: wrapper cases (tagged-pins, public-runners, fleet-discover, devbox-parity, caller-parity, openbao-secrets, ssm-secrets, cluster, policy-conformance, setup-devbox)
         run: ./hack/tagged-pins-wrapper-cases.sh
 
       # setup-cache: the step bodies as written, against a stubbed
