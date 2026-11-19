@@ -1,0 +1,104 @@
+# Read the parameters under one AWS SSM Parameter Store path, as the JOB —
+# no stored credential anywhere.
+#
+# The chain is the one openbao-secrets uses, with AWS in place of OpenBAO:
+#
+#   1. `sluisctl token --audience aws:<account>:<role>` exchanges the job's
+#      GitHub OIDC identity token at the sluis issuer. The issuer's grants
+#      decide: a job reaches this audience only if its matchers (repository,
+#      ref, event, workflow files) admit it.
+#   2. That token is the web identity of an STS AssumeRoleWithWebIdentity
+#      call for the role. The temporary credentials live in the action's own
+#      process: nothing is written to an AWS config or credentials file and
+#      nothing is exported to later steps, so a later step cannot reuse them.
+#   3. One GetParametersByPath, decrypted, not recursive, under `path`.
+#
+# The job needs `permissions: { id-token: write }`.
+#
+# NOTHING PARTICULAR LIVES HERE. This repository is public: the issuer, the
+# account, the role, the region and the path all arrive as inputs, from the
+# caller's variables.
+#
+# The secrets land two ways, and a caller picks whichever suits:
+#
+#   value      the single value, when exactly one parameter is taken
+#              (`keys` names one, or the path holds one). For
+#              `GORELEASER_KEY: ${{ steps.<id>.outputs.value }}`.
+#   env-file   a file of `NAME='value'` lines, one per parameter taken, the
+#              name upper-cased with dashes turned into underscores
+#              (`maven-username` -> `MAVEN_USERNAME`). A step sources it:
+#              `set -a; . "$ENV_FILE"; set +a`. It is written under
+#              RUNNER_TEMP with owner-only permissions and dies with the
+#              ephemeral runner.
+#
+# Every value is masked before it is written anywhere, line by line, so a
+# multi-line secret is masked whole.
+#
+# The logic is the `ci-actions` binary's `ssm-secrets` command
+# (internal/ssmsecrets, table-tested; no secret value is ever printed except
+# as an `::add-mask::` argument, which the tests assert); this action is a
+# thin wrapper that finds that binary (release archive of the pinned tag, or
+# built with Go) and runs it. sluisctl is still the executed command that does
+# the exchange. It needs bash plus curl and tar or Go.
+name: Read secrets from SSM Parameter Store
+description: Read the parameters under one SSM path as the job's own identity, through a sluis token exchange.
+
+inputs:
+  issuer:
+    description: The sluis issuer URL, which mints the token the role is assumed with.
+    required: true
+  account:
+    description: The 12-digit AWS account id of the role (from a caller variable).
+    required: true
+  role:
+    description: The IAM role name (not an ARN) the job assumes; its trust policy admits the exchanged token.
+    required: true
+  region:
+    description: The AWS region of the Parameter Store, e.g. eu-west-1.
+    required: true
+  path:
+    description: >-
+      The SSM path prefix whose parameters are read, one level, not
+      recursive — `/example/ci/name`. Each parameter's last segment is its key.
+    required: true
+  keys:
+    description: >-
+      Which keys (last path segments) to take, whitespace- or
+      comma-separated. Empty takes every parameter directly under the path.
+      A named key that is missing fails the step.
+    required: false
+    default: ""
+  sluisctl:
+    description: >-
+      How to run sluisctl: `auto` (empty means auto) runs it through
+      devbox when the repository has a devbox.json (where every
+      consumer's copy is pinned), `direct` runs it from the job's PATH.
+    required: false
+    default: ""
+
+outputs:
+  value:
+    description: The one value read, when exactly one parameter was taken.
+    value: ${{ steps.read.outputs.value }}
+  env-file:
+    description: Path to a file of NAME='value' lines, one per parameter taken.
+    value: ${{ steps.read.outputs.env-file }}
+
+runs:
+  using: composite
+  steps:
+    - name: Read ${{ inputs.path }} from SSM Parameter Store
+      id: read
+      shell: bash
+      env:
+        ISSUER: ${{ inputs.issuer }}
+        ACCOUNT: ${{ inputs.account }}
+        ROLE: ${{ inputs.role }}
+        REGION: ${{ inputs.region }}
+        SSM_PATH: ${{ inputs.path }}
+        WANTED: ${{ inputs.keys }}
+        SLUISCTL_MODE: ${{ inputs.sluisctl }}
+        ACTION_PATH: ${{ github.action_path }}
+        ACTION_REPOSITORY: ${{ github.action_repository }}
+        ACTION_REF: ${{ github.action_ref }}
+      run: bash "$ACTION_PATH/run.sh"

@@ -4,6 +4,12 @@ Every release of truvity/ci-actions, newest first. Pin the commit of a
 tag (`git rev-parse vX.Y.Z^{commit}`), never the tag object and never
 an untagged commit; `tagged-pins` refuses anything else.
 
+## Unreleased
+
+### Added
+
+- **`ssm-secrets` reads a job's secrets from AWS SSM Parameter Store, as the job.** It replaces `openbao-secrets` for a job whose secrets live in SSM; `openbao-secrets` is unchanged. The action takes `issuer`, `account`, `role`, `region` and `path` (all required), `keys` (the leaves to take, whitespace- or comma-separated; empty takes every parameter directly under the path) and `sluisctl` (`auto` or `direct`, as in `openbao-secrets`), and the job needs `permissions: { id-token: write }`. `ci-actions ssm-secrets` (`internal/ssmsecrets`) runs `sluisctl token --audience aws:<account>:<role>` to exchange the job's GitHub identity token at the sluis issuer, presents that token as the web identity of an STS `AssumeRoleWithWebIdentity` call for the role, and makes one `GetParametersByPath` (decrypted, not recursive) under `path`. The temporary credentials stay in the action's process: no AWS profile, config or credentials file is written and nothing is exported to later steps, and the environment's own AWS credentials are never used for the call. The outputs are the `openbao-secrets` ones: `env-file`, the path of a mode-0600 file of `NAME='value'` lines under `RUNNER_TEMP` (the leaf of each parameter, upper-cased with `-` turned into `_`; a leaf that is no environment variable name, or two leaves that become the same name, fail the step), and `value`, set when exactly one parameter is taken. Every value is masked, line by line, as soon as it is read, and so are the exchanged token and the temporary credentials; the step fails when a named key is missing or the path holds no parameters, and a failed run leaves no env file. Tests: a faked SSM client covers the env naming, the keys filter, paging, masking (nothing is printed outside `::add-mask::`), the env-file quoting and every refusal; a fake STS and SSM endpoint checks that the role's ARN and the exchanged token reach `AssumeRoleWithWebIdentity` and that the credentials it returns, not the environment's, sign the read; `hack/tagged-pins-wrapper-cases.sh` covers the wrapper. **Upgrade:** none; an adopter replaces the `openbao-secrets` step with `ssm-secrets` and the OpenBAO inputs (`address`, `namespace`, `mount`, `auth-mount`, `ca-cert`) with `account`, `role` and `region`.
+
 ## v3.14.2
 
 ### Fixed

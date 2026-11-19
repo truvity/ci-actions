@@ -22,6 +22,7 @@ contract.
 | [`setup-remote-builders`](setup-remote-builders/action.yaml) | Attaches the remote BuildKit builders a cross-architecture image build needs, over mutual TLS when the runner provides a client certificate | `remote-builders` (required), `wake-timeout` (seconds a stopped builder is retried while it boots, default 240) | `integration` |
 | [`setup-buildkit-tls`](setup-buildkit-tls/action.yaml) | Settles where the runner's BuildKit client certificate comes from: `CI_BUILDKIT_TLS_DIR` as it is, or three PEM environment variables written to a fresh directory and exported as `CI_BUILDKIT_TLS_DIR` | none (reads the runner's environment) | before the "Plan the remote builders" steps (once adopted) |
 | [`openbao-secrets`](openbao-secrets/action.yaml) | Reads a job's third-party secrets from OpenBao at run time | `issuer`, `address`, `path` (required), `keys` | `release-private` |
+| [`ssm-secrets`](ssm-secrets/action.yaml) | Reads a job's secrets from AWS SSM Parameter Store at run time, as the job: a sluis token exchange, then an STS web-identity role and one decrypted `GetParametersByPath` (see [below](#ssm-secrets-reads-a-jobs-secrets-from-parameter-store)) | `issuer`, `account`, `role`, `region`, `path` (required), `keys`, `sluisctl` | a release job whose secrets live in SSM |
 | [`token-exchange`](token-exchange/action.yaml) | Exchanges the job's GitHub identity token at a roster issuer for the clusters, cloud roles and GitHub App tokens its rules grant (curl and jq only, nothing downloaded) | `issuer` (required), `audiences`, `kubeconfig`, `default-profile`, `region`, `github-app`, `repositories`, `permissions` | `auto-release`, `renovate-fleet`, `parity-fleet`, `pkl-fleet` |
 | [`fleet-discover`](fleet-discover/action.yaml) | Decides which repositories a fleet job touches, and whether each default branch is gated | `token` (required), `estate`, `require-check`, `repositories` | `renovate-fleet`, `parity-fleet` |
 | [`caller-parity`](caller-parity/action.yaml) | Compares each repository's shared caller workflows (and the depguard block, and the check caller of a company repository, once those kits are switched on) against the kits in [`caller-parity/kits/`](caller-parity/kits/), and reports; a kit's `applies_if` may name a file, or a directory with a trailing `/` | `token`, `repositories` (required), `fail-on-diff` (`false`) | `parity-fleet` |
@@ -57,6 +58,40 @@ The canonical caller workflows for the two kinds of company repository are kits
 in [`caller-parity/kits/`](caller-parity/kits/) (`company-delivery-check.yaml`,
 `company-config-check.yaml`), compared by [`caller-parity`](caller-parity/action.yaml)
 once they are switched on.
+
+### `ssm-secrets` reads a job's secrets from Parameter Store
+
+The job's own identity is the only credential: `sluisctl token` exchanges the
+GitHub identity token at the sluis issuer for the audience
+`aws:<account>:<role>`, which the issuer's grants admit only for the jobs they
+name, and that token assumes the role through STS web identity. The credentials
+stay in the action's process and are never written to a profile or exported. The
+job needs `permissions: { id-token: write }`, and the role needs `ssm:GetParametersByPath`
+on the path (and `kms:Decrypt` on the key of a SecureString).
+
+```yaml
+permissions:
+  id-token: write
+steps:
+  - uses: truvity/ci-actions/ssm-secrets@<commit of a release tag>
+    id: secrets
+    with:
+      issuer: ${{ vars.SLUIS_ISSUER }}
+      account: ${{ vars.AWS_ACCOUNT }}
+      role: ci-reader
+      region: eu-west-1
+      path: /example/ci/release     # reads /example/ci/release/<key>, one level
+      keys: maven-username maven-password   # optional; default every key
+  - run: set -a; . "${{ steps.secrets.outputs.env-file }}"; set +a; ./publish
+```
+
+Each parameter directly under `path` is a key named by its last path segment;
+`maven-username` becomes `MAVEN_USERNAME`. The outputs are `env-file` (a mode-0600
+file of `NAME='value'` lines under `RUNNER_TEMP`) and `value` (set when exactly one
+key is taken). Every value is masked as it is read. The step fails when a named
+key is missing, when the path holds nothing, or when a key is no environment
+variable name. It does not change `openbao-secrets`, which stays for jobs that
+read OpenBao.
 
 ## Who it is for
 
@@ -482,7 +517,7 @@ container with `--user 1001:1001 --security-opt no-new-privileges
 - **[sluis](https://github.com/truvity/sluis)** (formerly access-roster):
   its issuer mints this repository's tagging token in `auto-release.yaml`,
   its `sluisctl` is the exec plugin `cluster`'s `mode: shared` expects,
-  and `openbao-secrets` runs it for the exchange.
+  and `openbao-secrets` and `ssm-secrets` run it for the exchange.
 
 ## Documentation
 
@@ -562,7 +597,7 @@ end to end, outside `check` and not required.
 
 Logic that outgrows a shell script lives in one Go binary, `cmd/ci-actions`
 (standard library only), and the composite actions become thin wrappers that
-run it. `tagged-pins`, `public-runners`, `fleet-discover`, `devbox-parity`, `caller-parity`, `company-boundary`, `chart-auth`, `company-validation`, `tenant-inputs`, `openbao-secrets`, `cluster`, `token-inputs`, `enrolment-list` and `auto-release` are in: each
+run it. `tagged-pins`, `public-runners`, `fleet-discover`, `devbox-parity`, `caller-parity`, `company-boundary`, `chart-auth`, `company-validation`, `tenant-inputs`, `openbao-secrets`, `ssm-secrets`, `cluster`, `token-inputs`, `enrolment-list` and `auto-release` are in: each
 action keeps its inputs, outputs and messages and runs `ci-actions <command>`.
 The wrapper (`<action>/run.sh`, sharing `lib/ci-actions-bin.sh`) uses a `ci-actions` already on `PATH`, else the goreleaser archive of the tag
 the action is pinned at (the pinned commit resolves back to its tag; the
@@ -579,6 +614,7 @@ ci-actions tenant-inputs               # env REFERENCE, TOKEN, USERNAME, OUTPUT_
 ci-actions chart-auth                  # env PROFILE, PROFILES, REGISTRY, REGION, EXPORT_ENV, AWS_CONFIG_FILE, RUNNER_TEMP, GITHUB_ACTIONS (no secret is ever printed)
 ci-actions company-validation          # env TOKEN, DISPATCH_TOKEN, COMPANY, COMPANY_REPOSITORY, PLATFORM_REPOSITORY, PLATFORM_WORKFLOW, PULL_REQUEST, HEAD_SHA, CHECK_APP_SLUG, ...
 ci-actions openbao-secrets             # env ISSUER, ADDRESS, KV_PATH, ... (no value is ever printed)
+ci-actions ssm-secrets                 # env ISSUER, ACCOUNT, ROLE, REGION, SSM_PATH, WANTED, ... (no value is ever printed)
 ci-actions token-inputs                # env SOURCE, ISSUER, APP, ID, ID_NAME, SECRET, HAS_KEY, EXTRA_KEYS, WARN_*
 ci-actions enrolment-list              # env FILE, LIST, GITHUB_OUTPUT
 ci-actions fleet-step oidc-claims      # also: commit-author, parity-settings, approve-renovate, available-majors
