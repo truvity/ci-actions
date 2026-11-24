@@ -347,6 +347,14 @@ func (o *Options) dispatch(ctx context.Context, c *ghapi.Client, req request) (i
 	return d.WorkflowRunID, nil
 }
 
+// A run the dispatch just returned can answer 404 for a few seconds before
+// GitHub serves it. wait reads it again up to runVisibleAttempts times,
+// runVisiblePause apart, before a 404 is a failure.
+const (
+	runVisibleAttempts = 12
+	runVisiblePause    = 5 * time.Second
+)
+
 // wait polls the exact dispatched run until it completes, and accepts only a
 // successful conclusion. Every other terminal conclusion is a refusal.
 func (o *Options) wait(ctx context.Context, c *ghapi.Client, runID int64) (workflowRun, error) {
@@ -357,9 +365,18 @@ func (o *Options) wait(ctx context.Context, c *ghapi.Client, runID int64) (workf
 	}
 	deadline := time.Now().Add(wait)
 	endpoint := fmt.Sprintf("%s/repos/%s/actions/runs/%d", c.BaseURL, o.PlatformRepository, runID)
+	notVisible := 0
 	for {
 		var run workflowRun
 		body, _, err := c.Get(ctx, endpoint, "application/vnd.github+json")
+		if errors.Is(err, ghapi.ErrNotFound) && notVisible < runVisibleAttempts {
+			notVisible++
+			fmt.Fprintf(o.Out, "platform run %d: not visible yet (%d/%d)\n", runID, notVisible, runVisibleAttempts)
+			if err := o.Sleep(ctx, runVisiblePause); err != nil {
+				return run, err
+			}
+			continue
+		}
 		if err != nil {
 			return run, fmt.Errorf("read platform run %d: %v", runID, err)
 		}

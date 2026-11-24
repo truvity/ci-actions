@@ -88,6 +88,7 @@ type fake struct {
 	runConclusion string
 	runHeadSHA    string
 	runHTTPStatus int
+	runNotFound   int
 	runReads      int
 
 	checksStatus int
@@ -169,6 +170,10 @@ func (f *fake) handler(t *testing.T) http.Handler {
 
 		case r.Method == http.MethodGet && r.URL.Path == runPath:
 			f.runReads++
+			if f.runReads <= f.runNotFound {
+				http.Error(w, "not found", http.StatusNotFound)
+				return
+			}
 			if f.runHTTPStatus != 0 {
 				http.Error(w, "unavailable", f.runHTTPStatus)
 				return
@@ -255,6 +260,8 @@ func TestRunRefusesUnlessExact(t *testing.T) {
 				f.runStatuses = []string{"queued", "in_progress", "completed"}
 			},
 		},
+		{name: "run not visible at first", mutate: func(f *fake) { f.runNotFound = 3 }},
+		{name: "run never visible", mutate: func(f *fake) { f.runNotFound = runVisibleAttempts + 1 }, wantErr: true},
 		{name: "dispatch failure", mutate: func(f *fake) { f.dispatchStatus = http.StatusForbidden }, wantErr: true},
 		{name: "missing run id", mutate: func(f *fake) { f.dispatchBody = `{}` }, wantErr: true},
 		{name: "run failure", mutate: func(f *fake) { f.runConclusion = "failure" }, wantErr: true},
