@@ -4,6 +4,12 @@ Every release of truvity/ci-actions, newest first. Pin the commit of a
 tag (`git rev-parse vX.Y.Z^{commit}`), never the tag object and never
 an untagged commit; `tagged-pins` refuses anything else.
 
+## v4.0.1
+
+### Fixed
+
+- **`company-validation` waits for the dispatched run to become readable.** The dispatch returns the run's ID at once, but GitHub can answer `GET /actions/runs/<id>` with 404 for a few seconds after it, and the action failed on the first read with `read platform run <id>: not found` although the platform run went on and passed; the check needed a manual re-run. A 404 on that read is now retried up to 12 times, 5 seconds apart, with a `not visible yet (n/12)` line; any other error, and a 404 after that, still fail. Tests: `TestRunRefusesUnlessExact` gains a run that answers 404 three times and then passes, and one that is never readable and fails. **Upgrade:** none.
+
 ## v4.0.0
 
 ### Breaking
